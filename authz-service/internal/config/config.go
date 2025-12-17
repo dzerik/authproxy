@@ -46,7 +46,7 @@ type ProxyConfig struct {
 	Headers ProxyHeadersConfig `mapstructure:"headers"`
 
 	// Timeouts
-	Timeout        time.Duration `mapstructure:"timeout"`
+	Timeout         time.Duration `mapstructure:"timeout"`
 	IdleConnTimeout time.Duration `mapstructure:"idle_conn_timeout"`
 
 	// Retries
@@ -202,9 +202,9 @@ type EgressAuthConfig struct {
 	Region  string `mapstructure:"region"`
 
 	// API Key
-	Header   string `mapstructure:"header"` // Header name for API key
+	Header   string `mapstructure:"header"`    // Header name for API key
 	QueryKey string `mapstructure:"query_key"` // Query parameter name
-	Key      string `mapstructure:"key"`    // The API key value
+	Key      string `mapstructure:"key"`       // The API key value
 
 	// Basic Auth
 	Username string `mapstructure:"username"`
@@ -324,10 +324,10 @@ type HTTPServerConfig struct {
 
 // GRPCServerConfig holds gRPC server settings.
 type GRPCServerConfig struct {
-	Enabled        bool          `mapstructure:"enabled"`
-	Addr           string        `mapstructure:"addr"`
-	MaxRecvMsgSize int           `mapstructure:"max_recv_msg_size"`
-	MaxSendMsgSize int           `mapstructure:"max_send_msg_size"`
+	Enabled        bool            `mapstructure:"enabled"`
+	Addr           string          `mapstructure:"addr"`
+	MaxRecvMsgSize int             `mapstructure:"max_recv_msg_size"`
+	MaxSendMsgSize int             `mapstructure:"max_send_msg_size"`
 	Keepalive      KeepaliveConfig `mapstructure:"keepalive"`
 }
 
@@ -339,9 +339,9 @@ type KeepaliveConfig struct {
 
 // JWTConfig holds JWT validation configuration.
 type JWTConfig struct {
-	Issuers    []IssuerConfig    `mapstructure:"issuers"`
-	JWKSCache  JWKSCacheConfig   `mapstructure:"jwks_cache"`
-	Validation ValidationConfig  `mapstructure:"validation"`
+	Issuers    []IssuerConfig   `mapstructure:"issuers"`
+	JWKSCache  JWKSCacheConfig  `mapstructure:"jwks_cache"`
+	Validation ValidationConfig `mapstructure:"validation"`
 }
 
 // IssuerConfig holds configuration for a trusted issuer.
@@ -448,11 +448,11 @@ type L1CacheConfig struct {
 
 // L2CacheConfig holds distributed cache configuration.
 type L2CacheConfig struct {
-	Enabled   bool            `mapstructure:"enabled"`
-	Backend   string          `mapstructure:"backend"` // redis
+	Enabled   bool             `mapstructure:"enabled"`
+	Backend   string           `mapstructure:"backend"` // redis
 	Redis     RedisCacheConfig `mapstructure:"redis"`
-	TTL       CacheTTLConfig  `mapstructure:"ttl"`
-	KeyPrefix string          `mapstructure:"key_prefix"`
+	TTL       CacheTTLConfig   `mapstructure:"ttl"`
+	KeyPrefix string           `mapstructure:"key_prefix"`
 }
 
 // RedisCacheConfig holds Redis configuration.
@@ -474,10 +474,10 @@ type CacheTTLConfig struct {
 
 // AuditConfig holds audit logging configuration.
 type AuditConfig struct {
-	Enabled    bool          `mapstructure:"enabled"`
-	Events     []string      `mapstructure:"events"`
-	Export     ExportConfig  `mapstructure:"export"`
-	Enrichment EnrichConfig  `mapstructure:"enrichment"`
+	Enabled    bool         `mapstructure:"enabled"`
+	Events     []string     `mapstructure:"events"`
+	Export     ExportConfig `mapstructure:"export"`
+	Enrichment EnrichConfig `mapstructure:"enrichment"`
 }
 
 // ExportConfig holds audit export configuration.
@@ -556,7 +556,6 @@ func Load(configPath string) (*Config, error) {
 
 	return &cfg, nil
 }
-
 func setDefaults(v *viper.Viper) {
 	// Server defaults
 	v.SetDefault("server.http.enabled", true)
