@@ -1,0 +1,211 @@
+# Authorization Service Configuration
+
+# HTTP Server configuration
+server:
+  http:
+    enabled: true
+    addr: ":8080"
+    read_timeout: 10s
+    write_timeout: 30s
+    idle_timeout: 120s
+    max_header_bytes: 1048576  # 1MB
+  grpc:
+    enabled: false
+    addr: ":9090"
+
+# Configurable endpoints
+endpoints:
+  authorize: "/api/v1/authorize"
+  authorize_batch: "/api/v1/authorize/batch"
+  token_validate: "/api/v1/token/validate"
+  token_exchange: "/api/v1/token/exchange"
+  health: "/health"
+  ready: "/ready"
+  live: "/live"
+  metrics: "/metrics"
+  cache_invalidate: "/api/v1/admin/cache/invalidate"
+  policy_reload: "/api/v1/admin/policy/reload"
+
+# Proxy configuration
+proxy:
+  enabled: true
+  mode: "reverse_proxy"  # decision_only, reverse_proxy
+
+  # Default upstream (used when no route matches)
+  upstream:
+    url: "http://localhost:3000"
+    timeout: 30s
+    tls:
+      enabled: false
+      insecure_skip_verify: false
+      # ca_cert: "/etc/ssl/certs/upstream-ca.crt"
+      # client_cert: "/etc/ssl/certs/client.crt"
+      # client_key: "/etc/ssl/private/client.key"
+
+  # Named upstreams for routing
+  upstreams:
+    api-service:
+      url: "http://api-service:8080"
+      timeout: 30s
+    user-service:
+      url: "http://user-service:8080"
+      timeout: 15s
+    admin-service:
+      url: "http://admin-service:8080"
+      timeout: 30s
+      tls:
+        enabled: true
+        insecure_skip_verify: false
+
+  # Routing rules (evaluated in order)
+  routes:
+    - path_prefix: "/api/users"
+      upstream: "user-service"
+      methods: ["GET", "POST", "PUT", "DELETE"]
+      strip_prefix: ""
+      rewrite_prefix: ""
+
+    - path_prefix: "/api/admin"
+      upstream: "admin-service"
+      methods: ["GET", "POST", "PUT", "DELETE"]
+      strip_prefix: "/api/admin"
+      rewrite_prefix: "/admin"
+      # headers:
+      #   X-Admin-Request: "true"
+
+    - path_prefix: "/api"
+      upstream: "api-service"
+
+  # Header configuration
+  headers:
+    add:
+      X-Forwarded-By: "authz-proxy"
+    remove:
+      - "X-Internal-Token"
+    add_user_info: true
+    user_id_header: "X-User-ID"
+    user_roles_header: "X-User-Roles"
+    preserve_host: true
+
+  # Connection pool settings
+  max_idle_conns: 100
+  max_idle_conns_per_host: 10
+  idle_conn_timeout: 90s
+  timeout: 30s
+
+# JWT configuration
+jwt:
+  issuers:
+    - name: keycloak
+      issuer_url: "http://localhost:8180/realms/master"
+      # jwks_url: ""  # If empty, will be discovered from issuer_url
+      audience:
+        - "account"
+      algorithms:
+        - RS256
+        - RS384
+        - RS512
+  jwks_cache:
+    refresh_interval: 1h
+    refresh_timeout: 10s
+    min_refresh_interval: 5m
+  validation:
+    clock_skew: 30s
+    require_expiration: true
+    require_not_before: false
+
+# Policy engine configuration
+policy:
+  engine: opa-embedded  # builtin, opa-sidecar, opa-embedded
+
+  # OPA Sidecar configuration (when engine: opa-sidecar)
+  opa:
+    url: "http://localhost:8181"
+    policy_path: "/v1/data/authz/allow"
+    timeout: 10ms
+    retry:
+      max_attempts: 3
+      initial_backoff: 1ms
+      max_backoff: 10ms
+
+  # OPA Embedded configuration (when engine: opa-embedded)
+  opa_embedded:
+    policy_dir: "/etc/authz/policies"
+    data_dir: "/etc/authz/data"
+    decision_path: "authz/allow"
+    hot_reload: true
+    # bundle_path: ""  # Alternative: load from bundle
+
+  # Built-in rules engine (when engine: builtin)
+  builtin:
+    rules_path: "/etc/authz/rules.yaml"
+
+  # Fallback configuration
+  fallback:
+    enabled: true
+    engine: builtin
+    behavior: deny  # deny, allow
+
+# Cache configuration
+cache:
+  l1:
+    enabled: true
+    max_size: 10000
+    ttl: 10s
+  l2:
+    enabled: false
+    backend: redis
+    redis:
+      addresses:
+        - "localhost:6379"
+      password: ""
+      db: 0
+      pool_size: 10
+    ttl:
+      authorization: 60s
+      jwt: 300s
+      jwks: 3600s
+    key_prefix: "authz:"
+
+# Audit logging configuration
+audit:
+  enabled: true
+  events:
+    - AUTHZ_DECISION
+    - TOKEN_VALIDATION
+    - POLICY_RELOAD
+    - CACHE_INVALIDATE
+  export:
+    stdout:
+      enabled: true
+      format: json
+    otlp:
+      enabled: false
+      endpoint: "localhost:4317"
+      insecure: true
+  enrichment:
+    include_headers:
+      - X-Request-ID
+      - X-Correlation-ID
+    mask_fields:
+      - authorization
+      - cookie
+
+# Logging configuration
+logging:
+  level: info
+  format: json
+  output: stdout
+  add_caller: true
+
+# Health check configuration
+health:
+  check_interval: 10s
+  timeout: 5s
+  checks:
+    - name: policy
+      enabled: true
+      critical: true
+    - name: upstream
+      enabled: true
+      critical: false

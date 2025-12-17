@@ -1,0 +1,99 @@
+# Authorization Rules Configuration
+# This file defines the authorization rules for the builtin policy engine.
+
+version: "v1.0.0"
+description: "Example authorization rules"
+default_deny: true  # Deny by default if no rule matches
+
+rules:
+  # Health and metrics endpoints - allow without authentication
+  - name: allow-health-endpoints
+    description: "Allow access to health check endpoints"
+    priority: 1000
+    enabled: true
+    conditions:
+      paths:
+        - "/health"
+        - "/health/*"
+        - "/healthz"
+        - "/ready"
+        - "/readyz"
+        - "/live"
+        - "/livez"
+      methods:
+        - GET
+    effect: allow
+
+  - name: allow-metrics
+    description: "Allow access to metrics endpoint"
+    priority: 999
+    enabled: true
+    conditions:
+      paths:
+        - "/metrics"
+      methods:
+        - GET
+    effect: allow
+
+  # API authorization - require valid token
+  - name: api-admin-access
+    description: "Allow admin role full API access"
+    priority: 100
+    enabled: true
+    conditions:
+      paths:
+        - "/api/*"
+      roles:
+        - admin
+        - realm-admin
+    effect: allow
+
+  - name: api-user-read-access
+    description: "Allow users to read their own data"
+    priority: 90
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/users/*"
+        - "/api/v1/profile"
+      methods:
+        - GET
+      roles:
+        - user
+    effect: allow
+
+  - name: api-service-to-service
+    description: "Allow service-to-service communication"
+    priority: 85
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/internal/*"
+      scopes:
+        - service:read
+        - service:write
+    effect: allow
+
+  # Token exchange endpoint
+  - name: token-exchange
+    description: "Allow token exchange for authenticated users"
+    priority: 80
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/token/exchange"
+      methods:
+        - POST
+      scopes:
+        - openid
+    effect: allow
+
+  # Deny all other API requests without proper authentication
+  - name: deny-unauthenticated-api
+    description: "Deny access to API without valid authentication"
+    priority: 1
+    enabled: true
+    conditions:
+      paths:
+        - "/api/*"
+    effect: deny

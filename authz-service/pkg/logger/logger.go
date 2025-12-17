@@ -1,0 +1,166 @@
+package logger
+
+import (
+	"context"
+	"os"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+)
+
+// Logger is the global logger instance.
+var defaultLogger *zap.Logger
+
+// ctxKey is the context key for logger.
+type ctxKey struct{}
+
+// Config holds logger configuration.
+type Config struct {
+	Level      string `mapstructure:"level"`
+	Format     string `mapstructure:"format"` // json or console
+	Output     string `mapstructure:"output"` // stdout, stderr, or file path
+	AddCaller  bool   `mapstructure:"add_caller"`
+	Stacktrace bool   `mapstructure:"stacktrace"`
+}
+
+// DefaultConfig returns default logger configuration.
+func DefaultConfig() Config {
+	return Config{
+		Level:      "info",
+		Format:     "json",
+		Output:     "stdout",
+		AddCaller:  true,
+		Stacktrace: false,
+	}
+}
+
+// Init initializes the global logger.
+func Init(cfg Config) error {
+	level, err := zapcore.ParseLevel(cfg.Level)
+	if err != nil {
+		level = zapcore.InfoLevel
+	}
+
+	var encoder zapcore.Encoder
+	encoderConfig := zap.NewProductionEncoderConfig()
+	encoderConfig.TimeKey = "timestamp"
+	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
+
+	if cfg.Format == "console" {
+		encoder = zapcore.NewConsoleEncoder(encoderConfig)
+	} else {
+		encoder = zapcore.NewJSONEncoder(encoderConfig)
+	}
+
+	var writer zapcore.WriteSyncer
+	switch cfg.Output {
+	case "stdout":
+		writer = zapcore.AddSync(os.Stdout)
+	case "stderr":
+		writer = zapcore.AddSync(os.Stderr)
+	default:
+		file, err := os.OpenFile(cfg.Output, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return err
+		}
+		writer = zapcore.AddSync(file)
+	}
+
+	core := zapcore.NewCore(encoder, writer, level)
+
+	opts := []zap.Option{}
+	if cfg.AddCaller {
+		opts = append(opts, zap.AddCaller(), zap.AddCallerSkip(1))
+	}
+	if cfg.Stacktrace {
+		opts = append(opts, zap.AddStacktrace(zapcore.ErrorLevel))
+	}
+
+	defaultLogger = zap.New(core, opts...)
+	return nil
+}
+
+// L returns the default logger.
+func L() *zap.Logger {
+	if defaultLogger == nil {
+		defaultLogger, _ = zap.NewProduction()
+	}
+	return defaultLogger
+}
+
+// S returns the default sugared logger.
+func S() *zap.SugaredLogger {
+	return L().Sugar()
+}
+
+// WithContext returns a logger from context or the default logger.
+func WithContext(ctx context.Context) *zap.Logger {
+	if ctx == nil {
+		return L()
+	}
+	if l, ok := ctx.Value(ctxKey{}).(*zap.Logger); ok {
+		return l
+	}
+	return L()
+}
+
+// ToContext adds a logger to context.
+func ToContext(ctx context.Context, l *zap.Logger) context.Context {
+	return context.WithValue(ctx, ctxKey{}, l)
+}
+
+// With creates a child logger with the given fields.
+func With(fields ...zap.Field) *zap.Logger {
+	return L().With(fields...)
+}
+
+// Info logs at info level.
+func Info(msg string, fields ...zap.Field) {
+	L().Info(msg, fields...)
+}
+
+// Debug logs at debug level.
+func Debug(msg string, fields ...zap.Field) {
+	L().Debug(msg, fields...)
+}
+
+// Warn logs at warn level.
+func Warn(msg string, fields ...zap.Field) {
+	L().Warn(msg, fields...)
+}
+
+// Error logs at error level.
+func Error(msg string, fields ...zap.Field) {
+	L().Error(msg, fields...)
+}
+
+// Fatal logs at fatal level and exits.
+func Fatal(msg string, fields ...zap.Field) {
+	L().Fatal(msg, fields...)
+}
+
+// Sync flushes any buffered log entries.
+func Sync() error {
+	if defaultLogger != nil {
+		return defaultLogger.Sync()
+	}
+	return nil
+}
+
+// Logger is a type alias for *zap.Logger for convenience.
+type Logger = *zap.Logger
+
+// Field aliases for convenience
+var (
+	String   = zap.String
+	Strings  = zap.Strings
+	Int      = zap.Int
+	Int64    = zap.Int64
+	Float64  = zap.Float64
+	Bool     = zap.Bool
+	Duration = zap.Duration
+	Time     = zap.Time
+	Any      = zap.Any
+	Err = zap.Error
+)

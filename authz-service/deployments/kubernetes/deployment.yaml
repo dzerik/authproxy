@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: authz-service
+  labels:
+    app: authz-service
+    app.kubernetes.io/name: authz-service
+    app.kubernetes.io/component: authorization
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: authz-service
+  template:
+    metadata:
+      labels:
+        app: authz-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: authz-service
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: authz
+          image: authz-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: grpc
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: AUTHZ_SERVER_HTTP_ADDR
+              value: ":8080"
+            - name: AUTHZ_LOGGING_LEVEL
+              value: "info"
+            - name: AUTHZ_LOGGING_FORMAT
+              value: "json"
+            # JWT configuration from secret
+            - name: AUTHZ_JWT_ISSUERS_0_ISSUER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: authz-config
+                  key: jwt.issuer_url
+            # Redis configuration (optional)
+            - name: AUTHZ_CACHE_L2_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: authz-config
+                  key: cache.l2.enabled
+                  optional: true
+            - name: AUTHZ_CACHE_L2_REDIS_ADDRESSES_0
+              valueFrom:
+                configMapKeyRef:
+                  name: authz-config
+                  key: cache.l2.redis.address
+                  optional: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: config
+              mountPath: /etc/authz
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: config
+          configMap:
+            name: authz-rules
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: authz-service
+                topologyKey: kubernetes.io/hostname
