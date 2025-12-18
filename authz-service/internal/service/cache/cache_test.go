@@ -474,3 +474,174 @@ func BenchmarkL1Cache_Set_Concurrent(b *testing.B) {
 		}
 	})
 }
+
+// =============================================================================
+// L1Cache Cleanup Tests
+// =============================================================================
+
+func TestL1Cache_StartCleanup_Disabled(t *testing.T) {
+	cache := NewL1Cache(config.L1CacheConfig{Enabled: false})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Should not panic when disabled
+	cache.StartCleanup(ctx, time.Millisecond)
+}
+
+func TestL1Cache_StartCleanup_CleansExpiredEntries(t *testing.T) {
+	cache := NewL1Cache(config.L1CacheConfig{Enabled: true, MaxSize: 100, TTL: 10 * time.Millisecond})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Add entries
+	cache.Set(ctx, "key1", domain.Allow(), 0)
+	cache.Set(ctx, "key2", domain.Allow(), 0)
+
+	// Start cleanup with short interval
+	cache.StartCleanup(ctx, 20*time.Millisecond)
+
+	// Wait for entries to expire and cleanup to run
+	time.Sleep(100 * time.Millisecond)
+
+	// Entries should be cleaned up
+	stats := cache.Stats()
+	assert.Equal(t, 0, stats.Size, "expired entries should be cleaned up")
+}
+
+func TestL1Cache_StartCleanup_ContextCancellation(t *testing.T) {
+	cache := NewL1Cache(config.L1CacheConfig{Enabled: true, MaxSize: 100, TTL: time.Hour})
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Start cleanup
+	cache.StartCleanup(ctx, time.Second)
+
+	// Cancel context
+	cancel()
+
+	// Give goroutine time to exit
+	time.Sleep(50 * time.Millisecond)
+
+	// Should not hang or panic
+}
+
+func TestL1Cache_CleanupExpired_DirectCall(t *testing.T) {
+	cache := NewL1Cache(config.L1CacheConfig{Enabled: true, MaxSize: 100, TTL: 1 * time.Millisecond})
+	ctx := context.Background()
+
+	// Add entries
+	cache.Set(ctx, "key1", domain.Allow(), 0)
+	cache.Set(ctx, "key2", domain.Allow(), 0)
+	cache.Set(ctx, "key3", domain.Allow(), time.Hour) // This one has long TTL
+
+	// Wait for entries with short TTL to expire
+	time.Sleep(20 * time.Millisecond)
+
+	// Directly call cleanup
+	cache.cleanupExpired()
+
+	// Check results
+	_, found1 := cache.Get(ctx, "key1")
+	_, found2 := cache.Get(ctx, "key2")
+	_, found3 := cache.Get(ctx, "key3")
+
+	assert.False(t, found1, "key1 should be cleaned up")
+	assert.False(t, found2, "key2 should be cleaned up")
+	assert.True(t, found3, "key3 should still exist (long TTL)")
+}
+
+func TestL1Cache_CleanupExpired_Empty(t *testing.T) {
+	cache := NewL1Cache(config.L1CacheConfig{Enabled: true, MaxSize: 100, TTL: time.Minute})
+
+	// Should not panic on empty cache
+	cache.cleanupExpired()
+
+	stats := cache.Stats()
+	assert.Equal(t, 0, stats.Size)
+}
+
+// =============================================================================
+// CacheService Lifecycle Tests
+// =============================================================================
+
+func TestService_Start_L1Only(t *testing.T) {
+	cfg := config.CacheConfig{
+		L1: config.L1CacheConfig{
+			Enabled: true,
+			MaxSize: 100,
+			TTL:     time.Minute,
+		},
+	}
+	svc := NewService(cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := svc.Start(ctx)
+	require.NoError(t, err)
+}
+
+func TestService_Start_NilL1(t *testing.T) {
+	cfg := config.CacheConfig{
+		L1: config.L1CacheConfig{Enabled: false},
+	}
+	svc := NewService(cfg)
+	ctx := context.Background()
+
+	// Should not panic with nil L1
+	err := svc.Start(ctx)
+	require.NoError(t, err)
+}
+
+func TestService_Stop_L1Only(t *testing.T) {
+	cfg := config.CacheConfig{
+		L1: config.L1CacheConfig{
+			Enabled: true,
+			MaxSize: 100,
+			TTL:     time.Minute,
+		},
+	}
+	svc := NewService(cfg)
+	ctx := context.Background()
+
+	_ = svc.Start(ctx)
+	err := svc.Stop()
+	require.NoError(t, err)
+}
+
+func TestService_Stop_NilL2(t *testing.T) {
+	cfg := config.CacheConfig{
+		L1: config.L1CacheConfig{Enabled: true, MaxSize: 100, TTL: time.Minute},
+	}
+	svc := NewService(cfg)
+
+	// Should not panic with nil L2
+	err := svc.Stop()
+	require.NoError(t, err)
+}
+
+func TestService_Delete_NotEnabled(t *testing.T) {
+	svc := &Service{enabled: false}
+
+	// Should not panic
+	svc.Delete(context.Background(), "key")
+}
+
+func TestService_Clear_NotEnabled(t *testing.T) {
+	svc := &Service{enabled: false}
+
+	// Should not panic
+	svc.Clear(context.Background())
+}
+
+func TestService_Stats_NotEnabled(t *testing.T) {
+	svc := &Service{enabled: false}
+
+	stats := svc.Stats()
+
+	assert.Empty(t, stats)
+}
+
+func TestService_Healthy_NotEnabled(t *testing.T) {
+	svc := &Service{enabled: false}
+
+	assert.True(t, svc.Healthy(context.Background()))
+}

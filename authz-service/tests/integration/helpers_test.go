@@ -127,6 +127,9 @@ func joinScopes(scopes []string) string {
 func MockJWKSServer(t *testing.T, keyPair *TestKeyPair) *httptest.Server {
 	t.Helper()
 
+	// Use pointer to store server URL so it can be captured by closure
+	var serverURL string
+
 	mux := http.NewServeMux()
 
 	// JWKS endpoint
@@ -135,25 +138,20 @@ func MockJWKSServer(t *testing.T, keyPair *TestKeyPair) *httptest.Server {
 		w.Write(keyPair.JWKS())
 	})
 
-	// OpenID Connect discovery endpoint
-	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		// URL will be set dynamically in the handler
-	})
-
-	server := httptest.NewServer(mux)
-
-	// Update the handler to use actual server URL
+	// OpenID Connect discovery endpoint - uses closure to access serverURL
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		config := map[string]any{
-			"issuer":                 server.URL,
-			"jwks_uri":               server.URL + "/.well-known/jwks.json",
-			"authorization_endpoint": server.URL + "/auth",
-			"token_endpoint":         server.URL + "/token",
+			"issuer":                 serverURL,
+			"jwks_uri":               serverURL + "/.well-known/jwks.json",
+			"authorization_endpoint": serverURL + "/auth",
+			"token_endpoint":         serverURL + "/token",
 		}
 		json.NewEncoder(w).Encode(config)
 	})
+
+	server := httptest.NewServer(mux)
+	serverURL = server.URL // Set the URL after server starts
 
 	return server
 }

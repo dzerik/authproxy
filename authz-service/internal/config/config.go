@@ -533,6 +533,10 @@ type RateLimitConfig struct {
 	EndpointRates map[string]string `mapstructure:"endpoint_rates" jsonschema:"description=Per-endpoint rate limits. Key is path prefix\\, value is rate. Example: {'/v1/authorize': '1000-S'\\, '/v1/token': '100-S'}."`
 	// Headers configuration for rate limit response headers
 	Headers RateLimitHeadersConfig `mapstructure:"headers" jsonschema:"description=Rate limit response headers configuration."`
+	// FailClose denies requests when rate limiter encounters an error (secure default)
+	// When true (default): errors result in request denial (fail-close, secure)
+	// When false: errors allow requests through (fail-open, less secure but more available)
+	FailClose bool `mapstructure:"fail_close" jsonschema:"description=Deny requests when rate limiter encounters an error. True = fail-close (secure)\\, False = fail-open (available). Recommended: true for authorization services.,default=true"`
 }
 
 // RateLimitRedisConfig holds Redis configuration for rate limiting.
@@ -897,6 +901,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("resilience.rate_limit.headers.limit_header", "X-RateLimit-Limit")
 	v.SetDefault("resilience.rate_limit.headers.remaining_header", "X-RateLimit-Remaining")
 	v.SetDefault("resilience.rate_limit.headers.reset_header", "X-RateLimit-Reset")
+	v.SetDefault("resilience.rate_limit.fail_close", true) // Secure default: deny on error
 
 	// Resilience defaults - Circuit Breaker
 	v.SetDefault("resilience.circuit_breaker.enabled", true)

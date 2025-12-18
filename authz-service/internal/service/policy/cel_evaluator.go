@@ -2,6 +2,7 @@
 package policy
 
 import (
+	"container/list"
 	"fmt"
 	"net"
 	"sync"
@@ -15,17 +16,40 @@ import (
 	"github.com/your-org/authz-service/pkg/logger"
 )
 
-// CELEvaluator provides CEL expression evaluation with caching.
+const (
+	// DefaultCELCacheSize is the default maximum number of cached CEL programs.
+	DefaultCELCacheSize = 500
+)
+
+// CELEvaluator provides CEL expression evaluation with LRU caching.
 type CELEvaluator struct {
 	env *cel.Env
 	mu  sync.RWMutex
 
-	// Cache for compiled programs (expression string -> compiled program)
-	programs map[string]cel.Program
+	// Cache for compiled programs with LRU eviction
+	programs map[string]*celCacheEntry
+	order    *list.List // LRU order: front = most recently used
+	capacity int
 }
 
-// NewCELEvaluator creates a new CEL evaluator with predefined variables.
+// celCacheEntry holds a cached CEL program with its LRU list element.
+type celCacheEntry struct {
+	program    cel.Program
+	expression string
+	element    *list.Element
+}
+
+// NewCELEvaluator creates a new CEL evaluator with predefined variables and default cache capacity.
 func NewCELEvaluator() (*CELEvaluator, error) {
+	return NewCELEvaluatorWithCapacity(DefaultCELCacheSize)
+}
+
+// NewCELEvaluatorWithCapacity creates a new CEL evaluator with specified cache capacity.
+func NewCELEvaluatorWithCapacity(capacity int) (*CELEvaluator, error) {
+	if capacity <= 0 {
+		capacity = DefaultCELCacheSize
+	}
+
 	// Define CEL environment with available variables
 	env, err := cel.NewEnv(
 		// Token variables (from JWT)
@@ -80,17 +104,26 @@ func NewCELEvaluator() (*CELEvaluator, error) {
 
 	return &CELEvaluator{
 		env:      env,
-		programs: make(map[string]cel.Program),
+		programs: make(map[string]*celCacheEntry),
+		order:    list.New(),
+		capacity: capacity,
 	}, nil
 }
 
-// Compile compiles a CEL expression and caches the program.
+// Compile compiles a CEL expression and caches the program with LRU eviction.
 func (e *CELEvaluator) Compile(expression string) (cel.Program, error) {
-	// Check cache first
+	// Check cache first (read lock)
 	e.mu.RLock()
-	if prg, ok := e.programs[expression]; ok {
+	if entry, ok := e.programs[expression]; ok {
 		e.mu.RUnlock()
-		return prg, nil
+		// Move to front (requires write lock)
+		e.mu.Lock()
+		// Double-check after acquiring write lock
+		if entry, ok := e.programs[expression]; ok {
+			e.order.MoveToFront(entry.element)
+		}
+		e.mu.Unlock()
+		return entry.program, nil
 	}
 	e.mu.RUnlock()
 
@@ -111,12 +144,41 @@ func (e *CELEvaluator) Compile(expression string) (cel.Program, error) {
 		return nil, fmt.Errorf("failed to create CEL program: %w", err)
 	}
 
-	// Cache program
+	// Cache program with LRU
 	e.mu.Lock()
-	e.programs[expression] = prg
-	e.mu.Unlock()
+	defer e.mu.Unlock()
+
+	// Double-check if another goroutine already added it
+	if entry, ok := e.programs[expression]; ok {
+		e.order.MoveToFront(entry.element)
+		return entry.program, nil
+	}
+
+	// Evict oldest if at capacity
+	for e.order.Len() >= e.capacity {
+		e.evictOldest()
+	}
+
+	// Add new entry at front
+	entry := &celCacheEntry{
+		program:    prg,
+		expression: expression,
+	}
+	entry.element = e.order.PushFront(entry)
+	e.programs[expression] = entry
 
 	return prg, nil
+}
+
+// evictOldest removes the least recently used cache entry.
+func (e *CELEvaluator) evictOldest() {
+	oldest := e.order.Back()
+	if oldest == nil {
+		return
+	}
+	entry := oldest.Value.(*celCacheEntry)
+	delete(e.programs, entry.expression)
+	e.order.Remove(oldest)
 }
 
 // Evaluate evaluates a CEL expression against the policy input.
@@ -162,7 +224,8 @@ func (e *CELEvaluator) ValidateExpression(expression string) error {
 // ClearCache clears the compiled programs cache.
 func (e *CELEvaluator) ClearCache() {
 	e.mu.Lock()
-	e.programs = make(map[string]cel.Program)
+	e.programs = make(map[string]*celCacheEntry)
+	e.order.Init()
 	e.mu.Unlock()
 }
 
@@ -171,6 +234,11 @@ func (e *CELEvaluator) CacheSize() int {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return len(e.programs)
+}
+
+// CacheCapacity returns the maximum cache capacity.
+func (e *CELEvaluator) CacheCapacity() int {
+	return e.capacity
 }
 
 // buildEvalContext builds the evaluation context from PolicyInput.

@@ -1,16 +1,34 @@
 package policy
 
 import (
+	"container/list"
 	"net/netip"
 	"regexp"
 	"strings"
 	"sync"
 )
 
+const (
+	// DefaultPathMatcherCacheSize is the default maximum number of cached patterns.
+	DefaultPathMatcherCacheSize = 1000
+	// DefaultCIDRMatcherCacheSize is the default maximum number of cached CIDRs.
+	DefaultCIDRMatcherCacheSize = 500
+)
+
 // PathMatcher provides path matching with regex caching and entity extraction.
+// Uses LRU eviction to prevent unbounded memory growth.
 type PathMatcher struct {
-	mu    sync.RWMutex
-	cache map[string]*compiledPattern
+	mu       sync.RWMutex
+	cache    map[string]*patternCacheEntry
+	order    *list.List // LRU order: front = most recently used
+	capacity int
+}
+
+// patternCacheEntry holds a cached pattern with its LRU list element.
+type patternCacheEntry struct {
+	pattern  *compiledPattern
+	key      string
+	element  *list.Element
 }
 
 // compiledPattern holds a compiled regex with its named groups.
@@ -42,10 +60,20 @@ type ResourceInfo struct {
 	Params map[string]string `json:"params,omitempty"`
 }
 
-// NewPathMatcher creates a new PathMatcher with an empty cache.
+// NewPathMatcher creates a new PathMatcher with an empty cache and default capacity.
 func NewPathMatcher() *PathMatcher {
+	return NewPathMatcherWithCapacity(DefaultPathMatcherCacheSize)
+}
+
+// NewPathMatcherWithCapacity creates a new PathMatcher with specified cache capacity.
+func NewPathMatcherWithCapacity(capacity int) *PathMatcher {
+	if capacity <= 0 {
+		capacity = DefaultPathMatcherCacheSize
+	}
 	return &PathMatcher{
-		cache: make(map[string]*compiledPattern),
+		cache:    make(map[string]*patternCacheEntry),
+		order:    list.New(),
+		capacity: capacity,
 	}
 }
 
@@ -149,33 +177,68 @@ func ExtractResource(params map[string]string) *ResourceInfo {
 }
 
 // getOrCompile retrieves a compiled pattern from cache or compiles and caches it.
+// Uses LRU eviction when cache is full.
 func (m *PathMatcher) getOrCompile(pattern string) *compiledPattern {
-	// Try read lock first
+	// Try read lock first for cache hit
 	m.mu.RLock()
-	compiled, ok := m.cache[pattern]
+	entry, ok := m.cache[pattern]
 	m.mu.RUnlock()
 
 	if ok {
-		return compiled
+		// Move to front (most recently used) - requires write lock
+		m.mu.Lock()
+		// Re-check entry still exists after acquiring write lock
+		if entry, ok = m.cache[pattern]; ok {
+			m.order.MoveToFront(entry.element)
+		}
+		m.mu.Unlock()
+		if ok {
+			return entry.pattern
+		}
 	}
 
 	// Compile the pattern
-	compiled = compilePattern(pattern)
+	compiled := compilePattern(pattern)
 	if compiled == nil {
 		return nil
 	}
 
 	// Store in cache with write lock
 	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	// Double-check in case another goroutine compiled it
 	if existing, ok := m.cache[pattern]; ok {
-		m.mu.Unlock()
-		return existing
+		m.order.MoveToFront(existing.element)
+		return existing.pattern
 	}
-	m.cache[pattern] = compiled
-	m.mu.Unlock()
+
+	// Evict oldest if at capacity
+	for m.order.Len() >= m.capacity {
+		m.evictOldest()
+	}
+
+	// Add new entry
+	entry = &patternCacheEntry{
+		pattern: compiled,
+		key:     pattern,
+	}
+	entry.element = m.order.PushFront(entry)
+	m.cache[pattern] = entry
 
 	return compiled
+}
+
+// evictOldest removes the least recently used entry from cache.
+// Must be called with write lock held.
+func (m *PathMatcher) evictOldest() {
+	oldest := m.order.Back()
+	if oldest == nil {
+		return
+	}
+	entry := oldest.Value.(*patternCacheEntry)
+	delete(m.cache, entry.key)
+	m.order.Remove(oldest)
 }
 
 // compilePattern compiles a pattern string to a regex.
@@ -387,15 +450,35 @@ func matchGlob(pattern, str string, pi, si int) bool {
 }
 
 // CIDRMatcher provides CIDR matching with caching.
+// Uses LRU eviction to prevent unbounded memory growth.
 type CIDRMatcher struct {
-	mu    sync.RWMutex
-	cache map[string]netip.Prefix
+	mu       sync.RWMutex
+	cache    map[string]*cidrCacheEntry
+	order    *list.List
+	capacity int
 }
 
-// NewCIDRMatcher creates a new CIDRMatcher.
+// cidrCacheEntry holds a cached CIDR prefix with its LRU list element.
+type cidrCacheEntry struct {
+	prefix  netip.Prefix
+	key     string
+	element *list.Element
+}
+
+// NewCIDRMatcher creates a new CIDRMatcher with default capacity.
 func NewCIDRMatcher() *CIDRMatcher {
+	return NewCIDRMatcherWithCapacity(DefaultCIDRMatcherCacheSize)
+}
+
+// NewCIDRMatcherWithCapacity creates a new CIDRMatcher with specified cache capacity.
+func NewCIDRMatcherWithCapacity(capacity int) *CIDRMatcher {
+	if capacity <= 0 {
+		capacity = DefaultCIDRMatcherCacheSize
+	}
 	return &CIDRMatcher{
-		cache: make(map[string]netip.Prefix),
+		cache:    make(map[string]*cidrCacheEntry),
+		order:    list.New(),
+		capacity: capacity,
 	}
 }
 
@@ -442,13 +525,23 @@ func (m *CIDRMatcher) Match(cidrs []string, ipStr string) bool {
 }
 
 // getOrParseCIDR retrieves a parsed prefix from cache or parses and caches it.
+// Uses LRU eviction when cache is full.
 func (m *CIDRMatcher) getOrParseCIDR(cidr string) netip.Prefix {
+	// Try read lock first for cache hit
 	m.mu.RLock()
-	prefix, ok := m.cache[cidr]
+	entry, ok := m.cache[cidr]
 	m.mu.RUnlock()
 
 	if ok {
-		return prefix
+		// Move to front (most recently used)
+		m.mu.Lock()
+		if entry, ok = m.cache[cidr]; ok {
+			m.order.MoveToFront(entry.element)
+		}
+		m.mu.Unlock()
+		if ok {
+			return entry.prefix
+		}
 	}
 
 	// Parse CIDR
@@ -467,18 +560,49 @@ func (m *CIDRMatcher) getOrParseCIDR(cidr string) netip.Prefix {
 		prefix = netip.PrefixFrom(ip, bits)
 	}
 
-	// Cache the result
+	// Cache the result with write lock
 	m.mu.Lock()
-	m.cache[cidr] = prefix
-	m.mu.Unlock()
+	defer m.mu.Unlock()
+
+	// Double-check
+	if existing, ok := m.cache[cidr]; ok {
+		m.order.MoveToFront(existing.element)
+		return existing.prefix
+	}
+
+	// Evict oldest if at capacity
+	for m.order.Len() >= m.capacity {
+		m.evictOldestCIDR()
+	}
+
+	// Add new entry
+	entry = &cidrCacheEntry{
+		prefix: prefix,
+		key:    cidr,
+	}
+	entry.element = m.order.PushFront(entry)
+	m.cache[cidr] = entry
 
 	return prefix
+}
+
+// evictOldestCIDR removes the least recently used CIDR entry from cache.
+// Must be called with write lock held.
+func (m *CIDRMatcher) evictOldestCIDR() {
+	oldest := m.order.Back()
+	if oldest == nil {
+		return
+	}
+	entry := oldest.Value.(*cidrCacheEntry)
+	delete(m.cache, entry.key)
+	m.order.Remove(oldest)
 }
 
 // ClearCache clears the pattern cache (useful for testing or hot reload).
 func (m *PathMatcher) ClearCache() {
 	m.mu.Lock()
-	m.cache = make(map[string]*compiledPattern)
+	m.cache = make(map[string]*patternCacheEntry)
+	m.order.Init()
 	m.mu.Unlock()
 }
 
@@ -487,4 +611,29 @@ func (m *PathMatcher) CacheSize() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.cache)
+}
+
+// CacheCapacity returns the maximum cache capacity.
+func (m *PathMatcher) CacheCapacity() int {
+	return m.capacity
+}
+
+// CIDRCacheSize returns the number of cached CIDRs.
+func (m *CIDRMatcher) CacheSize() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.cache)
+}
+
+// CIDRCacheCapacity returns the maximum cache capacity.
+func (m *CIDRMatcher) CacheCapacity() int {
+	return m.capacity
+}
+
+// ClearCache clears the CIDR cache.
+func (m *CIDRMatcher) ClearCache() {
+	m.mu.Lock()
+	m.cache = make(map[string]*cidrCacheEntry)
+	m.order.Init()
+	m.mu.Unlock()
 }

@@ -113,7 +113,13 @@ func (l *Limiter) Middleware() func(http.Handler) http.Handler {
 			limitContext, err := instance.Get(ctx, clientKey)
 			if err != nil {
 				logger.Error("rate limiter error", logger.Err(err))
-				// On error, allow the request to proceed
+				// Fail-close (default): deny request on error (secure)
+				// Fail-open: allow request on error (less secure but more available)
+				if l.cfg.FailClose {
+					http.Error(w, "Service temporarily unavailable", http.StatusServiceUnavailable)
+					return
+				}
+				// Fail-open: allow the request to proceed
 				next.ServeHTTP(w, r)
 				return
 			}

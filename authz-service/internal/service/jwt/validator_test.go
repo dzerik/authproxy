@@ -1,16 +1,62 @@
 package jwt
 
 import (
+	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/your-org/authz-service/internal/config"
+	authzErrors "github.com/your-org/authz-service/pkg/errors"
 )
+
+// =============================================================================
+// Mock KeyProvider
+// =============================================================================
+
+type mockKeyProvider struct {
+	key    jwk.Key
+	err    error
+	called int
+}
+
+func (m *mockKeyProvider) GetKey(ctx context.Context, issuerURL, keyID string) (jwk.Key, error) {
+	m.called++
+	return m.key, m.err
+}
+
+// newTestKeyPair generates an RSA key pair and returns JWK key for testing.
+func newTestKeyPair(t *testing.T, kid string) (*rsa.PrivateKey, jwk.Key) {
+	t.Helper()
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	jwkKey, err := jwk.FromRaw(privateKey.Public())
+	require.NoError(t, err)
+	require.NoError(t, jwkKey.Set(jwk.KeyIDKey, kid))
+	require.NoError(t, jwkKey.Set(jwk.AlgorithmKey, "RS256"))
+	require.NoError(t, jwkKey.Set(jwk.KeyUsageKey, "sig"))
+
+	return privateKey, jwkKey
+}
+
+// createTestToken creates a signed JWT token for testing.
+func createTestToken(t *testing.T, privateKey *rsa.PrivateKey, kid string, claims jwt.MapClaims) string {
+	t.Helper()
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	token.Header["kid"] = kid
+	tokenString, err := token.SignedString(privateKey)
+	require.NoError(t, err)
+	return tokenString
+}
 
 func TestNewValidator(t *testing.T) {
 	jwtConfig := config.JWTConfig{
@@ -390,5 +436,579 @@ func BenchmarkHasValidAudience(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		hasValidAudience(tokenAud, expectedAud)
+	}
+}
+
+// =============================================================================
+// Validate Method Tests
+// =============================================================================
+
+func TestValidator_Validate_Success(t *testing.T) {
+	ctx := context.Background()
+	kid := "test-key-1"
+	issuerURL := "https://auth.example.com"
+
+	privateKey, jwkKey := newTestKeyPair(t, kid)
+
+	mockProvider := &mockKeyProvider{key: jwkKey}
+
+	jwtConfig := config.JWTConfig{
+		Issuers: []config.IssuerConfig{
+			{
+				IssuerURL:  issuerURL,
+				Algorithms: []string{"RS256"},
+			},
+		},
+	}
+
+	validator := NewValidator(mockProvider, jwtConfig)
+
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iss":   issuerURL,
+		"sub":   "user123",
+		"aud":   []string{"api.example.com"},
+		"exp":   now.Add(time.Hour).Unix(),
+		"iat":   now.Unix(),
+		"nbf":   now.Unix(),
+		"jti":   "token-id-123",
+		"scope": "openid profile email",
+		"realm_access": map[string]interface{}{
+			"roles": []interface{}{"admin", "user"},
+		},
+	}
+
+	tokenString := createTestToken(t, privateKey, kid, claims)
+
+	tokenInfo, err := validator.Validate(ctx, tokenString)
+	require.NoError(t, err)
+	require.NotNil(t, tokenInfo)
+
+	assert.True(t, tokenInfo.Valid)
+	assert.Equal(t, "user123", tokenInfo.Subject)
+	assert.Equal(t, issuerURL, tokenInfo.Issuer)
+	assert.Equal(t, "token-id-123", tokenInfo.JTI)
+	assert.ElementsMatch(t, []string{"admin", "user"}, tokenInfo.Roles)
+	assert.ElementsMatch(t, []string{"openid", "profile", "email"}, tokenInfo.Scopes)
+	assert.Equal(t, tokenString, tokenInfo.Raw)
+	assert.Equal(t, 1, mockProvider.called)
+}
+
+func TestValidator_Validate_ExpiredToken(t *testing.T) {
+	ctx := context.Background()
+	kid := "test-key-1"
+	issuerURL := "https://auth.example.com"
+
+	privateKey, jwkKey := newTestKeyPair(t, kid)
+	mockProvider := &mockKeyProvider{key: jwkKey}
+
+	jwtConfig := config.JWTConfig{
+		Issuers: []config.IssuerConfig{
+			{
+				IssuerURL:  issuerURL,
+				Algorithms: []string{"RS256"},
+			},
+		},
+		Validation: config.ValidationConfig{
+			RequireExpiration: true,
+		},
+	}
+
+	validator := NewValidator(mockProvider, jwtConfig)
+
+	// Create an expired token
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iss": issuerURL,
+		"sub": "user123",
+		"exp": now.Add(-time.Hour).Unix(), // Expired 1 hour ago
+		"iat": now.Add(-2 * time.Hour).Unix(),
+	}
+
+	tokenString := createTestToken(t, privateKey, kid, claims)
+
+	tokenInfo, err := validator.Validate(ctx, tokenString)
+	assert.Nil(t, tokenInfo)
+	assert.Error(t, err)
+
+	var authzErr *authzErrors.AuthzError
+	require.True(t, errors.As(err, &authzErr))
+	assert.Equal(t, authzErrors.CodeTokenExpired, authzErr.Code)
+}
+
+func TestValidator_Validate_InvalidIssuer(t *testing.T) {
+	ctx := context.Background()
+	kid := "test-key-1"
+
+	privateKey, jwkKey := newTestKeyPair(t, kid)
+	mockProvider := &mockKeyProvider{key: jwkKey}
+
+	jwtConfig := config.JWTConfig{
+		Issuers: []config.IssuerConfig{
+			{
+				IssuerURL:  "https://trusted.example.com",
+				Algorithms: []string{"RS256"},
+			},
+		},
+	}
+
+	validator := NewValidator(mockProvider, jwtConfig)
+
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iss": "https://untrusted.example.com", // Not in trusted issuers
+		"sub": "user123",
+		"exp": now.Add(time.Hour).Unix(),
+	}
+
+	tokenString := createTestToken(t, privateKey, kid, claims)
+
+	tokenInfo, err := validator.Validate(ctx, tokenString)
+	assert.Nil(t, tokenInfo)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "untrusted issuer")
+}
+
+func TestValidator_Validate_MissingIssuer(t *testing.T) {
+	ctx := context.Background()
+	kid := "test-key-1"
+
+	privateKey, jwkKey := newTestKeyPair(t, kid)
+	mockProvider := &mockKeyProvider{key: jwkKey}
+
+	jwtConfig := config.JWTConfig{
+		Issuers: []config.IssuerConfig{
+			{
+				IssuerURL:  "https://auth.example.com",
+				Algorithms: []string{"RS256"},
+			},
+		},
+	}
+
+	validator := NewValidator(mockProvider, jwtConfig)
+
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"sub": "user123",
+		"exp": now.Add(time.Hour).Unix(),
+		// No "iss" claim
+	}
+
+	tokenString := createTestToken(t, privateKey, kid, claims)
+
+	tokenInfo, err := validator.Validate(ctx, tokenString)
+	assert.Nil(t, tokenInfo)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing issuer")
+}
+
+func TestValidator_Validate_MissingKeyID(t *testing.T) {
+	ctx := context.Background()
+	issuerURL := "https://auth.example.com"
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	mockProvider := &mockKeyProvider{}
+
+	jwtConfig := config.JWTConfig{
+		Issuers: []config.IssuerConfig{
+			{
+				IssuerURL:  issuerURL,
+				Algorithms: []string{"RS256"},
+			},
+		},
+	}
+
+	validator := NewValidator(mockProvider, jwtConfig)
+
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iss": issuerURL,
+		"sub": "user123",
+		"exp": now.Add(time.Hour).Unix(),
+	}
+
+	// Create token without kid in header
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	// Don't set kid: token.Header["kid"] = kid
+	tokenString, err := token.SignedString(privateKey)
+	require.NoError(t, err)
+
+	tokenInfo, err := validator.Validate(ctx, tokenString)
+	assert.Nil(t, tokenInfo)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing key ID")
+}
+
+func TestValidator_Validate_DisallowedAlgorithm(t *testing.T) {
+	ctx := context.Background()
+	kid := "test-key-1"
+	issuerURL := "https://auth.example.com"
+
+	privateKey, jwkKey := newTestKeyPair(t, kid)
+	mockProvider := &mockKeyProvider{key: jwkKey}
+
+	jwtConfig := config.JWTConfig{
+		Issuers: []config.IssuerConfig{
+			{
+				IssuerURL:  issuerURL,
+				Algorithms: []string{"ES256"}, // Only ES256 allowed, but we sign with RS256
+			},
+		},
+	}
+
+	validator := NewValidator(mockProvider, jwtConfig)
+
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iss": issuerURL,
+		"sub": "user123",
+		"exp": now.Add(time.Hour).Unix(),
+	}
+
+	tokenString := createTestToken(t, privateKey, kid, claims)
+
+	tokenInfo, err := validator.Validate(ctx, tokenString)
+	assert.Nil(t, tokenInfo)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "algorithm")
+	assert.Contains(t, err.Error(), "not allowed")
+}
+
+func TestValidator_Validate_KeyProviderError(t *testing.T) {
+	ctx := context.Background()
+	kid := "test-key-1"
+	issuerURL := "https://auth.example.com"
+
+	privateKey, _ := newTestKeyPair(t, kid)
+	mockProvider := &mockKeyProvider{
+		key: nil,
+		err: errors.New("key not found"),
+	}
+
+	jwtConfig := config.JWTConfig{
+		Issuers: []config.IssuerConfig{
+			{
+				IssuerURL:  issuerURL,
+				Algorithms: []string{"RS256"},
+			},
+		},
+	}
+
+	validator := NewValidator(mockProvider, jwtConfig)
+
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iss": issuerURL,
+		"sub": "user123",
+		"exp": now.Add(time.Hour).Unix(),
+	}
+
+	tokenString := createTestToken(t, privateKey, kid, claims)
+
+	tokenInfo, err := validator.Validate(ctx, tokenString)
+	assert.Nil(t, tokenInfo)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "signing key")
+}
+
+func TestValidator_Validate_InvalidSignature(t *testing.T) {
+	ctx := context.Background()
+	kid := "test-key-1"
+	issuerURL := "https://auth.example.com"
+
+	// Create two different key pairs - sign with one, validate with another
+	signingKey, _ := newTestKeyPair(t, kid)
+	_, validationJWK := newTestKeyPair(t, kid) // Different key!
+
+	mockProvider := &mockKeyProvider{key: validationJWK}
+
+	jwtConfig := config.JWTConfig{
+		Issuers: []config.IssuerConfig{
+			{
+				IssuerURL:  issuerURL,
+				Algorithms: []string{"RS256"},
+			},
+		},
+	}
+
+	validator := NewValidator(mockProvider, jwtConfig)
+
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iss": issuerURL,
+		"sub": "user123",
+		"exp": now.Add(time.Hour).Unix(),
+	}
+
+	tokenString := createTestToken(t, signingKey, kid, claims)
+
+	tokenInfo, err := validator.Validate(ctx, tokenString)
+	assert.Nil(t, tokenInfo)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "signature")
+}
+
+func TestValidator_Validate_TokenNotYetValid(t *testing.T) {
+	ctx := context.Background()
+	kid := "test-key-1"
+	issuerURL := "https://auth.example.com"
+
+	privateKey, jwkKey := newTestKeyPair(t, kid)
+	mockProvider := &mockKeyProvider{key: jwkKey}
+
+	jwtConfig := config.JWTConfig{
+		Issuers: []config.IssuerConfig{
+			{
+				IssuerURL:  issuerURL,
+				Algorithms: []string{"RS256"},
+			},
+		},
+	}
+
+	validator := NewValidator(mockProvider, jwtConfig)
+
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iss": issuerURL,
+		"sub": "user123",
+		"exp": now.Add(2 * time.Hour).Unix(),
+		"nbf": now.Add(time.Hour).Unix(), // Not valid for another hour
+	}
+
+	tokenString := createTestToken(t, privateKey, kid, claims)
+
+	tokenInfo, err := validator.Validate(ctx, tokenString)
+	assert.Nil(t, tokenInfo)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not yet valid")
+}
+
+func TestValidator_Validate_AudienceValidation(t *testing.T) {
+	ctx := context.Background()
+	kid := "test-key-1"
+	issuerURL := "https://auth.example.com"
+
+	privateKey, jwkKey := newTestKeyPair(t, kid)
+	mockProvider := &mockKeyProvider{key: jwkKey}
+
+	jwtConfig := config.JWTConfig{
+		Issuers: []config.IssuerConfig{
+			{
+				IssuerURL:  issuerURL,
+				Algorithms: []string{"RS256"},
+				Audience:   []string{"expected-audience"},
+			},
+		},
+	}
+
+	validator := NewValidator(mockProvider, jwtConfig)
+
+	t.Run("valid_audience", func(t *testing.T) {
+		mockProvider.called = 0
+		now := time.Now()
+		claims := jwt.MapClaims{
+			"iss": issuerURL,
+			"sub": "user123",
+			"aud": "expected-audience",
+			"exp": now.Add(time.Hour).Unix(),
+		}
+
+		tokenString := createTestToken(t, privateKey, kid, claims)
+
+		tokenInfo, err := validator.Validate(ctx, tokenString)
+		require.NoError(t, err)
+		require.NotNil(t, tokenInfo)
+		assert.Equal(t, []string{"expected-audience"}, tokenInfo.Audience)
+	})
+
+	t.Run("invalid_audience", func(t *testing.T) {
+		mockProvider.called = 0
+		now := time.Now()
+		claims := jwt.MapClaims{
+			"iss": issuerURL,
+			"sub": "user123",
+			"aud": "wrong-audience",
+			"exp": now.Add(time.Hour).Unix(),
+		}
+
+		tokenString := createTestToken(t, privateKey, kid, claims)
+
+		tokenInfo, err := validator.Validate(ctx, tokenString)
+		assert.Nil(t, tokenInfo)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "audience")
+	})
+}
+
+func TestValidator_Validate_ExtraClaims(t *testing.T) {
+	ctx := context.Background()
+	kid := "test-key-1"
+	issuerURL := "https://auth.example.com"
+
+	privateKey, jwkKey := newTestKeyPair(t, kid)
+	mockProvider := &mockKeyProvider{key: jwkKey}
+
+	jwtConfig := config.JWTConfig{
+		Issuers: []config.IssuerConfig{
+			{
+				IssuerURL:  issuerURL,
+				Algorithms: []string{"RS256"},
+			},
+		},
+	}
+
+	validator := NewValidator(mockProvider, jwtConfig)
+
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iss":           issuerURL,
+		"sub":           "user123",
+		"exp":           now.Add(time.Hour).Unix(),
+		"custom_claim":  "custom_value",
+		"another_claim": 42,
+		"nested": map[string]interface{}{
+			"key": "value",
+		},
+	}
+
+	tokenString := createTestToken(t, privateKey, kid, claims)
+
+	tokenInfo, err := validator.Validate(ctx, tokenString)
+	require.NoError(t, err)
+	require.NotNil(t, tokenInfo)
+
+	assert.Equal(t, "custom_value", tokenInfo.ExtraClaims["custom_claim"])
+	assert.EqualValues(t, 42, tokenInfo.ExtraClaims["another_claim"])
+	assert.NotNil(t, tokenInfo.ExtraClaims["nested"])
+}
+
+func TestValidator_Validate_ClockSkewTolerance(t *testing.T) {
+	ctx := context.Background()
+	kid := "test-key-1"
+	issuerURL := "https://auth.example.com"
+
+	privateKey, jwkKey := newTestKeyPair(t, kid)
+	mockProvider := &mockKeyProvider{key: jwkKey}
+
+	jwtConfig := config.JWTConfig{
+		Issuers: []config.IssuerConfig{
+			{
+				IssuerURL:  issuerURL,
+				Algorithms: []string{"RS256"},
+			},
+		},
+		Validation: config.ValidationConfig{
+			ClockSkew: 5 * time.Minute, // Allow 5 minute skew
+		},
+	}
+
+	validator := NewValidator(mockProvider, jwtConfig)
+
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iss": issuerURL,
+		"sub": "user123",
+		"exp": now.Add(-2 * time.Minute).Unix(), // Expired 2 minutes ago but within 5 min skew
+		"iat": now.Add(-time.Hour).Unix(),
+	}
+
+	tokenString := createTestToken(t, privateKey, kid, claims)
+
+	// Should succeed because of clock skew tolerance
+	tokenInfo, err := validator.Validate(ctx, tokenString)
+	require.NoError(t, err)
+	require.NotNil(t, tokenInfo)
+}
+
+func TestValidator_Validate_MalformedToken(t *testing.T) {
+	ctx := context.Background()
+	mockProvider := &mockKeyProvider{}
+
+	jwtConfig := config.JWTConfig{
+		Issuers: []config.IssuerConfig{
+			{
+				IssuerURL:  "https://auth.example.com",
+				Algorithms: []string{"RS256"},
+			},
+		},
+	}
+
+	validator := NewValidator(mockProvider, jwtConfig)
+
+	tests := []struct {
+		name  string
+		token string
+	}{
+		{"empty_token", ""},
+		{"garbage", "not.a.valid.jwt"},
+		{"only_header", "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9"},
+		{"header_and_payload", "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tokenInfo, err := validator.Validate(ctx, tt.token)
+			assert.Nil(t, tokenInfo)
+			assert.Error(t, err)
+		})
+	}
+}
+
+// =============================================================================
+// Validate Method Benchmarks
+// =============================================================================
+
+func BenchmarkValidator_Validate(b *testing.B) {
+	ctx := context.Background()
+	kid := "test-key-1"
+	issuerURL := "https://auth.example.com"
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	jwkKey, err := jwk.FromRaw(privateKey.Public())
+	if err != nil {
+		b.Fatal(err)
+	}
+	_ = jwkKey.Set(jwk.KeyIDKey, kid)
+	_ = jwkKey.Set(jwk.AlgorithmKey, "RS256")
+
+	mockProvider := &mockKeyProvider{key: jwkKey}
+
+	jwtConfig := config.JWTConfig{
+		Issuers: []config.IssuerConfig{
+			{
+				IssuerURL:  issuerURL,
+				Algorithms: []string{"RS256"},
+			},
+		},
+	}
+
+	validator := NewValidator(mockProvider, jwtConfig)
+
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iss":   issuerURL,
+		"sub":   "user123",
+		"aud":   []string{"api.example.com"},
+		"exp":   now.Add(time.Hour).Unix(),
+		"iat":   now.Unix(),
+		"scope": "openid profile",
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	token.Header["kid"] = kid
+	tokenString, err := token.SignedString(privateKey)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = validator.Validate(ctx, tokenString)
 	}
 }

@@ -13,16 +13,23 @@ import (
 	"github.com/your-org/authz-service/internal/config"
 	"github.com/your-org/authz-service/pkg/errors"
 	"github.com/your-org/authz-service/pkg/logger"
+	"github.com/your-org/authz-service/pkg/resilience/circuitbreaker"
+)
+
+const (
+	// JWKSCircuitBreakerName is the circuit breaker name for JWKS fetching.
+	JWKSCircuitBreakerName = "jwks"
 )
 
 // JWKSProvider manages JWKS fetching and caching for multiple issuers.
 type JWKSProvider struct {
-	mu       sync.RWMutex
-	issuers  map[string]*issuerJWKS
-	client   *http.Client
-	cfg      config.JWKSCacheConfig
-	stopCh   chan struct{}
-	stopOnce sync.Once
+	mu        sync.RWMutex
+	issuers   map[string]*issuerJWKS
+	client    *http.Client
+	cfg       config.JWKSCacheConfig
+	stopCh    chan struct{}
+	stopOnce  sync.Once
+	cbManager *circuitbreaker.Manager
 }
 
 // issuerJWKS holds JWKS data for a single issuer.
@@ -54,6 +61,18 @@ func NewJWKSProvider(issuers []config.IssuerConfig, cacheConfig config.JWKSCache
 	}
 
 	return p
+}
+
+// NewJWKSProviderWithCB creates a new JWKS provider with circuit breaker.
+func NewJWKSProviderWithCB(issuers []config.IssuerConfig, cacheConfig config.JWKSCacheConfig, cbManager *circuitbreaker.Manager) *JWKSProvider {
+	p := NewJWKSProvider(issuers, cacheConfig)
+	p.cbManager = cbManager
+	return p
+}
+
+// SetCircuitBreaker sets the circuit breaker manager for the provider.
+func (p *JWKSProvider) SetCircuitBreaker(cbManager *circuitbreaker.Manager) {
+	p.cbManager = cbManager
 }
 
 // Start begins background JWKS refresh for all issuers.
@@ -155,6 +174,7 @@ func (p *JWKSProvider) GetKeySet(ctx context.Context, issuerURL string) (jwk.Set
 }
 
 // refreshJWKS fetches fresh JWKS for an issuer.
+// If circuit breaker is configured, wraps the HTTP call with circuit breaker protection.
 func (p *JWKSProvider) refreshJWKS(ctx context.Context, issuerURL string) error {
 	p.mu.RLock()
 	issuer, ok := p.issuers[issuerURL]
@@ -189,25 +209,10 @@ func (p *JWKSProvider) refreshJWKS(ctx context.Context, issuerURL string) error 
 		}
 	}
 
-	// Fetch JWKS
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURL, nil)
+	// Fetch JWKS (with optional circuit breaker)
+	keySet, err := p.fetchJWKS(ctx, jwksURL)
 	if err != nil {
-		return errors.Wrap(errors.ErrJWKSFetchFailed, err.Error())
-	}
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return errors.Wrap(errors.ErrJWKSFetchFailed, err.Error())
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return errors.Wrap(errors.ErrJWKSFetchFailed, fmt.Sprintf("HTTP %d", resp.StatusCode))
-	}
-
-	keySet, err := jwk.ParseReader(resp.Body)
-	if err != nil {
-		return errors.Wrap(errors.ErrJWKSParseError, err.Error())
+		return err
 	}
 
 	// Update the key set
@@ -223,6 +228,57 @@ func (p *JWKSProvider) refreshJWKS(ctx context.Context, issuerURL string) error 
 	)
 
 	return nil
+}
+
+// fetchJWKS fetches JWKS from URL, optionally using circuit breaker.
+func (p *JWKSProvider) fetchJWKS(ctx context.Context, jwksURL string) (jwk.Set, error) {
+	if p.cbManager != nil {
+		return p.fetchJWKSWithCircuitBreaker(ctx, jwksURL)
+	}
+	return p.doFetchJWKS(ctx, jwksURL)
+}
+
+// fetchJWKSWithCircuitBreaker wraps JWKS fetch with circuit breaker protection.
+func (p *JWKSProvider) fetchJWKSWithCircuitBreaker(ctx context.Context, jwksURL string) (jwk.Set, error) {
+	result, err := circuitbreaker.ExecuteTyped(p.cbManager, ctx, JWKSCircuitBreakerName, func() (jwk.Set, error) {
+		return p.doFetchJWKS(ctx, jwksURL)
+	})
+
+	if err != nil {
+		logger.Warn("JWKS circuit breaker error",
+			logger.String("url", jwksURL),
+			logger.String("state", p.cbManager.State(JWKSCircuitBreakerName).String()),
+			logger.Err(err),
+		)
+		return nil, errors.Wrap(errors.ErrServiceUnavailable, "JWKS circuit breaker open: "+err.Error())
+	}
+
+	return result, nil
+}
+
+// doFetchJWKS performs the actual JWKS HTTP fetch.
+func (p *JWKSProvider) doFetchJWKS(ctx context.Context, jwksURL string) (jwk.Set, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURL, nil)
+	if err != nil {
+		return nil, errors.Wrap(errors.ErrJWKSFetchFailed, err.Error())
+	}
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, errors.Wrap(errors.ErrJWKSFetchFailed, err.Error())
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.Wrap(errors.ErrJWKSFetchFailed, fmt.Sprintf("HTTP %d", resp.StatusCode))
+	}
+
+	keySet, err := jwk.ParseReader(resp.Body)
+	if err != nil {
+		return nil, errors.Wrap(errors.ErrJWKSParseError, err.Error())
+	}
+
+	return keySet, nil
 }
 
 // discoverJWKSURL discovers JWKS URL from OIDC well-known endpoint.
@@ -260,7 +316,11 @@ func (p *JWKSProvider) discoverJWKSURL(ctx context.Context, issuerURL string) (s
 
 // backgroundRefresh periodically refreshes JWKS for all issuers.
 func (p *JWKSProvider) backgroundRefresh() {
-	ticker := time.NewTicker(p.cfg.RefreshInterval)
+	interval := p.cfg.RefreshInterval
+	if interval <= 0 {
+		interval = 5 * time.Minute // Default to 5 minutes if not configured
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {

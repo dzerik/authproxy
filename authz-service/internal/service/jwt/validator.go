@@ -16,19 +16,24 @@ import (
 	"github.com/your-org/authz-service/pkg/logger"
 )
 
-// Ensure jwk is used
-var _ jwk.Key
+// Verify JWKSProvider implements KeyProvider interface at compile time.
+var _ KeyProvider = (*JWKSProvider)(nil)
+
+// KeyProvider provides signing keys for JWT validation.
+type KeyProvider interface {
+	GetKey(ctx context.Context, issuerURL, keyID string) (jwk.Key, error)
+}
 
 // Validator validates JWT tokens.
 type Validator struct {
-	jwksProvider   *JWKSProvider
-	issuers        map[string]config.IssuerConfig
-	validationCfg  config.ValidationConfig
-	allowedAlgos   map[string]bool
+	keyProvider   KeyProvider
+	issuers       map[string]config.IssuerConfig
+	validationCfg config.ValidationConfig
+	allowedAlgos  map[string]bool
 }
 
 // NewValidator creates a new JWT validator.
-func NewValidator(jwksProvider *JWKSProvider, jwtConfig config.JWTConfig) *Validator {
+func NewValidator(keyProvider KeyProvider, jwtConfig config.JWTConfig) *Validator {
 	issuers := make(map[string]config.IssuerConfig)
 	allowedAlgos := make(map[string]bool)
 
@@ -50,7 +55,7 @@ func NewValidator(jwksProvider *JWKSProvider, jwtConfig config.JWTConfig) *Valid
 	}
 
 	return &Validator{
-		jwksProvider:  jwksProvider,
+		keyProvider:   keyProvider,
 		issuers:       issuers,
 		validationCfg: jwtConfig.Validation,
 		allowedAlgos:  allowedAlgos,
@@ -98,7 +103,7 @@ func (v *Validator) Validate(ctx context.Context, tokenString string) (*domain.T
 	}
 
 	// Get the signing key
-	jwkKey, err := v.jwksProvider.GetKey(ctx, issuer, kid)
+	jwkKey, err := v.keyProvider.GetKey(ctx, issuer, kid)
 	if err != nil {
 		return nil, errors.NewAuthzError(errors.CodeTokenInvalid, "failed to get signing key", err)
 	}

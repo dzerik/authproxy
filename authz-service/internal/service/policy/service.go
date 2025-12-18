@@ -11,16 +11,18 @@ import (
 	"github.com/your-org/authz-service/internal/domain"
 	"github.com/your-org/authz-service/pkg/errors"
 	"github.com/your-org/authz-service/pkg/logger"
+	"github.com/your-org/authz-service/pkg/resilience/circuitbreaker"
 )
 
 // Service provides policy evaluation with caching support.
 type Service struct {
-	engine          Engine
-	fallbackEngine  Engine
-	cache           Cache
-	enhancers       []AuthorizationEnhancer
+	engine            Engine
+	fallbackEngine    Engine
+	cache             Cache
+	enhancers         []AuthorizationEnhancer
 	decisionEnhancers []DecisionEnhancer
-	cfg             config.PolicyConfig
+	cfg               config.PolicyConfig
+	cbManager         *circuitbreaker.Manager
 }
 
 // Cache defines the interface for decision caching.
@@ -53,6 +55,13 @@ func WithDecisionEnhancer(enhancer DecisionEnhancer) ServiceOption {
 	}
 }
 
+// WithCircuitBreaker sets the circuit breaker manager for the service.
+func WithCircuitBreaker(cbManager *circuitbreaker.Manager) ServiceOption {
+	return func(s *Service) {
+		s.cbManager = cbManager
+	}
+}
+
 // NewService creates a new policy service.
 func NewService(cfg config.PolicyConfig, opts ...ServiceOption) (*Service, error) {
 	s := &Service{
@@ -73,7 +82,12 @@ func NewService(cfg config.PolicyConfig, opts ...ServiceOption) (*Service, error
 		}
 		s.engine = engine
 	case "opa-sidecar":
-		s.engine = NewOPASidecarEngine(cfg.OPA)
+		// Use circuit breaker if configured
+		if s.cbManager != nil {
+			s.engine = NewOPASidecarEngineWithCB(cfg.OPA, s.cbManager)
+		} else {
+			s.engine = NewOPASidecarEngine(cfg.OPA)
+		}
 	case "opa-embedded":
 		s.engine = NewOPAEmbeddedEngine(cfg.OPAEmbedded)
 	default:

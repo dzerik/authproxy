@@ -87,6 +87,56 @@ func TestCELEvaluator_Compile_Caching(t *testing.T) {
 	assert.Equal(t, 1, eval.CacheSize())
 }
 
+func TestCELEvaluator_LRUEviction(t *testing.T) {
+	// Create evaluator with small capacity
+	eval, err := NewCELEvaluatorWithCapacity(3)
+	require.NoError(t, err)
+	assert.Equal(t, 3, eval.CacheCapacity())
+
+	// Compile 3 expressions - should all fit
+	expr1 := `request.method == "GET"`
+	expr2 := `request.method == "POST"`
+	expr3 := `request.method == "PUT"`
+
+	_, err = eval.Compile(expr1)
+	require.NoError(t, err)
+	_, err = eval.Compile(expr2)
+	require.NoError(t, err)
+	_, err = eval.Compile(expr3)
+	require.NoError(t, err)
+
+	assert.Equal(t, 3, eval.CacheSize())
+
+	// Access expr1 to make it recently used
+	_, err = eval.Compile(expr1)
+	require.NoError(t, err)
+
+	// Add a 4th expression - should evict expr2 (least recently used)
+	expr4 := `request.method == "DELETE"`
+	_, err = eval.Compile(expr4)
+	require.NoError(t, err)
+
+	assert.Equal(t, 3, eval.CacheSize())
+
+	// expr1, expr3, expr4 should be in cache
+	// expr2 should have been evicted
+
+	// Verify expr1 is still cached (quick compile)
+	_, err = eval.Compile(expr1)
+	require.NoError(t, err)
+
+	// Verify expr3 is still cached
+	_, err = eval.Compile(expr3)
+	require.NoError(t, err)
+
+	// Verify expr4 is still cached
+	_, err = eval.Compile(expr4)
+	require.NoError(t, err)
+
+	// All should still be size 3
+	assert.Equal(t, 3, eval.CacheSize())
+}
+
 func TestCELEvaluator_Evaluate_RoleCheck(t *testing.T) {
 	eval, err := NewCELEvaluator()
 	require.NoError(t, err)

@@ -310,6 +310,35 @@ func TestLimiter_IsExcluded(t *testing.T) {
 	}
 }
 
+func TestLimiter_FailCloseConfig(t *testing.T) {
+	// Test that FailClose defaults properly and is accessible
+	t.Run("fail_close_enabled_by_default", func(t *testing.T) {
+		cfg := config.RateLimitConfig{
+			Enabled:   true,
+			Rate:      "100-S",
+			Store:     "memory",
+			FailClose: true, // Secure default
+		}
+
+		limiter, err := NewLimiter(cfg)
+		require.NoError(t, err)
+		assert.True(t, limiter.cfg.FailClose)
+	})
+
+	t.Run("fail_close_can_be_disabled", func(t *testing.T) {
+		cfg := config.RateLimitConfig{
+			Enabled:   true,
+			Rate:      "100-S",
+			Store:     "memory",
+			FailClose: false, // Explicitly disabled for availability
+		}
+
+		limiter, err := NewLimiter(cfg)
+		require.NoError(t, err)
+		assert.False(t, limiter.cfg.FailClose)
+	})
+}
+
 func BenchmarkLimiter_Middleware(b *testing.B) {
 	cfg := config.RateLimitConfig{
 		Enabled: true,

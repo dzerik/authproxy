@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/your-org/authz-service/internal/config"
@@ -54,7 +55,7 @@ func (c *L1Cache) Get(ctx context.Context, key string) (*domain.Decision, bool) 
 
 	elem, ok := c.items[key]
 	if !ok {
-		c.misses++
+		atomic.AddInt64(&c.misses, 1)
 		return nil, false
 	}
 
@@ -63,13 +64,13 @@ func (c *L1Cache) Get(ctx context.Context, key string) (*domain.Decision, bool) 
 	// Check expiration
 	if time.Now().After(entry.expiresAt) {
 		c.removeElement(elem)
-		c.misses++
+		atomic.AddInt64(&c.misses, 1)
 		return nil, false
 	}
 
 	// Move to front (most recently used)
 	c.order.MoveToFront(elem)
-	c.hits++
+	atomic.AddInt64(&c.hits, 1)
 
 	// Return a copy to prevent mutation
 	decision := *entry.decision
@@ -140,14 +141,18 @@ func (c *L1Cache) Clear(ctx context.Context) {
 // Stats returns cache statistics.
 func (c *L1Cache) Stats() CacheStats {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
+	size := c.order.Len()
+	c.mu.RUnlock()
+
+	hits := atomic.LoadInt64(&c.hits)
+	misses := atomic.LoadInt64(&c.misses)
 
 	return CacheStats{
-		Size:     c.order.Len(),
+		Size:     size,
 		Capacity: c.capacity,
-		Hits:     c.hits,
-		Misses:   c.misses,
-		HitRate:  c.hitRate(),
+		Hits:     hits,
+		Misses:   misses,
+		HitRate:  calculateHitRate(hits, misses),
 	}
 }
 
@@ -166,13 +171,13 @@ func (c *L1Cache) removeElement(elem *list.Element) {
 	delete(c.items, entry.key)
 }
 
-// hitRate calculates the cache hit rate.
-func (c *L1Cache) hitRate() float64 {
-	total := c.hits + c.misses
+// calculateHitRate calculates the cache hit rate from hits and misses.
+func calculateHitRate(hits, misses int64) float64 {
+	total := hits + misses
 	if total == 0 {
 		return 0
 	}
-	return float64(c.hits) / float64(total)
+	return float64(hits) / float64(total)
 }
 
 // StartCleanup starts a background goroutine to clean expired entries.

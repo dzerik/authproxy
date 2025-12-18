@@ -13,6 +13,12 @@ import (
 	"github.com/your-org/authz-service/internal/domain"
 	"github.com/your-org/authz-service/pkg/errors"
 	"github.com/your-org/authz-service/pkg/logger"
+	"github.com/your-org/authz-service/pkg/resilience/circuitbreaker"
+)
+
+const (
+	// OPACircuitBreakerName is the circuit breaker name for OPA sidecar.
+	OPACircuitBreakerName = "opa-sidecar"
 )
 
 // OPASidecarEngine implements policy evaluation via OPA HTTP API.
@@ -21,6 +27,7 @@ type OPASidecarEngine struct {
 	url        string
 	policyPath string
 	retry      config.RetryConfig
+	cbManager  *circuitbreaker.Manager
 }
 
 // opaRequest is the request body for OPA.
@@ -56,6 +63,24 @@ func NewOPASidecarEngine(cfg config.OPAConfig) *OPASidecarEngine {
 		policyPath: cfg.PolicyPath,
 		retry:      cfg.Retry,
 	}
+}
+
+// NewOPASidecarEngineWithCB creates a new OPA sidecar engine with circuit breaker.
+func NewOPASidecarEngineWithCB(cfg config.OPAConfig, cbManager *circuitbreaker.Manager) *OPASidecarEngine {
+	return &OPASidecarEngine{
+		client: &http.Client{
+			Timeout: cfg.Timeout,
+		},
+		url:        cfg.URL,
+		policyPath: cfg.PolicyPath,
+		retry:      cfg.Retry,
+		cbManager:  cbManager,
+	}
+}
+
+// SetCircuitBreaker sets the circuit breaker manager for the engine.
+func (e *OPASidecarEngine) SetCircuitBreaker(cbManager *circuitbreaker.Manager) {
+	e.cbManager = cbManager
 }
 
 // Name returns the engine name.
@@ -104,7 +129,36 @@ func (e *OPASidecarEngine) Healthy(ctx context.Context) bool {
 }
 
 // Evaluate evaluates a policy using OPA HTTP API.
+// If circuit breaker is configured, wraps the call with circuit breaker protection.
 func (e *OPASidecarEngine) Evaluate(ctx context.Context, input *domain.PolicyInput) (*domain.Decision, error) {
+	// If circuit breaker is configured, use it
+	if e.cbManager != nil {
+		return e.evaluateWithCircuitBreaker(ctx, input)
+	}
+
+	return e.evaluateWithRetry(ctx, input)
+}
+
+// evaluateWithCircuitBreaker wraps evaluation with circuit breaker protection.
+func (e *OPASidecarEngine) evaluateWithCircuitBreaker(ctx context.Context, input *domain.PolicyInput) (*domain.Decision, error) {
+	result, err := circuitbreaker.ExecuteTyped(e.cbManager, ctx, OPACircuitBreakerName, func() (*domain.Decision, error) {
+		return e.evaluateWithRetry(ctx, input)
+	})
+
+	if err != nil {
+		// Check if it's a circuit breaker open error
+		logger.Warn("OPA circuit breaker error",
+			logger.String("state", e.cbManager.State(OPACircuitBreakerName).String()),
+			logger.Err(err),
+		)
+		return nil, errors.Wrap(errors.ErrServiceUnavailable, "OPA circuit breaker open: "+err.Error())
+	}
+
+	return result, nil
+}
+
+// evaluateWithRetry performs evaluation with retry logic.
+func (e *OPASidecarEngine) evaluateWithRetry(ctx context.Context, input *domain.PolicyInput) (*domain.Decision, error) {
 	var lastErr error
 
 	for attempt := 0; attempt < e.retry.MaxAttempts; attempt++ {

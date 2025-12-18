@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -614,6 +615,402 @@ func TestFromTokenInfo_ZeroTimes(t *testing.T) {
 
 	assert.Nil(t, resp.ExpiresAt)
 	assert.Nil(t, resp.IssuedAt)
+}
+
+// =============================================================================
+// AuthorizeBatch Tests
+// =============================================================================
+
+func TestHandler_AuthorizeBatch_Success(t *testing.T) {
+	jwtMock := &mockJWTService{
+		validateFunc: func(ctx context.Context, token string) (*domain.TokenInfo, error) {
+			return &domain.TokenInfo{
+				Subject: "user123",
+				Roles:   []string{"admin"},
+				Valid:   true,
+			}, nil
+		},
+	}
+	policyMock := &mockPolicyService{
+		evaluateFunc: func(ctx context.Context, input *domain.PolicyInput) (*domain.Decision, error) {
+			if input.Request.Path == "/api/admin" {
+				return domain.Deny("admin access denied"), nil
+			}
+			return domain.Allow("allowed"), nil
+		},
+	}
+	h := NewHandler(jwtMock, policyMock, "1.0.0")
+
+	body := BatchAuthzRequest{
+		Token: "valid-token",
+		Requests: []AuthzRequest{
+			{Request: RequestDTO{Method: "GET", Path: "/api/users"}},
+			{Request: RequestDTO{Method: "DELETE", Path: "/api/admin"}},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/authorize/batch", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.AuthorizeBatch(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp BatchAuthzResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	require.Len(t, resp.Responses, 2)
+	assert.True(t, resp.Responses[0].Allowed)
+	assert.False(t, resp.Responses[1].Allowed)
+}
+
+func TestHandler_AuthorizeBatch_InvalidJSON(t *testing.T) {
+	h := NewHandler(nil, nil, "1.0.0")
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/authorize/batch", bytes.NewReader([]byte("invalid json")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.AuthorizeBatch(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp ErrorResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, "INVALID_REQUEST", resp.Code)
+}
+
+func TestHandler_AuthorizeBatch_EmptyRequests(t *testing.T) {
+	h := NewHandler(nil, nil, "1.0.0")
+
+	body := BatchAuthzRequest{
+		Requests: []AuthzRequest{},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/authorize/batch", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.AuthorizeBatch(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp ErrorResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Contains(t, resp.Error, "empty")
+}
+
+func TestHandler_AuthorizeBatch_PolicyError(t *testing.T) {
+	policyMock := &mockPolicyService{
+		evaluateFunc: func(ctx context.Context, input *domain.PolicyInput) (*domain.Decision, error) {
+			return nil, assert.AnError
+		},
+	}
+	h := NewHandler(nil, policyMock, "1.0.0")
+
+	body := BatchAuthzRequest{
+		Requests: []AuthzRequest{
+			{Request: RequestDTO{Method: "GET", Path: "/api/users"}},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/authorize/batch", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.AuthorizeBatch(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp BatchAuthzResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	require.Len(t, resp.Responses, 1)
+	assert.False(t, resp.Responses[0].Allowed)
+	assert.Contains(t, resp.Responses[0].Reasons, "policy evaluation failed")
+}
+
+func TestHandler_AuthorizeBatch_NoSharedToken(t *testing.T) {
+	policyMock := &mockPolicyService{
+		evaluateFunc: func(ctx context.Context, input *domain.PolicyInput) (*domain.Decision, error) {
+			// Verify no token is set
+			if input.Token != nil {
+				return domain.Deny("unexpected token"), nil
+			}
+			return domain.Allow("anonymous allowed"), nil
+		},
+	}
+	h := NewHandler(nil, policyMock, "1.0.0")
+
+	body := BatchAuthzRequest{
+		// No token
+		Requests: []AuthzRequest{
+			{Request: RequestDTO{Method: "GET", Path: "/public/docs"}},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/authorize/batch", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.AuthorizeBatch(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp BatchAuthzResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	require.Len(t, resp.Responses, 1)
+	assert.True(t, resp.Responses[0].Allowed)
+}
+
+// =============================================================================
+// TokenExchange Tests
+// =============================================================================
+
+func TestHandler_TokenExchange_JSONRequest(t *testing.T) {
+	jwtMock := &mockJWTService{
+		validateFunc: func(ctx context.Context, token string) (*domain.TokenInfo, error) {
+			return &domain.TokenInfo{Subject: "user123", Valid: true}, nil
+		},
+	}
+	h := NewHandler(jwtMock, nil, "1.0.0")
+
+	body := TokenExchangeRequest{
+		SubjectToken:     "valid-subject-token",
+		SubjectTokenType: "urn:ietf:params:oauth:token-type:access_token",
+		Audience:         "target-api",
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/token/exchange", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.TokenExchange(w, req)
+
+	// Currently returns NOT_IMPLEMENTED
+	assert.Equal(t, http.StatusNotImplemented, w.Code)
+}
+
+func TestHandler_TokenExchange_FormRequest(t *testing.T) {
+	jwtMock := &mockJWTService{
+		validateFunc: func(ctx context.Context, token string) (*domain.TokenInfo, error) {
+			return &domain.TokenInfo{Subject: "user123", Valid: true}, nil
+		},
+	}
+	h := NewHandler(jwtMock, nil, "1.0.0")
+
+	form := "subject_token=valid-token&subject_token_type=access_token&audience=target-api"
+	req := httptest.NewRequest(http.MethodPost, "/v1/token/exchange", bytes.NewReader([]byte(form)))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	h.TokenExchange(w, req)
+
+	// Currently returns NOT_IMPLEMENTED
+	assert.Equal(t, http.StatusNotImplemented, w.Code)
+}
+
+func TestHandler_TokenExchange_InvalidJSON(t *testing.T) {
+	h := NewHandler(nil, nil, "1.0.0")
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/token/exchange", bytes.NewReader([]byte("invalid json")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.TokenExchange(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp ErrorResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, "INVALID_REQUEST", resp.Code)
+}
+
+func TestHandler_TokenExchange_MissingSubjectToken(t *testing.T) {
+	h := NewHandler(nil, nil, "1.0.0")
+
+	body := TokenExchangeRequest{
+		// No SubjectToken
+		Audience: "target-api",
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/token/exchange", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.TokenExchange(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp ErrorResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Contains(t, resp.Error, "subject_token")
+}
+
+func TestHandler_TokenExchange_InvalidSubjectToken(t *testing.T) {
+	jwtMock := &mockJWTService{
+		validateFunc: func(ctx context.Context, token string) (*domain.TokenInfo, error) {
+			return nil, errors.NewAuthzError(errors.CodeTokenInvalid, "invalid token", nil)
+		},
+	}
+	h := NewHandler(jwtMock, nil, "1.0.0")
+
+	body := TokenExchangeRequest{
+		SubjectToken: "invalid-token",
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/token/exchange", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.TokenExchange(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+
+	var resp ErrorResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, errors.CodeTokenInvalid, resp.Code)
+}
+
+// =============================================================================
+// CacheInvalidate Tests
+// =============================================================================
+
+func TestHandler_CacheInvalidate_WithPattern(t *testing.T) {
+	h := NewHandler(nil, nil, "1.0.0")
+
+	body := CacheInvalidateRequest{
+		Pattern: "user:*",
+		Type:    "authorization",
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/admin/cache/invalidate", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.CacheInvalidate(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp CacheInvalidateResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.True(t, resp.Success)
+}
+
+func TestHandler_CacheInvalidate_NoBody(t *testing.T) {
+	h := NewHandler(nil, nil, "1.0.0")
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/admin/cache/invalidate", nil)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.CacheInvalidate(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp CacheInvalidateResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.True(t, resp.Success)
+}
+
+func TestHandler_CacheInvalidate_WithKeys(t *testing.T) {
+	h := NewHandler(nil, nil, "1.0.0")
+
+	body := CacheInvalidateRequest{
+		Keys: []string{"key1", "key2", "key3"},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/admin/cache/invalidate", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.CacheInvalidate(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp CacheInvalidateResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.True(t, resp.Success)
+}
+
+// =============================================================================
+// PolicyReload Tests
+// =============================================================================
+
+func TestHandler_PolicyReload_Success(t *testing.T) {
+	policyMock := &mockPolicyService{
+		reloadFunc: func(ctx context.Context) error {
+			return nil
+		},
+	}
+	h := NewHandler(nil, policyMock, "1.0.0")
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/admin/policy/reload", nil)
+	w := httptest.NewRecorder()
+
+	h.PolicyReload(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp map[string]any
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, true, resp["success"])
+	assert.Contains(t, resp["message"], "reloaded")
+}
+
+func TestHandler_PolicyReload_Error(t *testing.T) {
+	policyMock := &mockPolicyService{
+		reloadFunc: func(ctx context.Context) error {
+			return assert.AnError
+		},
+	}
+	h := NewHandler(nil, policyMock, "1.0.0")
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/admin/policy/reload", nil)
+	w := httptest.NewRecorder()
+
+	h.PolicyReload(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+
+	var resp ErrorResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, "RELOAD_FAILED", resp.Code)
+}
+
+// =============================================================================
+// RegisterRoutes Tests
+// =============================================================================
+
+func TestHandler_RegisterRoutes(t *testing.T) {
+	h := NewHandler(nil, nil, "1.0.0")
+	r := chi.NewRouter()
+
+	// Should not panic
+	require.NotPanics(t, func() {
+		h.RegisterRoutes(r)
+	})
 }
 
 // =============================================================================
