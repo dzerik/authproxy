@@ -93,6 +93,56 @@ proxy:
   idle_conn_timeout: 90s
   timeout: 30s
 
+# Request Body Access for Authorization Rules
+# WARNING: This feature has security and performance implications.
+# Body is buffered in memory and increases latency.
+# Only enable if you need to make authorization decisions based on request body content.
+request_body:
+  # DANGEROUS: Enable request body access in CEL expressions
+  # When enabled, request bodies are buffered in memory for authorization checks.
+  # This adds latency and memory overhead.
+  enabled: false
+
+  # Maximum body size to buffer (bytes)
+  # Larger bodies will be rejected with 413 Payload Too Large
+  max_size: 65536  # 64KB
+
+  # Allowed content types for body parsing
+  # Only JSON bodies are supported
+  allowed_content_types:
+    - "application/json"
+
+  # Require Content-Type header for body access
+  require_content_type: true
+
+  # HTTP methods that allow body access
+  # Empty list defaults to POST, PUT, PATCH
+  methods:
+    - POST
+    - PUT
+    - PATCH
+
+  # Paths where body access is allowed (glob patterns)
+  # Empty list allows all paths
+  # Examples: /api/v1/**, /api/orders/*
+  paths: []
+
+  # Optional JSON Schema validation
+  schema:
+    # Enable schema validation
+    enabled: false
+
+    # Directory containing JSON Schema files
+    # Schema file naming: {path}/{METHOD}.json
+    # Example: /api/v1/users/POST.json
+    schema_dir: "/etc/authz/schemas"
+
+    # Strict validation (fail if no schema found)
+    strict_validation: false
+
+    # Allow additional properties not in schema
+    allow_additional_properties: true
+
 # JWT configuration
 jwt:
   issuers:

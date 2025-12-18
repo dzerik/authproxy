@@ -251,6 +251,10 @@
         "sensitive_data": {
           "$ref": "#/$defs/SensitiveDataConfig",
           "description": "Sensitive data handling configuration. Controls masking of secrets, tokens, and PII in logs."
+        },
+        "request_body": {
+          "$ref": "#/$defs/request_body_config",
+          "description": "Request body access configuration for authorization rules. WARNING: Has security and performance implications."
         }
       },
       "additionalProperties": false,
@@ -1475,6 +1479,80 @@
           "type": "string",
           "description": "Prefix for rate limit keys in Redis.",
           "default": "authz:ratelimit:"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "request_body_config": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "DANGEROUS: Enable request body access in CEL expressions. Bodies are buffered in memory.",
+          "default": false
+        },
+        "max_size": {
+          "type": "integer",
+          "description": "Maximum body size to buffer (bytes). Larger bodies are rejected.",
+          "default": 65536
+        },
+        "allowed_content_types": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Allowed content types for body parsing.",
+          "default": ["application/json"]
+        },
+        "require_content_type": {
+          "type": "boolean",
+          "description": "Require Content-Type header for body access.",
+          "default": true
+        },
+        "methods": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "HTTP methods that allow body access. Empty defaults to POST, PUT, PATCH.",
+          "default": ["POST", "PUT", "PATCH"]
+        },
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Paths where body access is allowed (glob patterns). Empty allows all paths."
+        },
+        "schema": {
+          "$ref": "#/$defs/request_body_schema_config",
+          "description": "Optional JSON Schema validation configuration."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "request_body_schema_config": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable JSON Schema validation for request bodies.",
+          "default": false
+        },
+        "schema_dir": {
+          "type": "string",
+          "description": "Directory containing JSON Schema files. Schema naming: {path}/{METHOD}.json",
+          "default": "/etc/authz/schemas"
+        },
+        "strict_validation": {
+          "type": "boolean",
+          "description": "Fail if no schema found for request. If false, missing schemas pass validation.",
+          "default": false
+        },
+        "allow_additional_properties": {
+          "type": "boolean",
+          "description": "Allow properties not defined in schema.",
+          "default": true
         }
       },
       "additionalProperties": false,

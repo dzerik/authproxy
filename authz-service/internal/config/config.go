@@ -42,6 +42,8 @@ type Config struct {
 	Env EnvConfig `mapstructure:"env" jsonschema:"description=Environment information for context-aware authorization. Available in CEL expressions as 'env' variable."`
 	// TLS client certificate configuration for mTLS/SPIFFE identity
 	TLSClientCert TLSClientCertConfig `mapstructure:"tls_client_cert" jsonschema:"description=Client certificate extraction configuration for mTLS and SPIFFE identity. Available in CEL expressions as 'tls' variable."`
+	// Request body access configuration for authorization rules
+	RequestBody RequestBodyConfig `mapstructure:"request_body" jsonschema:"description=Request body access configuration. WARNING: Enabling this feature has security and performance implications. Available in CEL expressions as 'body' variable."`
 }
 
 // ProxyConfig holds reverse proxy configuration for forwarding authorized requests.
@@ -689,10 +691,54 @@ type HeadersSourceConfig struct {
 	DNSNames string `mapstructure:"dns_names" jsonschema:"description=Header name for SAN DNS names (comma-separated).,default=X-SSL-Client-DNS"`
 	// URI is the header name for SAN URIs (including SPIFFE)
 	URI string `mapstructure:"uri" jsonschema:"description=Header name for SAN URIs including SPIFFE IDs (comma-separated).,default=X-SSL-Client-URI"`
-	// NotBefore is the header name for validity start
-	NotBefore string `mapstructure:"not_before" jsonschema:"description=Header name for certificate validity start time (Unix timestamp or RFC3339).,default=X-SSL-Client-Not-Before"`
-	// NotAfter is the header name for validity end
-	NotAfter string `mapstructure:"not_after" jsonschema:"description=Header name for certificate validity end time (Unix timestamp or RFC3339).,default=X-SSL-Client-Not-After"`
+	// NotBefore is the header name for certificate not before timestamp
+	NotBefore string `mapstructure:"not_before" jsonschema:"description=Header name for certificate not before timestamp.,default=X-SSL-Client-Not-Before"`
+	// NotAfter is the header name for certificate not after timestamp
+	NotAfter string `mapstructure:"not_after" jsonschema:"description=Header name for certificate not after timestamp.,default=X-SSL-Client-Not-After"`
+}
+
+// =============================================================================
+// Request Body Configuration
+// =============================================================================
+
+// RequestBodyConfig holds configuration for request body access in authorization rules.
+// WARNING: Enabling request body access has security and performance implications:
+// - Memory: Body is buffered in memory (up to MaxSize)
+// - Performance: Body must be read before forwarding to upstream
+// - Security: Potential for DoS if MaxSize is too large
+type RequestBodyConfig struct {
+	// Enabled enables request body access in CEL expressions.
+	// This is a potentially dangerous feature and should only be enabled when necessary.
+	Enabled bool `mapstructure:"enabled" jsonschema:"description=Enable request body access in CEL expressions. WARNING: This feature has security and performance implications. Body is buffered in memory and requires JSON validation.,default=false"`
+	// MaxSize is the maximum body size to read (in bytes).
+	// Bodies larger than this will be rejected.
+	MaxSize int64 `mapstructure:"max_size" jsonschema:"description=Maximum request body size in bytes. Bodies larger than this will be rejected with 413 Payload Too Large.,default=1048576,minimum=1024,maximum=10485760"`
+	// AllowedContentTypes restricts which content types can have body access.
+	// Empty means only application/json is allowed.
+	AllowedContentTypes []string `mapstructure:"allowed_content_types" jsonschema:"description=Content types allowed for body access. Empty defaults to application/json only.,example=application/json"`
+	// RequireContentType requires Content-Type header to be present.
+	RequireContentType bool `mapstructure:"require_content_type" jsonschema:"description=Require Content-Type header for body parsing. When true\\, requests without Content-Type are rejected.,default=true"`
+	// Schema validation configuration
+	Schema RequestBodySchemaConfig `mapstructure:"schema" jsonschema:"description=JSON Schema validation configuration for request bodies."`
+	// Methods restricts body access to specific HTTP methods.
+	// Empty means POST, PUT, PATCH only (methods that typically have body).
+	Methods []string `mapstructure:"methods" jsonschema:"description=HTTP methods for which body access is enabled. Empty defaults to POST\\, PUT\\, PATCH.,example=POST,example=PUT,example=PATCH"`
+	// Paths restricts body access to specific path patterns (glob).
+	// Empty means all paths.
+	Paths []string `mapstructure:"paths" jsonschema:"description=Path patterns (glob) for which body access is enabled. Empty means all paths.,example=/api/v1/**"`
+}
+
+// RequestBodySchemaConfig holds JSON Schema validation configuration.
+type RequestBodySchemaConfig struct {
+	// Enabled enables JSON Schema validation.
+	Enabled bool `mapstructure:"enabled" jsonschema:"description=Enable JSON Schema validation for request bodies.,default=false"`
+	// SchemaDir is the directory containing JSON Schema files.
+	// Schemas are loaded by path: /api/v1/users -> schemas/api/v1/users.json
+	SchemaDir string `mapstructure:"schema_dir" jsonschema:"description=Directory containing JSON Schema files. Schema lookup: path + method -> {schema_dir}/{path}/{method}.json,default=/etc/authz/schemas"`
+	// StrictValidation fails requests that don't have a matching schema.
+	StrictValidation bool `mapstructure:"strict_validation" jsonschema:"description=Fail requests without matching schema. When false\\, requests without schema pass validation.,default=false"`
+	// AllowAdditionalProperties allows properties not defined in schema.
+	AllowAdditionalProperties bool `mapstructure:"allow_additional_properties" jsonschema:"description=Allow properties not defined in schema. Maps to JSON Schema additionalProperties.,default=true"`
 }
 
 // Load loads configuration from file and environment.
@@ -898,4 +944,17 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("tls_client_cert.sources.headers.not_after", "X-SSL-Client-Not-After")
 	v.SetDefault("tls_client_cert.sources.headers.verified_value", "SUCCESS")
 	v.SetDefault("tls_client_cert.require_verified", false)
+
+	// Request body defaults
+	// WARNING: request_body.enabled is false by default because it has security implications
+	v.SetDefault("request_body.enabled", false)
+	v.SetDefault("request_body.max_size", 1<<20) // 1MB
+	v.SetDefault("request_body.allowed_content_types", []string{"application/json"})
+	v.SetDefault("request_body.require_content_type", true)
+	v.SetDefault("request_body.methods", []string{"POST", "PUT", "PATCH"})
+	v.SetDefault("request_body.paths", []string{})
+	v.SetDefault("request_body.schema.enabled", false)
+	v.SetDefault("request_body.schema.schema_dir", "/etc/authz/schemas")
+	v.SetDefault("request_body.schema.strict_validation", false)
+	v.SetDefault("request_body.schema.allow_additional_properties", true)
 }

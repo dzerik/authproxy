@@ -49,6 +49,10 @@ func NewCELEvaluator() (*CELEvaluator, error) {
 		// TLS/mTLS client certificate info
 		cel.Variable("tls", cel.MapType(cel.StringType, cel.DynType)),
 
+		// Request body (when enabled)
+		// WARNING: Body access has security and performance implications
+		cel.Variable("body", cel.MapType(cel.StringType, cel.DynType)),
+
 		// Current timestamp
 		cel.Variable("now", cel.TimestampType),
 
@@ -325,6 +329,13 @@ func (e *CELEvaluator) buildEvalContext(input *domain.PolicyInput) map[string]an
 			},
 			"raw": map[string]string{},
 		}
+	}
+
+	// Request body (when available)
+	if input.Body != nil && len(input.Body) > 0 {
+		vars["body"] = input.Body
+	} else {
+		vars["body"] = map[string]any{}
 	}
 
 	return vars

@@ -139,6 +139,7 @@ func (a *App) Initialize(ctx context.Context) error {
 			Egress:        a.cfg.Egress,
 			Env:           a.cfg.Env,
 			TLSClientCert: a.cfg.TLSClientCert,
+			RequestBody:   a.cfg.RequestBody,
 		}
 
 		serverOpts := []httpTransport.ServerOption{}

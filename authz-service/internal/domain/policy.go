@@ -26,6 +26,10 @@ type PolicyInput struct {
 	// TLS contains mTLS/client certificate information
 	TLS *TLSInfo `json:"tls,omitempty"`
 
+	// Body contains parsed request body (if enabled and applicable)
+	// Only available for requests with JSON body when request_body.enabled=true
+	Body map[string]any `json:"body,omitempty"`
+
 	// Extensions is an extension point for future attributes (agent identity, intent, etc.)
 	Extensions map[string]any `json:"extensions,omitempty"`
 }

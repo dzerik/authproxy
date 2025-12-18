@@ -48,6 +48,7 @@ type ServerConfig struct {
 	Egress        config.EgressConfig
 	Env           config.EnvConfig
 	TLSClientCert config.TLSClientCertConfig
+	RequestBody   config.RequestBodyConfig
 }
 
 // NewServer creates a new HTTP server.
@@ -75,7 +76,7 @@ func NewServer(
 
 	// Create reverse proxy if enabled
 	if server.proxyEnabled {
-		proxy, err := NewReverseProxy(cfg.Proxy, cfg.Env, cfg.TLSClientCert, jwtService, policyService)
+		proxy, err := NewReverseProxy(cfg.Proxy, cfg.Env, cfg.TLSClientCert, cfg.RequestBody, jwtService, policyService)
 		if err != nil {
 			return nil, err
 		}

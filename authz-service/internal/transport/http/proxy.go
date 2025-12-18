@@ -16,6 +16,7 @@ import (
 
 	"github.com/your-org/authz-service/internal/config"
 	"github.com/your-org/authz-service/internal/domain"
+	bodyExtractor "github.com/your-org/authz-service/internal/service/body"
 	"github.com/your-org/authz-service/internal/service/jwt"
 	"github.com/your-org/authz-service/internal/service/policy"
 	tlsExtractor "github.com/your-org/authz-service/internal/service/tls"
@@ -27,9 +28,11 @@ type ReverseProxy struct {
 	cfg           config.ProxyConfig
 	envCfg        config.EnvConfig
 	tlsCfg        config.TLSClientCertConfig
+	bodyCfg       config.RequestBodyConfig
 	jwtService    *jwt.Service
 	policyService *policy.Service
 	tlsExtractor  *tlsExtractor.Extractor
+	bodyExtractor *bodyExtractor.Extractor
 	proxies       map[string]*httputil.ReverseProxy
 	routes        []*compiledRoute
 	defaultProxy  *httputil.ReverseProxy
@@ -47,6 +50,7 @@ func NewReverseProxy(
 	cfg config.ProxyConfig,
 	envCfg config.EnvConfig,
 	tlsCfg config.TLSClientCertConfig,
+	bodyCfg config.RequestBodyConfig,
 	jwtService *jwt.Service,
 	policyService *policy.Service,
 ) (*ReverseProxy, error) {
@@ -54,6 +58,7 @@ func NewReverseProxy(
 		cfg:           cfg,
 		envCfg:        envCfg,
 		tlsCfg:        tlsCfg,
+		bodyCfg:       bodyCfg,
 		jwtService:    jwtService,
 		policyService: policyService,
 		proxies:       make(map[string]*httputil.ReverseProxy),
@@ -69,6 +74,18 @@ func NewReverseProxy(
 		logger.Info("TLS client certificate extraction enabled",
 			logger.Bool("xfcc", tlsCfg.Sources.XFCC.Enabled),
 			logger.Bool("headers", tlsCfg.Sources.Headers.Enabled),
+		)
+	}
+
+	// Create body extractor if enabled
+	// WARNING: Request body access has security and performance implications
+	if bodyCfg.Enabled {
+		rp.bodyExtractor = bodyExtractor.NewExtractor(bodyCfg)
+		logger.Warn("⚠️  REQUEST BODY ACCESS ENABLED - This feature buffers request bodies in memory "+
+			"and may have security implications. Ensure proper validation is configured.",
+			logger.Int64("max_size", bodyCfg.MaxSize),
+			logger.Bool("schema_validation", bodyCfg.Schema.Enabled),
+			logger.Strings("methods", bodyCfg.Methods),
 		)
 	}
 
@@ -339,6 +356,22 @@ func (rp *ReverseProxy) buildPolicyInput(r *http.Request) *domain.PolicyInput {
 				input.Source.Namespace = tlsInfo.SPIFFE.Namespace
 				input.Source.ServiceAccount = tlsInfo.SPIFFE.ServiceAccount
 			}
+		}
+	}
+
+	// Extract request body if extractor is enabled
+	// WARNING: This buffers the request body in memory
+	if rp.bodyExtractor != nil {
+		body, err := rp.bodyExtractor.Extract(r)
+		if err != nil {
+			logger.Warn("failed to extract request body for authorization",
+				logger.String("path", r.URL.Path),
+				logger.String("method", r.Method),
+				logger.Err(err),
+			)
+			// Don't fail the request, just skip body access
+		} else if body != nil {
+			input.Body = body
 		}
 	}
 
