@@ -976,6 +976,128 @@ rules:
     effect: allow
 
   # ============================================================================
+  # SECTION 9.7: REQUEST BODY-BASED RULES (Priority 5-8)
+  # ============================================================================
+  # Rules using request body content for authorization decisions.
+  # REQUIRES: request_body.enabled=true in config.yaml
+  #
+  # ⚠️  WARNING: Request body access has security and performance implications!
+  # - Bodies are buffered in memory
+  # - Only works for JSON bodies
+  # - Only for configured methods (default: POST, PUT, PATCH)
+  # - Only for configured paths
+  #
+  # Available body variables:
+  #   body.field_name        - Access top-level JSON field
+  #   body.nested.field      - Access nested fields
+  #   body._array            - Array content (when body is JSON array)
+  #   body._type             - "array" for arrays, empty for objects
+
+  # --------------------------------------------------------------------------
+  # Financial Transaction Limits
+  # --------------------------------------------------------------------------
+  # Limit transfer amounts based on user role
+  - name: transfer-amount-limit
+    description: "Limit transfer amounts: users max 10000, managers max 100000, admins unlimited"
+    priority: 8
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/transfers"
+        - "/api/v1/payments"
+
+      methods:
+        - POST
+
+      # CEL: check amount limits based on role
+      # body.amount is extracted from JSON request body
+      expression: |
+        ("admin" in token.roles) ||
+        ("manager" in token.roles && body.amount <= 100000) ||
+        ("user" in token.roles && body.amount <= 10000)
+      expression_mode: override
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Multi-tenant Data Isolation
+  # --------------------------------------------------------------------------
+  # Ensure users can only create/modify resources in their tenant
+  - name: tenant-isolation-body
+    description: "Users can only operate on data within their tenant"
+    priority: 7
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/resources/**"
+
+      methods:
+        - POST
+        - PUT
+        - PATCH
+
+      # CEL: tenant_id in body must match user's tenant claim
+      expression: |
+        body.tenant_id == token.claims["tenant_id"] ||
+        "super_admin" in token.roles
+      expression_mode: override
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Content-based Action Authorization
+  # --------------------------------------------------------------------------
+  # Different permissions for different actions in body
+  - name: action-based-authorization
+    description: "Authorize based on action field in request body"
+    priority: 6
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/workflows/**"
+
+      methods:
+        - POST
+
+      # CEL: check action field and required role
+      expression: |
+        (body.action == "submit" && "user" in token.roles) ||
+        (body.action == "approve" && "manager" in token.roles) ||
+        (body.action == "reject" && "manager" in token.roles) ||
+        (body.action == "cancel" && ("user" in token.roles || "manager" in token.roles)) ||
+        (body.action == "force_complete" && "admin" in token.roles)
+      expression_mode: override
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Batch Operation Limits
+  # --------------------------------------------------------------------------
+  # Limit number of items in batch operations
+  - name: batch-size-limit
+    description: "Limit batch operation size based on role"
+    priority: 5
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/*/batch"
+        - "/api/v1/admin/bulk/**"
+
+      methods:
+        - POST
+
+      # CEL: check array size for batch operations
+      # body._array contains the array when body is JSON array
+      # size() function returns array length
+      expression: |
+        ("admin" in token.roles) ||
+        ("manager" in token.roles && size(body._array) <= 100) ||
+        ("user" in token.roles && size(body._array) <= 10)
+      expression_mode: override
+
+    effect: allow
+
+  # ============================================================================
   # SECTION 10: DEFAULT DENY (Priority 1)
   # ============================================================================
   # Catch-all rule to deny unauthenticated access to API endpoints.
@@ -1117,6 +1239,13 @@ rules:
 #      - context.timestamp   (int)    Request timestamp
 #      - context.custom      (map)    Custom context data
 #
+#    body - Request body (REQUIRES request_body.enabled=true):
+#      - body.field_name     (any)    Access JSON field by name
+#      - body.nested.field   (any)    Access nested fields
+#      - body._array         (list)   Array content (when body is JSON array)
+#      - body._type          (string) "array" for arrays, empty for objects
+#      ⚠️  WARNING: Body access has performance implications!
+#
 #    now - Current timestamp (CEL timestamp type)
 #
 # 2. CUSTOM FUNCTIONS:
@@ -1191,6 +1320,36 @@ rules:
 #
 #    # Certificate not expired
 #    'tls.not_after > int(now)'
+#
+#    # REQUEST BODY PATTERNS (requires request_body.enabled=true):
+#
+#    # Amount limit check
+#    'body.amount <= 10000'
+#
+#    # Role-based amount limits
+#    '"admin" in token.roles || body.amount <= 10000'
+#
+#    # Tenant isolation
+#    'body.tenant_id == token.claims["tenant_id"]'
+#
+#    # Action-based authorization
+#    'body.action in ["submit", "save_draft"]'
+#
+#    # Nested field access
+#    'body.payment.method == "card" && body.payment.amount <= 5000'
+#
+#    # Array body size limit
+#    'size(body._array) <= 100'
+#
+#    # Check if body is array
+#    'body._type == "array"'
+#
+#    # Ownership in body
+#    'body.owner_id == token.sub'
+#
+#    # Combined body + role check
+#    '(body.priority == "high" && "manager" in token.roles) ||
+#     (body.priority == "normal" && "user" in token.roles)'
 #
 # 5. PERFORMANCE NOTES:
 #

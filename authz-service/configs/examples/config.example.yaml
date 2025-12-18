@@ -937,6 +937,111 @@ tls_client_cert:
   require_verified: true
 
 # ==============================================================================
+# REQUEST BODY ACCESS CONFIGURATION
+# ==============================================================================
+# Configuration for accessing request body content in authorization rules.
+#
+# ⚠️  WARNING: This feature has security and performance implications!
+# - Request bodies are buffered in memory (affects latency and memory usage)
+# - Enables content-based authorization (e.g., checking transfer amounts)
+# - Should only be enabled when absolutely necessary
+# - Always use with proper validation (JSON Schema recommended)
+#
+# When enabled, the 'body' variable is available in CEL expressions:
+#   body.field_name             - Access JSON field
+#   body.nested.field           - Access nested fields
+#   body._array                 - Array body content (when body is JSON array)
+#   body._type                  - "array" for array bodies, empty for objects
+#
+# Use cases:
+#   - Financial limits: body.amount < 10000
+#   - Content validation: body.action in ["approve", "reject"]
+#   - Multi-tenant isolation: body.tenant_id == token.claims["tenant"]
+#   - Ownership verification: body.owner_id == token.sub
+
+request_body:
+  # --------------------------------------------------------------------------
+  # Feature Toggle (DANGEROUS!)
+  # --------------------------------------------------------------------------
+  # Enable request body access in CEL expressions.
+  # When enabled, a WARNING is logged at service startup.
+  # Env: AUTHZ_REQUEST_BODY_ENABLED
+  enabled: false
+
+  # --------------------------------------------------------------------------
+  # Size Limits
+  # --------------------------------------------------------------------------
+  # Maximum body size to buffer in bytes.
+  # Larger bodies are rejected with 413 Payload Too Large.
+  # Keep this as small as possible for your use case.
+  # Env: AUTHZ_REQUEST_BODY_MAX_SIZE
+  max_size: 65536  # 64KB
+
+  # --------------------------------------------------------------------------
+  # Content-Type Restrictions
+  # --------------------------------------------------------------------------
+  # Only these content types are parsed.
+  # Currently only JSON is supported.
+  allowed_content_types:
+    - "application/json"
+
+  # Require Content-Type header to be present.
+  # Recommended: true to prevent content-type confusion attacks.
+  # Env: AUTHZ_REQUEST_BODY_REQUIRE_CONTENT_TYPE
+  require_content_type: true
+
+  # --------------------------------------------------------------------------
+  # HTTP Method Restrictions
+  # --------------------------------------------------------------------------
+  # Only allow body access for these HTTP methods.
+  # Empty list defaults to: POST, PUT, PATCH
+  # Note: GET/HEAD/DELETE typically don't have request bodies.
+  methods:
+    - POST
+    - PUT
+    - PATCH
+
+  # --------------------------------------------------------------------------
+  # Path Restrictions
+  # --------------------------------------------------------------------------
+  # Only allow body access for requests matching these paths.
+  # Supports glob patterns: *, **, ?
+  # Empty list = allow all paths (not recommended).
+  # Examples:
+  #   - "/api/v1/transfers/**"    - All transfer endpoints
+  #   - "/api/v1/*/create"        - All create actions
+  paths:
+    - "/api/v1/transfers/**"
+    - "/api/v1/payments/**"
+    - "/api/v1/admin/batch/**"
+
+  # --------------------------------------------------------------------------
+  # JSON Schema Validation (Recommended)
+  # --------------------------------------------------------------------------
+  # Validate request body against JSON Schema before authorization.
+  # Provides additional security by ensuring body structure.
+  schema:
+    # Enable JSON Schema validation
+    enabled: false
+
+    # Directory containing JSON Schema files
+    # Schema file naming convention:
+    #   {schema_dir}/{path}/{METHOD}.json
+    #   OR {schema_dir}/{path}.json (method-agnostic)
+    #
+    # Example: /etc/authz/schemas/api/v1/transfers/POST.json
+    schema_dir: "/etc/authz/schemas"
+
+    # Strict validation mode:
+    # - true: Reject requests if schema not found
+    # - false: Pass validation if schema not found (default)
+    strict_validation: false
+
+    # Allow additional properties not defined in schema.
+    # Recommended: false for strict validation.
+    allow_additional_properties: true
+
+# ==============================================================================
 # ENVIRONMENT CONFIGURATION (CEL Context)
 # ==============================================================================
 # Environment information available in CEL expressions as 'env' variable.
