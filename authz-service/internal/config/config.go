@@ -40,6 +40,8 @@ type Config struct {
 	SensitiveData SensitiveDataConfig `mapstructure:"sensitive_data" jsonschema:"description=Sensitive data handling configuration. Controls masking of secrets\\, tokens\\, and PII in logs."`
 	// Environment configuration for CEL expressions
 	Env EnvConfig `mapstructure:"env" jsonschema:"description=Environment information for context-aware authorization. Available in CEL expressions as 'env' variable."`
+	// TLS client certificate configuration for mTLS/SPIFFE identity
+	TLSClientCert TLSClientCertConfig `mapstructure:"tls_client_cert" jsonschema:"description=Client certificate extraction configuration for mTLS and SPIFFE identity. Available in CEL expressions as 'tls' variable."`
 }
 
 // ProxyConfig holds reverse proxy configuration for forwarding authorized requests.
@@ -630,6 +632,69 @@ type EnvConfig struct {
 	Custom map[string]any `mapstructure:"custom" jsonschema:"description=Custom environment attributes. Available in CEL as env.custom['key']."`
 }
 
+// =============================================================================
+// TLS Client Certificate Configuration (mTLS/SPIFFE)
+// =============================================================================
+
+// TLSClientCertConfig holds configuration for extracting client certificate information.
+// This enables authorization based on mTLS identity and SPIFFE IDs.
+type TLSClientCertConfig struct {
+	// Enabled enables client certificate extraction
+	Enabled bool `mapstructure:"enabled" jsonschema:"description=Enable client certificate extraction for mTLS/SPIFFE identity. When enabled\\, certificate info is available in CEL as 'tls' variable.,default=false"`
+	// Sources configures where to extract certificate information from
+	Sources TLSSourcesConfig `mapstructure:"sources" jsonschema:"description=Certificate information sources. Multiple sources can be enabled and will be used in cascade (XFCC first\\, then headers)."`
+	// TrustedSPIFFEDomains is a list of trusted SPIFFE trust domains
+	TrustedSPIFFEDomains []string `mapstructure:"trusted_spiffe_domains" jsonschema:"description=List of trusted SPIFFE trust domains. If specified\\, only certificates with matching trust domains are accepted.,example=cluster.local,example=prod.example.com"`
+	// TrustedProxyCIDRs is a list of trusted proxy CIDRs for XFCC header
+	TrustedProxyCIDRs []string `mapstructure:"trusted_proxy_cidrs" jsonschema:"description=CIDR ranges of trusted proxies for XFCC header. Only accept XFCC from these sources to prevent header injection.,example=10.0.0.0/8,example=172.16.0.0/12"`
+	// RequireVerified requires client certificate to be verified
+	RequireVerified bool `mapstructure:"require_verified" jsonschema:"description=Require client certificate to be verified. When true\\, requests without verified certificates are rejected.,default=false"`
+}
+
+// TLSSourcesConfig holds configuration for certificate extraction sources.
+type TLSSourcesConfig struct {
+	// XFCC configures X-Forwarded-Client-Cert header parsing (Envoy/Istio standard)
+	XFCC XFCCSourceConfig `mapstructure:"xfcc" jsonschema:"description=X-Forwarded-Client-Cert (XFCC) header configuration. This is the standard header used by Envoy/Istio for passing client certificate information."`
+	// Headers configures individual header extraction (Nginx/HAProxy style)
+	Headers HeadersSourceConfig `mapstructure:"headers" jsonschema:"description=Individual headers configuration for extracting certificate fields. Used by Nginx\\, HAProxy\\, and other reverse proxies."`
+}
+
+// XFCCSourceConfig holds X-Forwarded-Client-Cert header configuration.
+type XFCCSourceConfig struct {
+	// Enabled enables XFCC header parsing
+	Enabled bool `mapstructure:"enabled" jsonschema:"description=Enable XFCC header parsing. This is the primary source when using Envoy/Istio.,default=true"`
+	// Header is the XFCC header name
+	Header string `mapstructure:"header" jsonschema:"description=XFCC header name.,default=X-Forwarded-Client-Cert"`
+}
+
+// HeadersSourceConfig holds individual headers configuration for certificate extraction.
+type HeadersSourceConfig struct {
+	// Enabled enables individual headers extraction
+	Enabled bool `mapstructure:"enabled" jsonschema:"description=Enable individual header extraction. Used as fallback when XFCC is not available.,default=false"`
+	// Subject is the header name for subject DN
+	Subject string `mapstructure:"subject" jsonschema:"description=Header name for certificate subject DN.,default=X-SSL-Client-S-DN"`
+	// Issuer is the header name for issuer DN
+	Issuer string `mapstructure:"issuer" jsonschema:"description=Header name for certificate issuer DN.,default=X-SSL-Client-I-DN"`
+	// CommonName is the header name for common name
+	CommonName string `mapstructure:"common_name" jsonschema:"description=Header name for certificate common name (CN).,default=X-SSL-Client-CN"`
+	// Serial is the header name for serial number
+	Serial string `mapstructure:"serial" jsonschema:"description=Header name for certificate serial number.,default=X-SSL-Client-Serial"`
+	// Verified is the header name for verification status
+	Verified string `mapstructure:"verified" jsonschema:"description=Header name for certificate verification status.,default=X-SSL-Client-Verify"`
+	// VerifiedValue is the value indicating successful verification
+	VerifiedValue string `mapstructure:"verified_value" jsonschema:"description=Value in verified header that indicates successful verification.,default=SUCCESS"`
+	// Fingerprint is the header name for certificate fingerprint
+	Fingerprint string `mapstructure:"fingerprint" jsonschema:"description=Header name for certificate SHA256 fingerprint.,default=X-SSL-Client-Fingerprint"`
+	// DNSNames is the header name for SAN DNS names
+	DNSNames string `mapstructure:"dns_names" jsonschema:"description=Header name for SAN DNS names (comma-separated).,default=X-SSL-Client-DNS"`
+	// URI is the header name for SAN URIs (including SPIFFE)
+	URI string `mapstructure:"uri" jsonschema:"description=Header name for SAN URIs including SPIFFE IDs (comma-separated).,default=X-SSL-Client-URI"`
+	// NotBefore is the header name for validity start
+	NotBefore string `mapstructure:"not_before" jsonschema:"description=Header name for certificate validity start time (Unix timestamp or RFC3339).,default=X-SSL-Client-Not-Before"`
+	// NotAfter is the header name for validity end
+	NotAfter string `mapstructure:"not_after" jsonschema:"description=Header name for certificate validity end time (Unix timestamp or RFC3339).,default=X-SSL-Client-Not-After"`
+}
+
 // Load loads configuration from file and environment.
 func Load(configPath string) (*Config, error) {
 	v := viper.New()
@@ -815,4 +880,22 @@ func setDefaults(v *viper.Viper) {
 
 	// Environment defaults
 	v.SetDefault("env.name", "development")
+
+	// TLS Client Cert defaults
+	v.SetDefault("tls_client_cert.enabled", false)
+	v.SetDefault("tls_client_cert.sources.xfcc.enabled", true)
+	v.SetDefault("tls_client_cert.sources.xfcc.header", "X-Forwarded-Client-Cert")
+	v.SetDefault("tls_client_cert.sources.headers.enabled", false)
+	v.SetDefault("tls_client_cert.sources.headers.subject", "X-SSL-Client-S-DN")
+	v.SetDefault("tls_client_cert.sources.headers.issuer", "X-SSL-Client-I-DN")
+	v.SetDefault("tls_client_cert.sources.headers.common_name", "X-SSL-Client-CN")
+	v.SetDefault("tls_client_cert.sources.headers.serial", "X-SSL-Client-Serial")
+	v.SetDefault("tls_client_cert.sources.headers.verified", "X-SSL-Client-Verify")
+	v.SetDefault("tls_client_cert.sources.headers.fingerprint", "X-SSL-Client-Fingerprint")
+	v.SetDefault("tls_client_cert.sources.headers.dns_names", "X-SSL-Client-DNS")
+	v.SetDefault("tls_client_cert.sources.headers.uri", "X-SSL-Client-URI")
+	v.SetDefault("tls_client_cert.sources.headers.not_before", "X-SSL-Client-Not-Before")
+	v.SetDefault("tls_client_cert.sources.headers.not_after", "X-SSL-Client-Not-After")
+	v.SetDefault("tls_client_cert.sources.headers.verified_value", "SUCCESS")
+	v.SetDefault("tls_client_cert.require_verified", false)
 }

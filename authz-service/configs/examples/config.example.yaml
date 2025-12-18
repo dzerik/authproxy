@@ -845,6 +845,98 @@ tracing:
     service.version: "2.0.0"
 
 # ==============================================================================
+# TLS CLIENT CERTIFICATE CONFIGURATION (mTLS/SPIFFE)
+# ==============================================================================
+# Configuration for extracting client certificate information from HTTP requests.
+# Supports two extraction modes that can work in parallel:
+#   1. XFCC (X-Forwarded-Client-Cert) - Envoy/Istio standard
+#   2. Individual headers - Nginx/HAProxy/Apache style
+#
+# Features:
+#   - Cascade extraction: XFCC first, then headers, with merge
+#   - SPIFFE identity parsing from certificate URIs
+#   - Trusted proxy validation for XFCC header security
+#   - Trusted SPIFFE domains validation
+#
+# CEL variable 'tls' is available in rules for mTLS-based authorization:
+#   tls.verified                  - Certificate verified by proxy
+#   tls.subject                   - Certificate subject DN
+#   tls.issuer                    - Certificate issuer DN
+#   tls.common_name               - Common Name (CN) from subject
+#   tls.serial                    - Certificate serial number
+#   tls.fingerprint               - Certificate fingerprint/hash
+#   tls.dns_names                 - DNS SANs from certificate
+#   tls.uris                      - URI SANs from certificate
+#   tls.not_before                - Certificate validity start (Unix timestamp)
+#   tls.not_after                 - Certificate validity end (Unix timestamp)
+#   tls.spiffe.trust_domain       - SPIFFE trust domain
+#   tls.spiffe.namespace          - Kubernetes namespace (from SPIFFE)
+#   tls.spiffe.service_account    - Kubernetes service account (from SPIFFE)
+#   tls.spiffe.path               - SPIFFE path
+#   tls.spiffe.uri                - Full SPIFFE URI
+
+tls_client_cert:
+  # Enable TLS client certificate extraction
+  enabled: false
+
+  # --------------------------------------------------------------------------
+  # Extraction Sources
+  # --------------------------------------------------------------------------
+  # Both sources can be enabled simultaneously.
+  # XFCC is checked first, then headers (with merge for missing fields).
+  sources:
+    # XFCC header (Envoy/Istio)
+    # Format: Hash=<hash>;Cert="<cert>";Subject="<subject>";URI=<uri>;DNS=<dns>
+    xfcc:
+      enabled: true
+      header: "X-Forwarded-Client-Cert"
+
+    # Individual headers (Nginx/HAProxy/Apache)
+    # Configure header names for each certificate field
+    headers:
+      enabled: true
+      subject: "X-SSL-Client-Subject-DN"
+      issuer: "X-SSL-Client-Issuer-DN"
+      common_name: "X-SSL-Client-CN"
+      serial: "X-SSL-Client-Serial"
+      verified: "X-SSL-Client-Verify"
+      verified_value: "SUCCESS"  # Value indicating successful verification
+      fingerprint: "X-SSL-Client-Fingerprint"
+      dns_names: "X-SSL-Client-DNS"
+      uri: "X-SSL-Client-URI"
+      not_before: "X-SSL-Client-NotBefore"
+      not_after: "X-SSL-Client-NotAfter"
+
+  # --------------------------------------------------------------------------
+  # Trusted SPIFFE Domains
+  # --------------------------------------------------------------------------
+  # Only SPIFFE identities from these trust domains are accepted.
+  # Empty list = accept all domains (not recommended for production).
+  trusted_spiffe_domains:
+    - "cluster.local"           # Kubernetes default
+    - "example.com"             # Corporate domain
+    - "staging.example.com"     # Staging environment
+
+  # --------------------------------------------------------------------------
+  # Trusted Proxy CIDRs
+  # --------------------------------------------------------------------------
+  # XFCC headers are only trusted from these IP ranges.
+  # Prevents XFCC header injection attacks from untrusted sources.
+  # Empty list = trust all sources (not recommended for production).
+  trusted_proxy_cidrs:
+    - "10.0.0.0/8"              # Private network Class A
+    - "172.16.0.0/12"           # Private network Class B
+    - "192.168.0.0/16"          # Private network Class C
+    - "127.0.0.1/32"            # Localhost
+    - "::1/128"                 # IPv6 localhost
+
+  # --------------------------------------------------------------------------
+  # Verification Requirements
+  # --------------------------------------------------------------------------
+  # Require certificate to be verified by the proxy
+  require_verified: true
+
+# ==============================================================================
 # ENVIRONMENT CONFIGURATION (CEL Context)
 # ==============================================================================
 # Environment information available in CEL expressions as 'env' variable.

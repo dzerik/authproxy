@@ -46,6 +46,9 @@ func NewCELEvaluator() (*CELEvaluator, error) {
 		// Environment info (production, staging, etc.)
 		cel.Variable("env", cel.MapType(cel.StringType, cel.DynType)),
 
+		// TLS/mTLS client certificate info
+		cel.Variable("tls", cel.MapType(cel.StringType, cel.DynType)),
+
 		// Current timestamp
 		cel.Variable("now", cel.TimestampType),
 
@@ -255,6 +258,73 @@ func (e *CELEvaluator) buildEvalContext(input *domain.PolicyInput) map[string]an
 		"version":  input.Env.Version,
 		"features": features,
 		"custom":   custom,
+	}
+
+	// TLS/mTLS variables
+	if input.TLS != nil {
+		spiffe := map[string]any{
+			"trust_domain":    "",
+			"namespace":       "",
+			"service_account": "",
+			"path":            "",
+			"uri":             "",
+		}
+		if input.TLS.SPIFFE != nil {
+			spiffe = map[string]any{
+				"trust_domain":    input.TLS.SPIFFE.TrustDomain,
+				"namespace":       input.TLS.SPIFFE.Namespace,
+				"service_account": input.TLS.SPIFFE.ServiceAccount,
+				"path":            input.TLS.SPIFFE.Path,
+				"uri":             input.TLS.SPIFFE.URI,
+			}
+		}
+		dnsNames := input.TLS.DNSNames
+		if dnsNames == nil {
+			dnsNames = []string{}
+		}
+		uris := input.TLS.URIs
+		if uris == nil {
+			uris = []string{}
+		}
+		raw := input.TLS.Raw
+		if raw == nil {
+			raw = map[string]string{}
+		}
+		vars["tls"] = map[string]any{
+			"verified":    input.TLS.Verified,
+			"subject":     input.TLS.Subject,
+			"issuer":      input.TLS.Issuer,
+			"common_name": input.TLS.CommonName,
+			"serial":      input.TLS.Serial,
+			"not_before":  input.TLS.NotBefore,
+			"not_after":   input.TLS.NotAfter,
+			"dns_names":   dnsNames,
+			"uris":        uris,
+			"fingerprint": input.TLS.Fingerprint,
+			"spiffe":      spiffe,
+			"raw":         raw,
+		}
+	} else {
+		vars["tls"] = map[string]any{
+			"verified":    false,
+			"subject":     "",
+			"issuer":      "",
+			"common_name": "",
+			"serial":      "",
+			"not_before":  int64(0),
+			"not_after":   int64(0),
+			"dns_names":   []string{},
+			"uris":        []string{},
+			"fingerprint": "",
+			"spiffe": map[string]any{
+				"trust_domain":    "",
+				"namespace":       "",
+				"service_account": "",
+				"path":            "",
+				"uri":             "",
+			},
+			"raw": map[string]string{},
+		}
 	}
 
 	return vars

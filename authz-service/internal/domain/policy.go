@@ -23,6 +23,9 @@ type PolicyInput struct {
 	// Env contains environment information (production, staging, etc.)
 	Env EnvInfo `json:"env,omitempty"`
 
+	// TLS contains mTLS/client certificate information
+	TLS *TLSInfo `json:"tls,omitempty"`
+
 	// Extensions is an extension point for future attributes (agent identity, intent, etc.)
 	Extensions map[string]any `json:"extensions,omitempty"`
 }
@@ -153,6 +156,66 @@ type EnvInfo struct {
 
 	// Custom contains any additional environment-specific attributes
 	Custom map[string]any `json:"custom,omitempty"`
+}
+
+// TLSInfo contains mTLS/client certificate information for service identity.
+// This enables authorization based on client certificates and SPIFFE identities.
+type TLSInfo struct {
+	// Verified indicates whether the client certificate was successfully verified
+	Verified bool `json:"verified"`
+
+	// Subject is the full subject Distinguished Name (DN) from the certificate
+	Subject string `json:"subject,omitempty"`
+
+	// Issuer is the full issuer Distinguished Name (DN) from the certificate
+	Issuer string `json:"issuer,omitempty"`
+
+	// CommonName is the CN (Common Name) from the certificate subject
+	CommonName string `json:"common_name,omitempty"`
+
+	// Serial is the certificate serial number
+	Serial string `json:"serial,omitempty"`
+
+	// NotBefore is the certificate validity start time (Unix timestamp)
+	NotBefore int64 `json:"not_before,omitempty"`
+
+	// NotAfter is the certificate validity end time (Unix timestamp)
+	NotAfter int64 `json:"not_after,omitempty"`
+
+	// DNSNames contains Subject Alternative Name (SAN) DNS entries
+	DNSNames []string `json:"dns_names,omitempty"`
+
+	// URIs contains Subject Alternative Name (SAN) URI entries (including SPIFFE IDs)
+	URIs []string `json:"uris,omitempty"`
+
+	// Fingerprint is the SHA256 fingerprint of the certificate
+	Fingerprint string `json:"fingerprint,omitempty"`
+
+	// SPIFFE contains parsed SPIFFE identity information (if present in URIs)
+	SPIFFE *SPIFFEInfo `json:"spiffe,omitempty"`
+
+	// Raw contains raw header values for custom parsing
+	Raw map[string]string `json:"raw,omitempty"`
+}
+
+// SPIFFEInfo contains parsed SPIFFE identity information.
+// SPIFFE URI format: spiffe://<trust-domain>/ns/<namespace>/sa/<service-account>
+// Example: spiffe://cluster.local/ns/production/sa/payment-service
+type SPIFFEInfo struct {
+	// TrustDomain is the SPIFFE trust domain (e.g., "cluster.local", "example.com")
+	TrustDomain string `json:"trust_domain,omitempty"`
+
+	// Namespace is the Kubernetes namespace (extracted from /ns/<namespace>)
+	Namespace string `json:"namespace,omitempty"`
+
+	// ServiceAccount is the Kubernetes service account (extracted from /sa/<service-account>)
+	ServiceAccount string `json:"service_account,omitempty"`
+
+	// Path is the full path after trust domain (e.g., "/ns/production/sa/payment-service")
+	Path string `json:"path,omitempty"`
+
+	// URI is the full SPIFFE URI
+	URI string `json:"uri,omitempty"`
 }
 
 // SetExtension sets an extension value.

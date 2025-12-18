@@ -18,6 +18,7 @@ import (
 	"github.com/your-org/authz-service/internal/domain"
 	"github.com/your-org/authz-service/internal/service/jwt"
 	"github.com/your-org/authz-service/internal/service/policy"
+	tlsExtractor "github.com/your-org/authz-service/internal/service/tls"
 	"github.com/your-org/authz-service/pkg/logger"
 )
 
@@ -25,8 +26,10 @@ import (
 type ReverseProxy struct {
 	cfg           config.ProxyConfig
 	envCfg        config.EnvConfig
+	tlsCfg        config.TLSClientCertConfig
 	jwtService    *jwt.Service
 	policyService *policy.Service
+	tlsExtractor  *tlsExtractor.Extractor
 	proxies       map[string]*httputil.ReverseProxy
 	routes        []*compiledRoute
 	defaultProxy  *httputil.ReverseProxy
@@ -43,15 +46,30 @@ type compiledRoute struct {
 func NewReverseProxy(
 	cfg config.ProxyConfig,
 	envCfg config.EnvConfig,
+	tlsCfg config.TLSClientCertConfig,
 	jwtService *jwt.Service,
 	policyService *policy.Service,
 ) (*ReverseProxy, error) {
 	rp := &ReverseProxy{
 		cfg:           cfg,
 		envCfg:        envCfg,
+		tlsCfg:        tlsCfg,
 		jwtService:    jwtService,
 		policyService: policyService,
 		proxies:       make(map[string]*httputil.ReverseProxy),
+	}
+
+	// Create TLS extractor if enabled
+	if tlsCfg.Enabled {
+		extractor, err := tlsExtractor.NewExtractor(tlsCfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create TLS extractor: %w", err)
+		}
+		rp.tlsExtractor = extractor
+		logger.Info("TLS client certificate extraction enabled",
+			logger.Bool("xfcc", tlsCfg.Sources.XFCC.Enabled),
+			logger.Bool("headers", tlsCfg.Sources.Headers.Enabled),
+		)
 	}
 
 	// Create default proxy
@@ -285,7 +303,7 @@ func (rp *ReverseProxy) buildPolicyInput(r *http.Request) *domain.PolicyInput {
 		}
 	}
 
-	return &domain.PolicyInput{
+	input := &domain.PolicyInput{
 		Request: domain.RequestInfo{
 			Method:   r.Method,
 			Path:     r.URL.Path,
@@ -309,6 +327,22 @@ func (rp *ReverseProxy) buildPolicyInput(r *http.Request) *domain.PolicyInput {
 			Custom:   rp.envCfg.Custom,
 		},
 	}
+
+	// Extract TLS client certificate info if extractor is enabled
+	if rp.tlsExtractor != nil {
+		tlsInfo := rp.tlsExtractor.Extract(r)
+		if tlsInfo != nil {
+			input.TLS = tlsInfo
+			// Also populate source info from SPIFFE if available
+			if tlsInfo.SPIFFE != nil {
+				input.Source.Principal = tlsInfo.SPIFFE.URI
+				input.Source.Namespace = tlsInfo.SPIFFE.Namespace
+				input.Source.ServiceAccount = tlsInfo.SPIFFE.ServiceAccount
+			}
+		}
+	}
+
+	return input
 }
 
 // applyHeaders applies configured headers to the request.

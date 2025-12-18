@@ -378,7 +378,7 @@ rules:
     effect: allow
 
   # --------------------------------------------------------------------------
-  # mTLS Service Identity (SPIFFE)
+  # mTLS Service Identity (SPIFFE) - Basic
   # --------------------------------------------------------------------------
   - name: trusted-service-mtls
     description: "Allow access from trusted services via mTLS"
@@ -395,6 +395,134 @@ rules:
         - "spiffe://cluster.local/ns/production/sa/backend-service"
         - "spiffe://cluster.local/ns/production/sa/worker-*"
         - "spiffe://cluster.local/ns/*/sa/monitoring"  # Any namespace
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # mTLS with CEL Expression - Advanced
+  # --------------------------------------------------------------------------
+  # Use CEL 'tls' variable for fine-grained mTLS authorization
+  - name: mtls-spiffe-cel-check
+    description: "Allow trusted services using CEL tls variable"
+    priority: 79
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/service/**"
+
+      # CEL expression: check SPIFFE identity components
+      expression: |
+        tls.verified == true &&
+        tls.spiffe.trust_domain == "cluster.local" &&
+        tls.spiffe.namespace == "production"
+      expression_mode: override
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # mTLS Service Account Authorization
+  # --------------------------------------------------------------------------
+  # Restrict access based on Kubernetes service account from SPIFFE
+  - name: mtls-service-account-auth
+    description: "Allow specific service accounts via mTLS"
+    priority: 78
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/secure/**"
+
+      # CEL: verify certificate and check service account
+      expression: |
+        tls.verified == true &&
+        tls.spiffe.service_account in ["backend-api", "worker-service", "cron-job"]
+      expression_mode: override
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Combined JWT + mTLS Authorization
+  # --------------------------------------------------------------------------
+  # Require both valid JWT token AND mTLS certificate
+  - name: dual-auth-jwt-mtls
+    description: "Require both JWT and mTLS for high-security endpoints"
+    priority: 77
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/critical/**"
+
+      roles:
+        - admin
+
+      # CEL: require both valid JWT role AND verified mTLS
+      expression: |
+        tls.verified == true &&
+        tls.spiffe.trust_domain == "cluster.local" &&
+        "admin" in token.roles
+      expression_mode: and  # Both role condition AND CEL must match
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Certificate Common Name Authorization
+  # --------------------------------------------------------------------------
+  # Authorize based on certificate CN (for non-SPIFFE certificates)
+  - name: mtls-common-name-auth
+    description: "Allow access based on certificate Common Name"
+    priority: 76
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/partner/**"
+
+      # CEL: check CN for partner certificates
+      expression: |
+        tls.verified == true &&
+        (tls.common_name == "partner-api.example.com" ||
+         tls.common_name.endsWith(".partner.example.com"))
+      expression_mode: override
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Certificate DNS SAN Authorization
+  # --------------------------------------------------------------------------
+  # Authorize based on DNS Subject Alternative Names
+  - name: mtls-dns-san-auth
+    description: "Allow services with specific DNS SANs"
+    priority: 75
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/mesh/**"
+
+      # CEL: check if specific DNS name is in certificate SANs
+      expression: |
+        tls.verified == true &&
+        "backend.production.svc.cluster.local" in tls.dns_names
+      expression_mode: override
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Certificate Validity Check
+  # --------------------------------------------------------------------------
+  # Ensure certificate is not expired and was recently issued
+  - name: mtls-cert-validity
+    description: "Require fresh certificates (issued within 24h)"
+    priority: 74
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/sensitive/**"
+
+      # CEL: certificate must be verified AND recently issued
+      # tls.not_before/not_after are Unix timestamps
+      expression: |
+        tls.verified == true &&
+        tls.not_after > int(now) &&
+        (int(now) - tls.not_before) < 86400
+      expression_mode: override
 
     effect: allow
 
@@ -966,6 +1094,23 @@ rules:
 #      - source.namespace        (string) K8s namespace
 #      - source.service_account  (string) K8s service account
 #
+#    tls - mTLS certificate info (from XFCC or headers):
+#      - tls.verified            (bool)   Certificate verified by proxy
+#      - tls.subject             (string) Certificate subject DN
+#      - tls.issuer              (string) Certificate issuer DN
+#      - tls.common_name         (string) Common Name from subject
+#      - tls.serial              (string) Certificate serial number
+#      - tls.fingerprint         (string) Certificate fingerprint/hash
+#      - tls.dns_names           (list)   DNS SANs from certificate
+#      - tls.uris                (list)   URI SANs from certificate
+#      - tls.not_before          (int)    Validity start (Unix timestamp)
+#      - tls.not_after           (int)    Validity end (Unix timestamp)
+#      - tls.spiffe.trust_domain    (string) SPIFFE trust domain
+#      - tls.spiffe.namespace       (string) K8s namespace from SPIFFE
+#      - tls.spiffe.service_account (string) K8s SA from SPIFFE
+#      - tls.spiffe.path            (string) SPIFFE path
+#      - tls.spiffe.uri             (string) Full SPIFFE URI
+#
 #    context - Request context:
 #      - context.request_id  (string) Unique request ID
 #      - context.trace_id    (string) Distributed trace ID
@@ -1022,6 +1167,30 @@ rules:
 #
 #    # Header check
 #    '"X-Api-Key" in request.headers && request.headers["X-Api-Key"] != ""'
+#
+#    # mTLS verified check
+#    'tls.verified == true'
+#
+#    # SPIFFE trust domain check
+#    'tls.spiffe.trust_domain == "cluster.local"'
+#
+#    # SPIFFE namespace check
+#    'tls.spiffe.namespace == "production"'
+#
+#    # SPIFFE service account check
+#    'tls.spiffe.service_account in ["backend", "worker"]'
+#
+#    # Certificate CN check
+#    'tls.common_name == "api.example.com"'
+#
+#    # DNS SAN membership check
+#    '"backend.svc.cluster.local" in tls.dns_names'
+#
+#    # Combined JWT + mTLS
+#    'tls.verified && "admin" in token.roles'
+#
+#    # Certificate not expired
+#    'tls.not_after > int(now)'
 #
 # 5. PERFORMANCE NOTES:
 #

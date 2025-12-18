@@ -133,11 +133,12 @@ func (a *App) Initialize(ctx context.Context) error {
 	// Initialize HTTP server if enabled
 	if a.cfg.Server.HTTP.Enabled {
 		serverCfg := httpTransport.ServerConfig{
-			HTTP:      a.cfg.Server.HTTP,
-			Endpoints: a.cfg.Endpoints,
-			Proxy:     a.cfg.Proxy,
-			Egress:    a.cfg.Egress,
-			Env:       a.cfg.Env,
+			HTTP:          a.cfg.Server.HTTP,
+			Endpoints:     a.cfg.Endpoints,
+			Proxy:         a.cfg.Proxy,
+			Egress:        a.cfg.Egress,
+			Env:           a.cfg.Env,
+			TLSClientCert: a.cfg.TLSClientCert,
 		}
 
 		serverOpts := []httpTransport.ServerOption{}

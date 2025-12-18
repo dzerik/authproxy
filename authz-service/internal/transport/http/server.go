@@ -42,11 +42,12 @@ func WithRateLimiter(limiter *ratelimit.Limiter) ServerOption {
 
 // ServerConfig holds all configuration needed for the HTTP server.
 type ServerConfig struct {
-	HTTP      config.HTTPServerConfig
-	Endpoints config.EndpointsConfig
-	Proxy     config.ProxyConfig
-	Egress    config.EgressConfig
-	Env       config.EnvConfig
+	HTTP          config.HTTPServerConfig
+	Endpoints     config.EndpointsConfig
+	Proxy         config.ProxyConfig
+	Egress        config.EgressConfig
+	Env           config.EnvConfig
+	TLSClientCert config.TLSClientCertConfig
 }
 
 // NewServer creates a new HTTP server.
@@ -74,7 +75,7 @@ func NewServer(
 
 	// Create reverse proxy if enabled
 	if server.proxyEnabled {
-		proxy, err := NewReverseProxy(cfg.Proxy, cfg.Env, jwtService, policyService)
+		proxy, err := NewReverseProxy(cfg.Proxy, cfg.Env, cfg.TLSClientCert, jwtService, policyService)
 		if err != nil {
 			return nil, err
 		}

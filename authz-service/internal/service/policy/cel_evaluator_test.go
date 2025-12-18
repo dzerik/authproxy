@@ -931,3 +931,225 @@ func TestCELEvaluator_Environment(t *testing.T) {
 		})
 	}
 }
+
+func TestCELEvaluator_TLS(t *testing.T) {
+	eval, err := NewCELEvaluator()
+	require.NoError(t, err)
+
+	tests := []struct {
+		name       string
+		expression string
+		input      *domain.PolicyInput
+		want       bool
+	}{
+		{
+			name:       "tls.verified check - true",
+			expression: `tls.verified == true`,
+			input: &domain.PolicyInput{
+				TLS: &domain.TLSInfo{
+					Verified: true,
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "tls.verified check - false",
+			expression: `tls.verified == true`,
+			input: &domain.PolicyInput{
+				TLS: &domain.TLSInfo{
+					Verified: false,
+				},
+			},
+			want: false,
+		},
+		{
+			name:       "tls.spiffe.service_account check",
+			expression: `tls.spiffe.service_account == "payment-service"`,
+			input: &domain.PolicyInput{
+				TLS: &domain.TLSInfo{
+					Verified: true,
+					SPIFFE: &domain.SPIFFEInfo{
+						TrustDomain:    "cluster.local",
+						Namespace:      "production",
+						ServiceAccount: "payment-service",
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "tls.spiffe.namespace check",
+			expression: `tls.spiffe.namespace == "production"`,
+			input: &domain.PolicyInput{
+				TLS: &domain.TLSInfo{
+					Verified: true,
+					SPIFFE: &domain.SPIFFEInfo{
+						TrustDomain:    "cluster.local",
+						Namespace:      "production",
+						ServiceAccount: "my-service",
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "tls.spiffe.trust_domain check",
+			expression: `tls.spiffe.trust_domain == "cluster.local"`,
+			input: &domain.PolicyInput{
+				TLS: &domain.TLSInfo{
+					Verified: true,
+					SPIFFE: &domain.SPIFFEInfo{
+						TrustDomain:    "cluster.local",
+						Namespace:      "default",
+						ServiceAccount: "test",
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "tls.common_name check",
+			expression: `tls.common_name == "api-gateway"`,
+			input: &domain.PolicyInput{
+				TLS: &domain.TLSInfo{
+					Verified:   true,
+					CommonName: "api-gateway",
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "tls.subject contains check",
+			expression: `tls.subject.contains("MyOrg")`,
+			input: &domain.PolicyInput{
+				TLS: &domain.TLSInfo{
+					Verified: true,
+					Subject:  "CN=service,O=MyOrg,OU=Backend",
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "tls combined with token check",
+			expression: `tls.verified && tls.spiffe.namespace == "backend" && "admin" in token.roles`,
+			input: &domain.PolicyInput{
+				Token: &domain.TokenInfo{
+					Subject: "user123",
+					Roles:   []string{"admin", "user"},
+				},
+				TLS: &domain.TLSInfo{
+					Verified: true,
+					SPIFFE: &domain.SPIFFEInfo{
+						TrustDomain:    "cluster.local",
+						Namespace:      "backend",
+						ServiceAccount: "api-service",
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "tls dns_names check",
+			expression: `"api.example.com" in tls.dns_names`,
+			input: &domain.PolicyInput{
+				TLS: &domain.TLSInfo{
+					Verified: true,
+					DNSNames: []string{"api.example.com", "gateway.example.com"},
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "tls uri check with exists",
+			expression: `tls.uris.exists(u, u.startsWith("spiffe://cluster.local"))`,
+			input: &domain.PolicyInput{
+				TLS: &domain.TLSInfo{
+					Verified: true,
+					URIs:     []string{"spiffe://cluster.local/ns/default/sa/test"},
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "tls fingerprint check",
+			expression: `tls.fingerprint == "sha256:abc123"`,
+			input: &domain.PolicyInput{
+				TLS: &domain.TLSInfo{
+					Verified:    true,
+					Fingerprint: "sha256:abc123",
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "nil TLS - default values",
+			expression: `tls.verified == false`,
+			input:      &domain.PolicyInput{},
+			want:       true,
+		},
+		{
+			name:       "nil SPIFFE - default empty string",
+			expression: `tls.spiffe.service_account == ""`,
+			input: &domain.PolicyInput{
+				TLS: &domain.TLSInfo{
+					Verified: true,
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "service identity in allowed list",
+			expression: `tls.spiffe.service_account in ["payment-service", "order-service", "user-service"]`,
+			input: &domain.PolicyInput{
+				TLS: &domain.TLSInfo{
+					Verified: true,
+					SPIFFE: &domain.SPIFFEInfo{
+						ServiceAccount: "order-service",
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "namespace prefix check",
+			expression: `tls.spiffe.namespace.startsWith("prod")`,
+			input: &domain.PolicyInput{
+				TLS: &domain.TLSInfo{
+					Verified: true,
+					SPIFFE: &domain.SPIFFEInfo{
+						Namespace: "production",
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "complex mTLS + env + request check",
+			expression: `tls.verified && tls.spiffe.namespace == env.name && request.method == "POST"`,
+			input: &domain.PolicyInput{
+				Request: domain.RequestInfo{
+					Method: "POST",
+					Path:   "/api/orders",
+				},
+				Env: domain.EnvInfo{
+					Name: "production",
+				},
+				TLS: &domain.TLSInfo{
+					Verified: true,
+					SPIFFE: &domain.SPIFFEInfo{
+						Namespace: "production",
+					},
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := eval.Evaluate(tt.expression, tt.input)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, result)
+		})
+	}
+}
