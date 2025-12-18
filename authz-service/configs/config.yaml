@@ -61,13 +61,13 @@ proxy:
   routes:
     - path_prefix: "/api/users"
       upstream: "user-service"
-      methods: ["GET", "POST", "PUT", "DELETE"]
+      methods: [ "GET", "POST", "PUT", "DELETE" ]
       strip_prefix: ""
       rewrite_prefix: ""
 
     - path_prefix: "/api/admin"
       upstream: "admin-service"
-      methods: ["GET", "POST", "PUT", "DELETE"]
+      methods: [ "GET", "POST", "PUT", "DELETE" ]
       strip_prefix: "/api/admin"
       rewrite_prefix: "/admin"
       # headers:
@@ -134,6 +134,7 @@ policy:
     data_dir: "/etc/authz/data"
     decision_path: "authz/allow"
     hot_reload: true
+    bundle_path:
     # bundle_path: ""  # Alternative: load from bundle
 
   # Built-in rules engine (when engine: builtin)
@@ -209,3 +210,9 @@ health:
     - name: upstream
       enabled: true
       critical: false
+
+egress:
+
+
+
+token_exchange:

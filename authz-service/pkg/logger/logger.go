@@ -16,11 +16,11 @@ type ctxKey struct{}
 
 // Config holds logger configuration.
 type Config struct {
-	Level      string `mapstructure:"level"`
-	Format     string `mapstructure:"format"` // json or console
-	Output     string `mapstructure:"output"` // stdout, stderr, or file path
-	AddCaller  bool   `mapstructure:"add_caller"`
-	Stacktrace bool   `mapstructure:"stacktrace"`
+	Level      string `mapstructure:"level" jsonschema:"description=Log level. Controls which messages are logged.,enum=debug,enum=info,enum=warn,enum=error,default=info"`
+	Format     string `mapstructure:"format" jsonschema:"description=Log output format.,enum=json,enum=console,default=json"`
+	Output     string `mapstructure:"output" jsonschema:"description=Log output destination. Can be 'stdout'\\, 'stderr'\\, or a file path.,default=stdout"`
+	AddCaller  bool   `mapstructure:"add_caller" jsonschema:"description=Include caller information (file:line) in log entries.,default=true"`
+	Stacktrace bool   `mapstructure:"stacktrace" jsonschema:"description=Include stack trace for error level logs.,default=false"`
 }
 
 // DefaultConfig returns default logger configuration.

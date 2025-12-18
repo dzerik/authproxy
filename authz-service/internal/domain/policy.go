@@ -14,11 +14,54 @@ type PolicyInput struct {
 	// Destination contains information about the target service
 	Destination DestinationInfo `json:"destination,omitempty"`
 
+	// Resource contains extracted resource information from the request path
+	Resource *ResourceInfo `json:"resource,omitempty"`
+
 	// Context contains additional context information
 	Context ContextInfo `json:"context,omitempty"`
 
 	// Extensions is an extension point for future attributes (agent identity, intent, etc.)
 	Extensions map[string]any `json:"extensions,omitempty"`
+}
+
+// ResourceInfo contains extracted resource information from a request path.
+type ResourceInfo struct {
+	// Type is the resource type (e.g., "users", "orders", "products").
+	Type string `json:"type,omitempty"`
+
+	// ID is the resource identifier.
+	ID string `json:"id,omitempty"`
+
+	// Action is the action being performed on the resource.
+	Action string `json:"action,omitempty"`
+
+	// Params contains all extracted path parameters.
+	Params map[string]string `json:"params,omitempty"`
+}
+
+// SetResource sets the resource information.
+func (p *PolicyInput) SetResource(resource *ResourceInfo) {
+	p.Resource = resource
+}
+
+// DeriveActionFromMethod derives an action name from the HTTP method.
+func DeriveActionFromMethod(method string) string {
+	switch method {
+	case "GET":
+		return "read"
+	case "POST":
+		return "create"
+	case "PUT", "PATCH":
+		return "update"
+	case "DELETE":
+		return "delete"
+	case "HEAD":
+		return "read"
+	case "OPTIONS":
+		return "options"
+	default:
+		return "unknown"
+	}
 }
 
 // RequestInfo contains HTTP request details.

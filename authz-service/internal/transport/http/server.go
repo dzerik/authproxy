@@ -14,6 +14,7 @@ import (
 	"github.com/your-org/authz-service/internal/service/jwt"
 	"github.com/your-org/authz-service/internal/service/policy"
 	"github.com/your-org/authz-service/pkg/logger"
+	"github.com/your-org/authz-service/pkg/resilience/ratelimit"
 )
 
 // Server represents the HTTP server.
@@ -22,10 +23,21 @@ type Server struct {
 	handler       *Handler
 	reverseProxy  *ReverseProxy
 	egressService *egress.Service
+	rateLimiter   *ratelimit.Limiter
 	cfg           config.HTTPServerConfig
 	endpoints     config.EndpointsConfig
 	proxyEnabled  bool
 	egressEnabled bool
+}
+
+// ServerOption is a functional option for configuring the Server.
+type ServerOption func(*Server)
+
+// WithRateLimiter sets the rate limiter for the server.
+func WithRateLimiter(limiter *ratelimit.Limiter) ServerOption {
+	return func(s *Server) {
+		s.rateLimiter = limiter
+	}
 }
 
 // ServerConfig holds all configuration needed for the HTTP server.
@@ -42,6 +54,7 @@ func NewServer(
 	jwtService *jwt.Service,
 	policyService *policy.Service,
 	version string,
+	opts ...ServerOption,
 ) (*Server, error) {
 	handler := NewHandler(jwtService, policyService, version)
 
@@ -51,6 +64,11 @@ func NewServer(
 		endpoints:     cfg.Endpoints,
 		proxyEnabled:  cfg.Proxy.Enabled && cfg.Proxy.Mode == "reverse_proxy",
 		egressEnabled: cfg.Egress.Enabled,
+	}
+
+	// Apply functional options
+	for _, opt := range opts {
+		opt(server)
 	}
 
 	// Create reverse proxy if enabled
@@ -73,10 +91,17 @@ func NewServer(
 
 	router := chi.NewRouter()
 
-	// Middleware
+	// Middleware stack (order matters)
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
 	router.Use(middleware.Recoverer)
+
+	// Rate limiter middleware (early in the chain to reject requests fast)
+	if server.rateLimiter != nil {
+		router.Use(server.rateLimiter.Middleware())
+		logger.Info("rate limiter middleware enabled")
+	}
+
 	router.Use(requestLogger)
 	router.Use(middleware.Timeout(cfg.HTTP.WriteTimeout))
 

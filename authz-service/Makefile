@@ -82,6 +82,21 @@ tidy:
 generate:
 	$(GOCMD) generate ./...
 
+# Generate JSON Schemas
+schema:
+	@echo "Generating JSON Schemas..."
+	$(GORUN) ./cmd/authz --schema config --schema-output configs/config.schema.json
+	$(GORUN) ./cmd/authz --schema rules --schema-output configs/rules.schema.json
+	@echo "Generated:"
+	@echo "  - configs/config.schema.json"
+	@echo "  - configs/rules.schema.json"
+
+schema-config:
+	$(GORUN) ./cmd/authz --schema config --schema-output configs/config.schema.json
+
+schema-rules:
+	$(GORUN) ./cmd/authz --schema rules --schema-output configs/rules.schema.json
+
 # Clean
 clean:
 	@echo "Cleaning..."
@@ -115,6 +130,8 @@ help:
 	@echo "  fmt            - Format code"
 	@echo "  deps           - Download dependencies"
 	@echo "  tidy           - Tidy go.mod"
+	@echo "  generate       - Run go generate"
+	@echo "  schema         - Generate config JSON Schema"
 	@echo "  clean          - Clean build artifacts"
 	@echo "  docker-build   - Build Docker image"
 	@echo "  tools          - Install dev tools"

@@ -12,128 +12,131 @@ import (
 
 // Config holds all application configuration.
 type Config struct {
-	Server        ServerConfig        `mapstructure:"server"`
-	Proxy         ProxyConfig         `mapstructure:"proxy"`
-	Egress        EgressConfig        `mapstructure:"egress"`
-	Endpoints     EndpointsConfig     `mapstructure:"endpoints"`
-	JWT           JWTConfig           `mapstructure:"jwt"`
-	TokenExchange TokenExchangeConfig `mapstructure:"token_exchange"`
-	Policy        PolicyConfig        `mapstructure:"policy"`
-	Cache         CacheConfig         `mapstructure:"cache"`
-	Audit         AuditConfig         `mapstructure:"audit"`
-	Logging       logger.Config       `mapstructure:"logging"`
-	Health        HealthConfig        `mapstructure:"health"`
+	// Server configuration for HTTP and gRPC endpoints
+	Server ServerConfig `mapstructure:"server" jsonschema:"description=Server configuration for HTTP and gRPC endpoints."`
+	// Proxy configuration for reverse proxy mode
+	Proxy ProxyConfig `mapstructure:"proxy" jsonschema:"description=Reverse proxy configuration. When enabled\\, authz-service forwards authorized requests to upstream services."`
+	// Egress configuration for outbound proxy mode
+	Egress EgressConfig `mapstructure:"egress" jsonschema:"description=Egress proxy configuration. When enabled\\, adds authentication to outbound requests to external services."`
+	// Endpoints configuration for API paths
+	Endpoints EndpointsConfig `mapstructure:"endpoints" jsonschema:"description=Configurable API endpoint paths. Allows customizing URL paths for all service endpoints."`
+	// JWT validation configuration
+	JWT JWTConfig `mapstructure:"jwt" jsonschema:"description=JWT token validation configuration. Defines trusted issuers\\, JWKS caching\\, and validation rules."`
+	// Token exchange configuration (RFC 8693)
+	TokenExchange TokenExchangeConfig `mapstructure:"token_exchange" jsonschema:"description=OAuth2 Token Exchange (RFC 8693) configuration for token delegation scenarios."`
+	// Policy engine configuration
+	Policy PolicyConfig `mapstructure:"policy" jsonschema:"description=Policy engine configuration. Supports builtin YAML rules\\, embedded OPA\\, or external OPA sidecar."`
+	// Cache configuration for performance
+	Cache CacheConfig `mapstructure:"cache" jsonschema:"description=Caching configuration. L1 (in-memory) for low latency\\, L2 (Redis) for distributed caching."`
+	// Audit logging configuration
+	Audit AuditConfig `mapstructure:"audit" jsonschema:"description=Audit logging configuration. Records authorization decisions for compliance and debugging."`
+	// Logging configuration
+	Logging logger.Config `mapstructure:"logging" jsonschema:"description=Application logging configuration. Controls log level\\, format\\, and output."`
+	// Health check configuration
+	Health HealthConfig `mapstructure:"health" jsonschema:"description=Health check configuration for Kubernetes probes and monitoring."`
+	// Resilience configuration (rate limiting, circuit breaker)
+	Resilience ResilienceConfig `mapstructure:"resilience" jsonschema:"description=Resilience patterns configuration. Includes rate limiting for incoming requests and circuit breaker for external calls."`
+	// Sensitive data handling configuration
+	SensitiveData SensitiveDataConfig `mapstructure:"sensitive_data" jsonschema:"description=Sensitive data handling configuration. Controls masking of secrets\\, tokens\\, and PII in logs."`
 }
 
 // ProxyConfig holds reverse proxy configuration for forwarding authorized requests.
 type ProxyConfig struct {
-	// Enabled enables proxy mode (forward requests after authorization)
-	Enabled bool `mapstructure:"enabled"`
-
-	// Mode: "reverse_proxy" (forward to upstream) or "decision_only" (just return decision)
-	Mode string `mapstructure:"mode"`
-
+	// Enabled enables proxy mode
+	Enabled bool `mapstructure:"enabled" jsonschema:"description=Enable reverse proxy mode. When true\\, authorized requests are forwarded to upstream services.,default=false"`
+	// Mode determines proxy behavior
+	Mode string `mapstructure:"mode" jsonschema:"description=Proxy operation mode.,enum=reverse_proxy,enum=decision_only,default=decision_only"`
 	// Upstream is the default upstream destination
-	Upstream UpstreamConfig `mapstructure:"upstream"`
-
+	Upstream UpstreamConfig `mapstructure:"upstream" jsonschema:"description=Default upstream server configuration. Used when no specific route matches."`
 	// Upstreams is a map of named upstreams for routing
-	Upstreams map[string]UpstreamConfig `mapstructure:"upstreams"`
-
-	// Routing rules for selecting upstream based on path/headers
-	Routes []RouteConfig `mapstructure:"routes"`
-
+	Upstreams map[string]UpstreamConfig `mapstructure:"upstreams" jsonschema:"description=Named upstream servers for advanced routing. Reference by name in routes."`
+	// Routes for selecting upstream based on path/headers
+	Routes []RouteConfig `mapstructure:"routes" jsonschema:"description=Routing rules for selecting upstream based on request attributes (path\\, headers\\, methods)."`
 	// Headers configuration
-	Headers ProxyHeadersConfig `mapstructure:"headers"`
-
-	// Timeouts
-	Timeout         time.Duration `mapstructure:"timeout"`
-	IdleConnTimeout time.Duration `mapstructure:"idle_conn_timeout"`
-
-	// Retries
-	Retry ProxyRetryConfig `mapstructure:"retry"`
+	Headers ProxyHeadersConfig `mapstructure:"headers" jsonschema:"description=Header manipulation settings for proxied requests."`
+	// Timeout for proxy requests
+	Timeout time.Duration `mapstructure:"timeout" jsonschema:"description=Request timeout for upstream connections.,default=30s"`
+	// IdleConnTimeout for connection pool
+	IdleConnTimeout time.Duration `mapstructure:"idle_conn_timeout" jsonschema:"description=Idle connection timeout for HTTP connection pool.,default=90s"`
+	// Retry configuration
+	Retry ProxyRetryConfig `mapstructure:"retry" jsonschema:"description=Retry configuration for failed upstream requests."`
 }
 
 // UpstreamConfig holds upstream server configuration.
 type UpstreamConfig struct {
 	// URL is the upstream base URL
-	URL string `mapstructure:"url"`
-
-	// TLS configuration
-	TLS UpstreamTLSConfig `mapstructure:"tls"`
-
+	URL string `mapstructure:"url" jsonschema:"description=Base URL of the upstream server. Example: 'http://backend:8080' or 'https://api.internal.local'.,required"`
+	// TLS configuration for upstream
+	TLS UpstreamTLSConfig `mapstructure:"tls" jsonschema:"description=TLS configuration for secure upstream connections."`
 	// HealthCheck configuration
-	HealthCheck UpstreamHealthConfig `mapstructure:"health_check"`
+	HealthCheck UpstreamHealthConfig `mapstructure:"health_check" jsonschema:"description=Health check configuration for upstream availability monitoring."`
 }
 
 // UpstreamTLSConfig holds TLS settings for upstream connections.
 type UpstreamTLSConfig struct {
 	// Enabled enables TLS for upstream
-	Enabled bool `mapstructure:"enabled"`
-
-	// InsecureSkipVerify skips certificate verification (not recommended for production)
-	InsecureSkipVerify bool `mapstructure:"insecure_skip_verify"`
-
+	Enabled bool `mapstructure:"enabled" jsonschema:"description=Enable TLS for upstream connections.,default=false"`
+	// InsecureSkipVerify skips certificate verification
+	InsecureSkipVerify bool `mapstructure:"insecure_skip_verify" jsonschema:"description=Skip server certificate verification. WARNING: Not recommended for production!,default=false"`
 	// CACert is the path to CA certificate
-	CACert string `mapstructure:"ca_cert"`
-
+	CACert string `mapstructure:"ca_cert" jsonschema:"description=Path to CA certificate file for server verification. Required for self-signed certificates."`
 	// ClientCert is the path to client certificate for mTLS
-	ClientCert string `mapstructure:"client_cert"`
-
+	ClientCert string `mapstructure:"client_cert" jsonschema:"description=Path to client certificate for mutual TLS (mTLS) authentication."`
 	// ClientKey is the path to client key for mTLS
-	ClientKey string `mapstructure:"client_key"`
+	ClientKey string `mapstructure:"client_key" jsonschema:"description=Path to client private key for mutual TLS (mTLS) authentication."`
 }
 
 // UpstreamHealthConfig holds health check settings for upstream.
 type UpstreamHealthConfig struct {
-	Enabled  bool          `mapstructure:"enabled"`
-	Path     string        `mapstructure:"path"`
-	Interval time.Duration `mapstructure:"interval"`
-	Timeout  time.Duration `mapstructure:"timeout"`
+	Enabled  bool          `mapstructure:"enabled" jsonschema:"description=Enable periodic health checks for this upstream.,default=false"`
+	Path     string        `mapstructure:"path" jsonschema:"description=HTTP path for health check requests.,default=/health"`
+	Interval time.Duration `mapstructure:"interval" jsonschema:"description=Interval between health check requests.,default=10s"`
+	Timeout  time.Duration `mapstructure:"timeout" jsonschema:"description=Timeout for health check requests.,default=5s"`
 }
 
 // RouteConfig holds routing configuration.
 type RouteConfig struct {
-	// Match conditions
-	PathPrefix string            `mapstructure:"path_prefix"`
-	PathExact  string            `mapstructure:"path_exact"`
-	PathRegex  string            `mapstructure:"path_regex"`
-	Methods    []string          `mapstructure:"methods"`
-	Headers    map[string]string `mapstructure:"headers"`
-
-	// Target upstream name
-	Upstream string `mapstructure:"upstream"`
-
-	// Optional: rewrite path
-	RewritePrefix string `mapstructure:"rewrite_prefix"`
-	StripPrefix   string `mapstructure:"strip_prefix"`
+	// PathPrefix matches requests starting with this prefix
+	PathPrefix string `mapstructure:"path_prefix" jsonschema:"description=Match requests where path starts with this prefix. Example: '/api/v1'."`
+	// PathExact matches requests with exact path
+	PathExact string `mapstructure:"path_exact" jsonschema:"description=Match requests with exactly this path. Example: '/health'."`
+	// PathRegex matches requests using regex
+	PathRegex string `mapstructure:"path_regex" jsonschema:"description=Match requests using regex pattern. Example: '^/api/v[0-9]+/.*$'."`
+	// Methods restricts to specific HTTP methods
+	Methods []string `mapstructure:"methods" jsonschema:"description=HTTP methods to match. Empty means all methods.,example=GET,example=POST"`
+	// Headers to match (exact values)
+	Headers map[string]string `mapstructure:"headers" jsonschema:"description=Request headers to match (exact values). Example: {'X-Tenant': 'acme'}."`
+	// Upstream is the target upstream name
+	Upstream string `mapstructure:"upstream" jsonschema:"description=Name of the target upstream from 'upstreams' map."`
+	// RewritePrefix replaces path prefix
+	RewritePrefix string `mapstructure:"rewrite_prefix" jsonschema:"description=Replace matched prefix with this value. Used with strip_prefix."`
+	// StripPrefix removes this prefix from path
+	StripPrefix string `mapstructure:"strip_prefix" jsonschema:"description=Remove this prefix from path before forwarding. Example: '/api' strips '/api/users' to '/users'."`
 }
 
 // ProxyHeadersConfig holds header manipulation settings.
 type ProxyHeadersConfig struct {
 	// Add headers to forwarded requests
-	Add map[string]string `mapstructure:"add"`
-
+	Add map[string]string `mapstructure:"add" jsonschema:"description=Headers to add to forwarded requests. Example: {'X-Forwarded-Proto': 'https'}."`
 	// Remove headers from forwarded requests
-	Remove []string `mapstructure:"remove"`
-
+	Remove []string `mapstructure:"remove" jsonschema:"description=Headers to remove from forwarded requests. Example: ['Authorization'\\, 'Cookie']."`
 	// Forward original headers (whitelist)
-	Forward []string `mapstructure:"forward"`
-
-	// Headers with user info to add after authorization
-	AddUserInfo bool `mapstructure:"add_user_info"`
-
-	// Custom header names for user info
-	UserIDHeader    string `mapstructure:"user_id_header"`
-	UserRolesHeader string `mapstructure:"user_roles_header"`
+	Forward []string `mapstructure:"forward" jsonschema:"description=Headers to forward from original request (whitelist). Empty means forward all (except removed)."`
+	// AddUserInfo adds user info headers after authorization
+	AddUserInfo bool `mapstructure:"add_user_info" jsonschema:"description=Add user information headers (ID\\, roles) to forwarded requests.,default=true"`
+	// UserIDHeader is the header name for user ID
+	UserIDHeader string `mapstructure:"user_id_header" jsonschema:"description=Header name for user ID (from JWT 'sub' claim).,default=X-User-ID"`
+	// UserRolesHeader is the header name for user roles
+	UserRolesHeader string `mapstructure:"user_roles_header" jsonschema:"description=Header name for user roles (comma-separated).,default=X-User-Roles"`
 }
 
 // ProxyRetryConfig holds retry settings for proxy.
 type ProxyRetryConfig struct {
-	Enabled        bool          `mapstructure:"enabled"`
-	MaxAttempts    int           `mapstructure:"max_attempts"`
-	InitialBackoff time.Duration `mapstructure:"initial_backoff"`
-	MaxBackoff     time.Duration `mapstructure:"max_backoff"`
-	RetryOn        []int         `mapstructure:"retry_on"` // HTTP status codes to retry
+	Enabled        bool          `mapstructure:"enabled" jsonschema:"description=Enable automatic retry for failed upstream requests.,default=true"`
+	MaxAttempts    int           `mapstructure:"max_attempts" jsonschema:"description=Maximum number of retry attempts.,default=3,minimum=1,maximum=10"`
+	InitialBackoff time.Duration `mapstructure:"initial_backoff" jsonschema:"description=Initial backoff delay before first retry.,default=100ms"`
+	MaxBackoff     time.Duration `mapstructure:"max_backoff" jsonschema:"description=Maximum backoff delay between retries.,default=1s"`
+	RetryOn        []int         `mapstructure:"retry_on" jsonschema:"description=HTTP status codes that trigger retry.,default=[502\\,503\\,504]"`
 }
 
 // =============================================================================
@@ -143,279 +146,252 @@ type ProxyRetryConfig struct {
 // EgressConfig holds egress proxy configuration for outgoing requests to external systems.
 type EgressConfig struct {
 	// Enabled enables egress proxy mode
-	Enabled bool `mapstructure:"enabled"`
-
+	Enabled bool `mapstructure:"enabled" jsonschema:"description=Enable egress proxy mode for authenticated outbound requests.,default=false"`
 	// Targets is a map of named external systems
-	Targets map[string]EgressTargetConfig `mapstructure:"targets"`
-
+	Targets map[string]EgressTargetConfig `mapstructure:"targets" jsonschema:"description=Named external systems configuration. Each target defines URL\\, authentication\\, and TLS settings."`
 	// Routes maps incoming paths to targets
-	Routes []EgressRouteConfig `mapstructure:"routes"`
-
+	Routes []EgressRouteConfig `mapstructure:"routes" jsonschema:"description=Routing rules mapping request paths to external targets."`
 	// Defaults holds default settings for all targets
-	Defaults EgressDefaultsConfig `mapstructure:"defaults"`
-
+	Defaults EgressDefaultsConfig `mapstructure:"defaults" jsonschema:"description=Default settings applied to all targets unless overridden."`
 	// TokenStore configuration for caching tokens
-	TokenStore EgressTokenStoreConfig `mapstructure:"token_store"`
+	TokenStore EgressTokenStoreConfig `mapstructure:"token_store" jsonschema:"description=Token storage configuration for caching OAuth2 tokens."`
 }
 
 // EgressTargetConfig holds configuration for an external system.
 type EgressTargetConfig struct {
 	// URL is the base URL of the external system
-	URL string `mapstructure:"url"`
-
+	URL string `mapstructure:"url" jsonschema:"description=Base URL of the external service. Example: 'https://api.partner.com'.,required"`
 	// Timeout for requests to this target
-	Timeout time.Duration `mapstructure:"timeout"`
-
+	Timeout time.Duration `mapstructure:"timeout" jsonschema:"description=Request timeout for this target. Overrides defaults.timeout.,default=30s"`
 	// Auth configuration for this target
-	Auth EgressAuthConfig `mapstructure:"auth"`
-
+	Auth EgressAuthConfig `mapstructure:"auth" jsonschema:"description=Authentication configuration for requests to this target.,required"`
 	// TLS configuration for this target
-	TLS EgressTLSConfig `mapstructure:"tls"`
-
+	TLS EgressTLSConfig `mapstructure:"tls" jsonschema:"description=TLS configuration for secure connections to this target."`
 	// Retry configuration
-	Retry EgressRetryConfig `mapstructure:"retry"`
+	Retry EgressRetryConfig `mapstructure:"retry" jsonschema:"description=Retry configuration for failed requests to this target."`
 }
 
 // EgressAuthConfig holds authentication configuration for a target.
 type EgressAuthConfig struct {
-	// Type: oauth2_client_credentials, oauth2_refresh_token, gcp_service_account,
-	//       aws_iam, api_key, mtls, basic, bearer
-	Type string `mapstructure:"type"`
+	// Type specifies the authentication method
+	Type string `mapstructure:"type" jsonschema:"description=Authentication type for this target.,enum=oauth2_client_credentials,enum=oauth2_refresh_token,enum=gcp_service_account,enum=aws_iam,enum=api_key,enum=mtls,enum=basic,enum=bearer,required"`
 
-	// OAuth2 Client Credentials
-	TokenURL     string   `mapstructure:"token_url"`
-	ClientID     string   `mapstructure:"client_id"`
-	ClientSecret string   `mapstructure:"client_secret"`
-	Scopes       []string `mapstructure:"scopes"`
+	// OAuth2 Client Credentials fields
+	TokenURL     string   `mapstructure:"token_url" jsonschema:"description=OAuth2 token endpoint URL. Used with oauth2_client_credentials and oauth2_refresh_token."`
+	ClientID     string   `mapstructure:"client_id" jsonschema:"description=OAuth2 client ID."`
+	ClientSecret string   `mapstructure:"client_secret" jsonschema:"description=OAuth2 client secret. Consider using environment variable: AUTHZ_EGRESS_TARGETS_<NAME>_AUTH_CLIENT_SECRET."`
+	Scopes       []string `mapstructure:"scopes" jsonschema:"description=OAuth2 scopes to request.,example=read,example=write"`
 
-	// OAuth2 Refresh Token
-	RefreshToken string `mapstructure:"refresh_token"`
+	// OAuth2 Refresh Token field
+	RefreshToken string `mapstructure:"refresh_token" jsonschema:"description=OAuth2 refresh token for oauth2_refresh_token type."`
 
-	// Refresh before expiry (default: 60s)
-	RefreshBeforeExpiry time.Duration `mapstructure:"refresh_before_expiry"`
+	// RefreshBeforeExpiry refreshes token before it expires
+	RefreshBeforeExpiry time.Duration `mapstructure:"refresh_before_expiry" jsonschema:"description=Refresh token this duration before expiry.,default=60s"`
 
-	// GCP Service Account
-	CredentialsFile string `mapstructure:"credentials_file"`
+	// GCP Service Account field
+	CredentialsFile string `mapstructure:"credentials_file" jsonschema:"description=Path to GCP service account JSON key file. Used with gcp_service_account type."`
 
-	// AWS IAM
-	RoleARN string `mapstructure:"role_arn"`
-	Region  string `mapstructure:"region"`
+	// AWS IAM fields
+	RoleARN string `mapstructure:"role_arn" jsonschema:"description=AWS IAM role ARN to assume. Used with aws_iam type."`
+	Region  string `mapstructure:"region" jsonschema:"description=AWS region for IAM authentication.,example=us-east-1"`
 
-	// API Key
-	Header   string `mapstructure:"header"`    // Header name for API key
-	QueryKey string `mapstructure:"query_key"` // Query parameter name
-	Key      string `mapstructure:"key"`       // The API key value
+	// API Key fields
+	Header   string `mapstructure:"header" jsonschema:"description=Header name for API key. Example: 'X-API-Key'. Used with api_key type."`
+	QueryKey string `mapstructure:"query_key" jsonschema:"description=Query parameter name for API key. Alternative to header."`
+	Key      string `mapstructure:"key" jsonschema:"description=The API key value. Consider using environment variable."`
 
-	// Basic Auth
-	Username string `mapstructure:"username"`
-	Password string `mapstructure:"password"`
+	// Basic Auth fields
+	Username string `mapstructure:"username" jsonschema:"description=Username for basic authentication."`
+	Password string `mapstructure:"password" jsonschema:"description=Password for basic authentication. Consider using environment variable."`
 
-	// Bearer Token (static)
-	Token string `mapstructure:"token"`
-
-	// mTLS (uses TLS config from EgressTargetConfig.TLS)
+	// Bearer Token field
+	Token string `mapstructure:"token" jsonschema:"description=Static bearer token. Consider using environment variable. Used with bearer type."`
 }
 
 // EgressTLSConfig holds TLS configuration for egress targets.
 type EgressTLSConfig struct {
 	// Enabled enables TLS
-	Enabled bool `mapstructure:"enabled"`
-
+	Enabled bool `mapstructure:"enabled" jsonschema:"description=Enable TLS for connections to this target.,default=true"`
 	// InsecureSkipVerify skips certificate verification
-	InsecureSkipVerify bool `mapstructure:"insecure_skip_verify"`
-
-	// CACert is the path to CA certificate for server verification
-	CACert string `mapstructure:"ca_cert"`
-
+	InsecureSkipVerify bool `mapstructure:"insecure_skip_verify" jsonschema:"description=Skip server certificate verification. WARNING: Not recommended for production!,default=false"`
+	// CACert is the path to CA certificate
+	CACert string `mapstructure:"ca_cert" jsonschema:"description=Path to CA certificate for server verification."`
 	// ClientCert is the path to client certificate for mTLS
-	ClientCert string `mapstructure:"client_cert"`
-
+	ClientCert string `mapstructure:"client_cert" jsonschema:"description=Path to client certificate for mTLS authentication."`
 	// ClientKey is the path to client key for mTLS
-	ClientKey string `mapstructure:"client_key"`
+	ClientKey string `mapstructure:"client_key" jsonschema:"description=Path to client private key for mTLS authentication."`
 }
 
 // EgressRetryConfig holds retry configuration for egress targets.
 type EgressRetryConfig struct {
-	MaxAttempts    int           `mapstructure:"max_attempts"`
-	InitialBackoff time.Duration `mapstructure:"initial_backoff"`
-	MaxBackoff     time.Duration `mapstructure:"max_backoff"`
+	MaxAttempts    int           `mapstructure:"max_attempts" jsonschema:"description=Maximum number of retry attempts.,default=3,minimum=1"`
+	InitialBackoff time.Duration `mapstructure:"initial_backoff" jsonschema:"description=Initial backoff delay.,default=100ms"`
+	MaxBackoff     time.Duration `mapstructure:"max_backoff" jsonschema:"description=Maximum backoff delay.,default=2s"`
 }
 
 // EgressRouteConfig holds routing configuration for egress.
 type EgressRouteConfig struct {
 	// PathPrefix matches requests starting with this prefix
-	PathPrefix string `mapstructure:"path_prefix"`
-
+	PathPrefix string `mapstructure:"path_prefix" jsonschema:"description=Match requests with path starting with this prefix. Example: '/external/partner-api'.,required"`
 	// Target is the name of the target to route to
-	Target string `mapstructure:"target"`
-
+	Target string `mapstructure:"target" jsonschema:"description=Name of the target from 'targets' map to route to.,required"`
 	// StripPrefix removes this prefix before forwarding
-	StripPrefix string `mapstructure:"strip_prefix"`
-
-	// RewritePrefix replaces the stripped prefix with this
-	RewritePrefix string `mapstructure:"rewrite_prefix"`
-
-	// Methods restricts to specific HTTP methods (empty = all)
-	Methods []string `mapstructure:"methods"`
+	StripPrefix string `mapstructure:"strip_prefix" jsonschema:"description=Remove this prefix from path before forwarding."`
+	// RewritePrefix replaces the stripped prefix
+	RewritePrefix string `mapstructure:"rewrite_prefix" jsonschema:"description=Replace stripped prefix with this value."`
+	// Methods restricts to specific HTTP methods
+	Methods []string `mapstructure:"methods" jsonschema:"description=Restrict to these HTTP methods. Empty means all methods."`
 }
 
 // EgressDefaultsConfig holds default settings for egress targets.
 type EgressDefaultsConfig struct {
-	Timeout time.Duration     `mapstructure:"timeout"`
-	Retry   EgressRetryConfig `mapstructure:"retry"`
+	Timeout time.Duration     `mapstructure:"timeout" jsonschema:"description=Default request timeout for all targets.,default=30s"`
+	Retry   EgressRetryConfig `mapstructure:"retry" jsonschema:"description=Default retry configuration for all targets."`
 }
 
 // EgressTokenStoreConfig holds token store configuration.
 type EgressTokenStoreConfig struct {
-	// Type: memory, redis
-	Type string `mapstructure:"type"`
-
-	// Redis configuration (if type = redis)
-	Redis EgressRedisConfig `mapstructure:"redis"`
+	// Type specifies the storage backend
+	Type string `mapstructure:"type" jsonschema:"description=Token storage backend type.,enum=memory,enum=redis,default=memory"`
+	// Redis configuration
+	Redis EgressRedisConfig `mapstructure:"redis" jsonschema:"description=Redis configuration (when type=redis)."`
 }
 
 // EgressRedisConfig holds Redis configuration for egress token store.
 type EgressRedisConfig struct {
-	Address   string `mapstructure:"address"`
-	Password  string `mapstructure:"password"`
-	DB        int    `mapstructure:"db"`
-	KeyPrefix string `mapstructure:"key_prefix"`
+	Address   string `mapstructure:"address" jsonschema:"description=Redis server address. Example: 'localhost:6379'."`
+	Password  string `mapstructure:"password" jsonschema:"description=Redis password. Consider using environment variable."`
+	DB        int    `mapstructure:"db" jsonschema:"description=Redis database number.,default=0"`
+	KeyPrefix string `mapstructure:"key_prefix" jsonschema:"description=Prefix for token keys in Redis.,default=egress:tokens:"`
 }
 
 // EndpointsConfig holds configurable endpoint paths.
 type EndpointsConfig struct {
-	// API endpoints
-	Authorize      string `mapstructure:"authorize"`
-	AuthorizeBatch string `mapstructure:"authorize_batch"`
-	TokenValidate  string `mapstructure:"token_validate"`
-	TokenExchange  string `mapstructure:"token_exchange"`
-
+	// Authorization endpoints
+	Authorize      string `mapstructure:"authorize" jsonschema:"description=Single authorization check endpoint path.,default=/v1/authorize"`
+	AuthorizeBatch string `mapstructure:"authorize_batch" jsonschema:"description=Batch authorization check endpoint path.,default=/v1/authorize/batch"`
+	TokenValidate  string `mapstructure:"token_validate" jsonschema:"description=JWT token validation endpoint path.,default=/v1/token/validate"`
+	TokenExchange  string `mapstructure:"token_exchange" jsonschema:"description=Token exchange endpoint path (RFC 8693).,default=/v1/token/exchange"`
 	// Egress proxy endpoint prefix
-	Egress string `mapstructure:"egress"`
-
+	Egress string `mapstructure:"egress" jsonschema:"description=Egress proxy endpoint prefix. Requests to this prefix are forwarded to external targets.,default=/egress"`
 	// Health endpoints
-	Health string `mapstructure:"health"`
-	Ready  string `mapstructure:"ready"`
-	Live   string `mapstructure:"live"`
-
+	Health string `mapstructure:"health" jsonschema:"description=Health check endpoint path.,default=/health"`
+	Ready  string `mapstructure:"ready" jsonschema:"description=Readiness probe endpoint path (Kubernetes).,default=/ready"`
+	Live   string `mapstructure:"live" jsonschema:"description=Liveness probe endpoint path (Kubernetes).,default=/live"`
 	// Metrics endpoint
-	Metrics string `mapstructure:"metrics"`
-
-	// Admin endpoints (optional)
-	CacheInvalidate string `mapstructure:"cache_invalidate"`
-	PolicyReload    string `mapstructure:"policy_reload"`
+	Metrics string `mapstructure:"metrics" jsonschema:"description=Prometheus metrics endpoint path.,default=/metrics"`
+	// Admin endpoints
+	CacheInvalidate string `mapstructure:"cache_invalidate" jsonschema:"description=Cache invalidation admin endpoint.,default=/admin/cache/invalidate"`
+	PolicyReload    string `mapstructure:"policy_reload" jsonschema:"description=Policy reload admin endpoint.,default=/admin/policy/reload"`
 }
 
 // ServerConfig holds HTTP server configuration.
 type ServerConfig struct {
-	HTTP HTTPServerConfig `mapstructure:"http"`
-	GRPC GRPCServerConfig `mapstructure:"grpc"`
+	HTTP HTTPServerConfig `mapstructure:"http" jsonschema:"description=HTTP server configuration."`
+	GRPC GRPCServerConfig `mapstructure:"grpc" jsonschema:"description=gRPC server configuration."`
 }
 
 // HTTPServerConfig holds HTTP server settings.
 type HTTPServerConfig struct {
-	Enabled        bool          `mapstructure:"enabled"`
-	Addr           string        `mapstructure:"addr"`
-	ReadTimeout    time.Duration `mapstructure:"read_timeout"`
-	WriteTimeout   time.Duration `mapstructure:"write_timeout"`
-	IdleTimeout    time.Duration `mapstructure:"idle_timeout"`
-	MaxHeaderBytes int           `mapstructure:"max_header_bytes"`
+	Enabled         bool          `mapstructure:"enabled" jsonschema:"description=Enable HTTP server.,default=true"`
+	Addr            string        `mapstructure:"addr" jsonschema:"description=HTTP server listen address.,default=:8080,example=:8080,example=0.0.0.0:8080"`
+	ReadTimeout     time.Duration `mapstructure:"read_timeout" jsonschema:"description=Maximum duration for reading entire request.,default=10s"`
+	WriteTimeout    time.Duration `mapstructure:"write_timeout" jsonschema:"description=Maximum duration for writing response.,default=10s"`
+	IdleTimeout     time.Duration `mapstructure:"idle_timeout" jsonschema:"description=Maximum duration for idle connections.,default=120s"`
+	ShutdownTimeout time.Duration `mapstructure:"shutdown_timeout" jsonschema:"description=Maximum duration for graceful shutdown.,default=30s"`
+	MaxHeaderBytes  int           `mapstructure:"max_header_bytes" jsonschema:"description=Maximum size of request headers in bytes.,default=1048576"`
 }
 
 // GRPCServerConfig holds gRPC server settings.
 type GRPCServerConfig struct {
-	Enabled        bool            `mapstructure:"enabled"`
-	Addr           string          `mapstructure:"addr"`
-	MaxRecvMsgSize int             `mapstructure:"max_recv_msg_size"`
-	MaxSendMsgSize int             `mapstructure:"max_send_msg_size"`
-	Keepalive      KeepaliveConfig `mapstructure:"keepalive"`
+	Enabled        bool            `mapstructure:"enabled" jsonschema:"description=Enable gRPC server.,default=false"`
+	Addr           string          `mapstructure:"addr" jsonschema:"description=gRPC server listen address.,default=:9090"`
+	MaxRecvMsgSize int             `mapstructure:"max_recv_msg_size" jsonschema:"description=Maximum size of received messages in bytes.,default=4194304"`
+	MaxSendMsgSize int             `mapstructure:"max_send_msg_size" jsonschema:"description=Maximum size of sent messages in bytes.,default=4194304"`
+	Keepalive      KeepaliveConfig `mapstructure:"keepalive" jsonschema:"description=gRPC keepalive configuration."`
 }
 
 // KeepaliveConfig holds gRPC keepalive settings.
 type KeepaliveConfig struct {
-	Time    time.Duration `mapstructure:"time"`
-	Timeout time.Duration `mapstructure:"timeout"`
+	Time    time.Duration `mapstructure:"time" jsonschema:"description=Interval for keepalive pings.,default=30s"`
+	Timeout time.Duration `mapstructure:"timeout" jsonschema:"description=Timeout for keepalive ping response.,default=10s"`
 }
 
 // JWTConfig holds JWT validation configuration.
 type JWTConfig struct {
-	Issuers    []IssuerConfig   `mapstructure:"issuers"`
-	JWKSCache  JWKSCacheConfig  `mapstructure:"jwks_cache"`
-	Validation ValidationConfig `mapstructure:"validation"`
+	Issuers    []IssuerConfig   `mapstructure:"issuers" jsonschema:"description=List of trusted JWT issuers. At least one issuer must be configured.,required"`
+	JWKSCache  JWKSCacheConfig  `mapstructure:"jwks_cache" jsonschema:"description=JWKS (JSON Web Key Set) caching configuration."`
+	Validation ValidationConfig `mapstructure:"validation" jsonschema:"description=Token validation settings."`
 }
 
 // IssuerConfig holds configuration for a trusted issuer.
 type IssuerConfig struct {
-	Name       string   `mapstructure:"name"`
-	IssuerURL  string   `mapstructure:"issuer_url"`
-	JWKSURL    string   `mapstructure:"jwks_url"`
-	Audience   []string `mapstructure:"audience"`
-	Algorithms []string `mapstructure:"algorithms"`
+	Name       string   `mapstructure:"name" jsonschema:"description=Friendly name for this issuer (used in logs and metrics)."`
+	IssuerURL  string   `mapstructure:"issuer_url" jsonschema:"description=Expected 'iss' claim value. Must match exactly. Example: 'https://keycloak.example.com/realms/app'.,required"`
+	JWKSURL    string   `mapstructure:"jwks_url" jsonschema:"description=URL to fetch JWKS (public keys) for signature verification. Usually: {issuer_url}/.well-known/jwks.json or {issuer_url}/protocol/openid-connect/certs.,required"`
+	Audience   []string `mapstructure:"audience" jsonschema:"description=Expected 'aud' claim values. At least one must match if specified."`
+	Algorithms []string `mapstructure:"algorithms" jsonschema:"description=Allowed signing algorithms. Restricts which algorithms are accepted.,example=RS256,example=ES256"`
 }
 
 // JWKSCacheConfig holds JWKS caching configuration.
 type JWKSCacheConfig struct {
-	RefreshInterval    time.Duration `mapstructure:"refresh_interval"`
-	RefreshTimeout     time.Duration `mapstructure:"refresh_timeout"`
-	MinRefreshInterval time.Duration `mapstructure:"min_refresh_interval"`
+	RefreshInterval    time.Duration `mapstructure:"refresh_interval" jsonschema:"description=Interval for background JWKS refresh.,default=1h"`
+	RefreshTimeout     time.Duration `mapstructure:"refresh_timeout" jsonschema:"description=Timeout for JWKS fetch requests.,default=10s"`
+	MinRefreshInterval time.Duration `mapstructure:"min_refresh_interval" jsonschema:"description=Minimum interval between JWKS refreshes (rate limiting).,default=5m"`
 }
 
 // ValidationConfig holds token validation settings.
 type ValidationConfig struct {
-	ClockSkew         time.Duration `mapstructure:"clock_skew"`
-	RequireExpiration bool          `mapstructure:"require_expiration"`
-	RequireNotBefore  bool          `mapstructure:"require_not_before"`
+	ClockSkew         time.Duration `mapstructure:"clock_skew" jsonschema:"description=Allowed clock skew for exp/nbf/iat validation. Compensates for server time differences.,default=30s"`
+	RequireExpiration bool          `mapstructure:"require_expiration" jsonschema:"description=Require 'exp' claim in tokens. Recommended for security.,default=true"`
+	RequireNotBefore  bool          `mapstructure:"require_not_before" jsonschema:"description=Require 'nbf' claim in tokens.,default=false"`
 }
 
 // TokenExchangeConfig holds token exchange configuration.
 type TokenExchangeConfig struct {
-	Enabled      bool          `mapstructure:"enabled"`
-	TokenURL     string        `mapstructure:"token_url"`
-	ClientID     string        `mapstructure:"client_id"`
-	ClientSecret string        `mapstructure:"client_secret"`
-	Timeout      time.Duration `mapstructure:"timeout"`
+	Enabled      bool          `mapstructure:"enabled" jsonschema:"description=Enable OAuth2 Token Exchange (RFC 8693).,default=false"`
+	TokenURL     string        `mapstructure:"token_url" jsonschema:"description=Token endpoint URL for exchange requests."`
+	ClientID     string        `mapstructure:"client_id" jsonschema:"description=OAuth2 client ID for token exchange."`
+	ClientSecret string        `mapstructure:"client_secret" jsonschema:"description=OAuth2 client secret. Consider using environment variable."`
+	Timeout      time.Duration `mapstructure:"timeout" jsonschema:"description=Timeout for token exchange requests.,default=10s"`
 }
 
 // PolicyConfig holds policy engine configuration.
 type PolicyConfig struct {
-	Engine      string              `mapstructure:"engine"` // builtin, opa-sidecar, opa-embedded
-	OPA         OPAConfig           `mapstructure:"opa"`
-	OPAEmbedded OPAEmbeddedConfig   `mapstructure:"opa_embedded"`
-	Builtin     BuiltinPolicyConfig `mapstructure:"builtin"`
-	Fallback    FallbackConfig      `mapstructure:"fallback"`
+	Engine      string              `mapstructure:"engine" jsonschema:"description=Policy engine type.,enum=builtin,enum=opa_sidecar,enum=opa_embedded,default=builtin"`
+	OPA         OPAConfig           `mapstructure:"opa" jsonschema:"description=OPA sidecar configuration (when engine=opa_sidecar)."`
+	OPAEmbedded OPAEmbeddedConfig   `mapstructure:"opa_embedded" jsonschema:"description=Embedded OPA configuration (when engine=opa_embedded)."`
+	Builtin     BuiltinPolicyConfig `mapstructure:"builtin" jsonschema:"description=Builtin YAML rules engine configuration (when engine=builtin)."`
+	Fallback    FallbackConfig      `mapstructure:"fallback" jsonschema:"description=Fallback policy configuration when primary engine fails."`
 }
 
 // OPAConfig holds OPA HTTP client configuration.
 type OPAConfig struct {
-	URL        string        `mapstructure:"url"`
-	PolicyPath string        `mapstructure:"policy_path"`
-	Timeout    time.Duration `mapstructure:"timeout"`
-	Retry      RetryConfig   `mapstructure:"retry"`
+	URL        string        `mapstructure:"url" jsonschema:"description=OPA server URL.,default=http://localhost:8181"`
+	PolicyPath string        `mapstructure:"policy_path" jsonschema:"description=OPA policy decision path.,default=/v1/data/authz/allow"`
+	Timeout    time.Duration `mapstructure:"timeout" jsonschema:"description=Request timeout for OPA queries.,default=10ms"`
+	Retry      RetryConfig   `mapstructure:"retry" jsonschema:"description=Retry configuration for OPA requests."`
 }
 
 // RetryConfig holds retry settings.
 type RetryConfig struct {
-	MaxAttempts    int           `mapstructure:"max_attempts"`
-	InitialBackoff time.Duration `mapstructure:"initial_backoff"`
-	MaxBackoff     time.Duration `mapstructure:"max_backoff"`
+	MaxAttempts    int           `mapstructure:"max_attempts" jsonschema:"description=Maximum retry attempts.,default=3"`
+	InitialBackoff time.Duration `mapstructure:"initial_backoff" jsonschema:"description=Initial backoff delay.,default=1ms"`
+	MaxBackoff     time.Duration `mapstructure:"max_backoff" jsonschema:"description=Maximum backoff delay.,default=10ms"`
 }
 
 // OPAEmbeddedConfig holds embedded OPA configuration.
 type OPAEmbeddedConfig struct {
 	// BundlePath is the path to OPA bundle (tar.gz)
-	BundlePath string `mapstructure:"bundle_path"`
-
+	BundlePath string `mapstructure:"bundle_path" jsonschema:"description=Path to OPA bundle file (tar.gz). Alternative to policy_dir."`
 	// PolicyDir is the directory containing Rego policy files
-	PolicyDir string `mapstructure:"policy_dir"`
-
+	PolicyDir string `mapstructure:"policy_dir" jsonschema:"description=Directory containing Rego policy files (.rego).,default=/etc/authz/policies"`
 	// DataDir is the directory containing JSON data files
-	DataDir string `mapstructure:"data_dir"`
-
-	// DecisionPath is the Rego decision path (e.g., "authz/allow")
-	DecisionPath string `mapstructure:"decision_path"`
-
-	// HotReload enables automatic policy reload on file changes
-	HotReload bool `mapstructure:"hot_reload"`
+	DataDir string `mapstructure:"data_dir" jsonschema:"description=Directory containing JSON data files for OPA.,default=/etc/authz/data"`
+	// DecisionPath is the Rego decision path
+	DecisionPath string `mapstructure:"decision_path" jsonschema:"description=Rego package path for authorization decision. Example: 'authz.allow' evaluates data.authz.allow.,default=authz.allow"`
+	// HotReload enables automatic policy reload
+	HotReload bool `mapstructure:"hot_reload" jsonschema:"description=Enable automatic policy reload on file changes.,default=true"`
 }
 
 // OPASidecarConfig is an alias for OPAConfig for clarity.
@@ -423,100 +399,216 @@ type OPASidecarConfig = OPAConfig
 
 // BuiltinPolicyConfig holds built-in policy configuration.
 type BuiltinPolicyConfig struct {
-	RulesPath string `mapstructure:"rules_path"`
+	RulesPath string `mapstructure:"rules_path" jsonschema:"description=Path to YAML rules file for builtin engine.,default=/etc/authz/rules.yaml"`
 }
 
 // FallbackConfig holds fallback policy configuration.
 type FallbackConfig struct {
-	Enabled  bool   `mapstructure:"enabled"`
-	Engine   string `mapstructure:"engine"`
-	Behavior string `mapstructure:"behavior"` // deny, allow
+	Enabled  bool   `mapstructure:"enabled" jsonschema:"description=Enable fallback policy when primary engine fails.,default=true"`
+	Engine   string `mapstructure:"engine" jsonschema:"description=Fallback policy engine.,enum=builtin,enum=opa_embedded,default=builtin"`
+	Behavior string `mapstructure:"behavior" jsonschema:"description=Default decision when fallback is used.,enum=deny,enum=allow,default=deny"`
 }
 
 // CacheConfig holds caching configuration.
 type CacheConfig struct {
-	L1 L1CacheConfig `mapstructure:"l1"`
-	L2 L2CacheConfig `mapstructure:"l2"`
+	L1 L1CacheConfig `mapstructure:"l1" jsonschema:"description=L1 (in-memory) cache for lowest latency."`
+	L2 L2CacheConfig `mapstructure:"l2" jsonschema:"description=L2 (distributed) cache for shared caching across instances."`
 }
 
 // L1CacheConfig holds in-memory cache configuration.
 type L1CacheConfig struct {
-	Enabled bool          `mapstructure:"enabled"`
-	MaxSize int           `mapstructure:"max_size"`
-	TTL     time.Duration `mapstructure:"ttl"`
+	Enabled bool          `mapstructure:"enabled" jsonschema:"description=Enable in-memory L1 cache.,default=true"`
+	MaxSize int           `mapstructure:"max_size" jsonschema:"description=Maximum number of entries in L1 cache.,default=10000"`
+	TTL     time.Duration `mapstructure:"ttl" jsonschema:"description=Time-to-live for L1 cache entries.,default=10s"`
 }
 
 // L2CacheConfig holds distributed cache configuration.
 type L2CacheConfig struct {
-	Enabled   bool             `mapstructure:"enabled"`
-	Backend   string           `mapstructure:"backend"` // redis
-	Redis     RedisCacheConfig `mapstructure:"redis"`
-	TTL       CacheTTLConfig   `mapstructure:"ttl"`
-	KeyPrefix string           `mapstructure:"key_prefix"`
+	Enabled   bool             `mapstructure:"enabled" jsonschema:"description=Enable distributed L2 cache (Redis).,default=false"`
+	Backend   string           `mapstructure:"backend" jsonschema:"description=L2 cache backend type.,enum=redis,default=redis"`
+	Redis     RedisCacheConfig `mapstructure:"redis" jsonschema:"description=Redis configuration for L2 cache."`
+	TTL       CacheTTLConfig   `mapstructure:"ttl" jsonschema:"description=TTL settings for different cache entry types."`
+	KeyPrefix string           `mapstructure:"key_prefix" jsonschema:"description=Prefix for all cache keys in Redis.,default=authz:"`
 }
 
 // RedisCacheConfig holds Redis configuration.
 type RedisCacheConfig struct {
-	Addresses    []string      `mapstructure:"addresses"`
-	Password     string        `mapstructure:"password"`
-	DB           int           `mapstructure:"db"`
-	PoolSize     int           `mapstructure:"pool_size"`
-	ReadTimeout  time.Duration `mapstructure:"read_timeout"`
-	WriteTimeout time.Duration `mapstructure:"write_timeout"`
+	Addresses    []string      `mapstructure:"addresses" jsonschema:"description=Redis server addresses. Multiple for cluster mode.,example=localhost:6379"`
+	Password     string        `mapstructure:"password" jsonschema:"description=Redis password. Consider using environment variable."`
+	DB           int           `mapstructure:"db" jsonschema:"description=Redis database number.,default=0"`
+	PoolSize     int           `mapstructure:"pool_size" jsonschema:"description=Connection pool size per address.,default=10"`
+	ReadTimeout  time.Duration `mapstructure:"read_timeout" jsonschema:"description=Timeout for read operations.,default=3s"`
+	WriteTimeout time.Duration `mapstructure:"write_timeout" jsonschema:"description=Timeout for write operations.,default=3s"`
 }
 
 // CacheTTLConfig holds TTL settings for different cache types.
 type CacheTTLConfig struct {
-	Authorization time.Duration `mapstructure:"authorization"`
-	JWT           time.Duration `mapstructure:"jwt"`
-	JWKS          time.Duration `mapstructure:"jwks"`
+	Authorization time.Duration `mapstructure:"authorization" jsonschema:"description=TTL for authorization decision cache.,default=60s"`
+	JWT           time.Duration `mapstructure:"jwt" jsonschema:"description=TTL for validated JWT token cache.,default=300s"`
+	JWKS          time.Duration `mapstructure:"jwks" jsonschema:"description=TTL for JWKS (public keys) cache.,default=3600s"`
 }
 
 // AuditConfig holds audit logging configuration.
 type AuditConfig struct {
-	Enabled    bool         `mapstructure:"enabled"`
-	Events     []string     `mapstructure:"events"`
-	Export     ExportConfig `mapstructure:"export"`
-	Enrichment EnrichConfig `mapstructure:"enrichment"`
+	Enabled    bool         `mapstructure:"enabled" jsonschema:"description=Enable audit logging for authorization decisions.,default=true"`
+	Events     []string     `mapstructure:"events" jsonschema:"description=Event types to audit.,example=AUTHZ_DECISION,example=TOKEN_VALIDATED,default=[AUTHZ_DECISION]"`
+	Export     ExportConfig `mapstructure:"export" jsonschema:"description=Audit log export configuration."`
+	Enrichment EnrichConfig `mapstructure:"enrichment" jsonschema:"description=Audit log enrichment settings."`
 }
 
 // ExportConfig holds audit export configuration.
 type ExportConfig struct {
-	OTLP   OTLPExportConfig   `mapstructure:"otlp"`
-	Stdout StdoutExportConfig `mapstructure:"stdout"`
+	OTLP   OTLPExportConfig   `mapstructure:"otlp" jsonschema:"description=OpenTelemetry (OTLP) export configuration."`
+	Stdout StdoutExportConfig `mapstructure:"stdout" jsonschema:"description=Stdout export configuration for local debugging."`
 }
 
 // OTLPExportConfig holds OTLP export configuration.
 type OTLPExportConfig struct {
-	Enabled  bool   `mapstructure:"enabled"`
-	Endpoint string `mapstructure:"endpoint"`
-	Insecure bool   `mapstructure:"insecure"`
+	Enabled  bool   `mapstructure:"enabled" jsonschema:"description=Enable OTLP export to collectors like Jaeger\\, Tempo.,default=false"`
+	Endpoint string `mapstructure:"endpoint" jsonschema:"description=OTLP collector endpoint URL.,example=localhost:4317"`
+	Insecure bool   `mapstructure:"insecure" jsonschema:"description=Use insecure (non-TLS) connection to collector.,default=false"`
 }
 
 // StdoutExportConfig holds stdout export configuration.
 type StdoutExportConfig struct {
-	Enabled bool   `mapstructure:"enabled"`
-	Format  string `mapstructure:"format"` // json, text
+	Enabled bool   `mapstructure:"enabled" jsonschema:"description=Enable audit log output to stdout.,default=true"`
+	Format  string `mapstructure:"format" jsonschema:"description=Output format for stdout audit logs.,enum=json,enum=text,default=json"`
 }
 
 // EnrichConfig holds audit enrichment configuration.
 type EnrichConfig struct {
-	IncludeHeaders []string `mapstructure:"include_headers"`
-	MaskFields     []string `mapstructure:"mask_fields"`
+	IncludeHeaders []string `mapstructure:"include_headers" jsonschema:"description=Request headers to include in audit logs.,example=X-Request-ID,example=X-Correlation-ID"`
+	MaskFields     []string `mapstructure:"mask_fields" jsonschema:"description=Fields to mask in audit logs (for PII/sensitive data).,example=password,example=token"`
 }
 
 // HealthConfig holds health check configuration.
 type HealthConfig struct {
-	CheckInterval time.Duration `mapstructure:"check_interval"`
-	Timeout       time.Duration `mapstructure:"timeout"`
-	Checks        []CheckConfig `mapstructure:"checks"`
+	CheckInterval time.Duration `mapstructure:"check_interval" jsonschema:"description=Interval between health checks.,default=10s"`
+	Timeout       time.Duration `mapstructure:"timeout" jsonschema:"description=Timeout for individual health checks.,default=5s"`
+	Checks        []CheckConfig `mapstructure:"checks" jsonschema:"description=Individual health check configurations."`
 }
 
 // CheckConfig holds individual health check configuration.
 type CheckConfig struct {
-	Name     string `mapstructure:"name"`
-	Enabled  bool   `mapstructure:"enabled"`
-	Critical bool   `mapstructure:"critical"`
+	Name     string `mapstructure:"name" jsonschema:"description=Health check name (e.g. 'redis'\\, 'opa')."`
+	Enabled  bool   `mapstructure:"enabled" jsonschema:"description=Enable this health check.,default=true"`
+	Critical bool   `mapstructure:"critical" jsonschema:"description=If true\\, failure marks service as unhealthy.,default=false"`
+}
+
+// =============================================================================
+// Resilience Configuration (Rate Limiting & Circuit Breaker)
+// =============================================================================
+
+// ResilienceConfig holds resilience patterns configuration.
+type ResilienceConfig struct {
+	// RateLimit configuration for incoming requests
+	RateLimit RateLimitConfig `mapstructure:"rate_limit" jsonschema:"description=Rate limiting configuration for incoming HTTP requests. Protects service from overload."`
+	// CircuitBreaker configuration for external calls
+	CircuitBreaker CircuitBreakerConfig `mapstructure:"circuit_breaker" jsonschema:"description=Circuit breaker configuration for external service calls. Prevents cascade failures."`
+}
+
+// RateLimitConfig holds rate limiting configuration.
+type RateLimitConfig struct {
+	// Enabled enables rate limiting
+	Enabled bool `mapstructure:"enabled" jsonschema:"description=Enable rate limiting for incoming requests.,default=true"`
+	// Rate is the rate limit in format 'requests-period' (e.g. '100-S' for 100 requests per second)
+	Rate string `mapstructure:"rate" jsonschema:"description=Rate limit in format 'requests-period'. Periods: S (second)\\, M (minute)\\, H (hour)\\, D (day). Example: '100-S' = 100 req/sec\\, '1000-M' = 1000 req/min.,default=100-S"`
+	// Store is the rate limit store type
+	Store string `mapstructure:"store" jsonschema:"description=Rate limit storage backend.,enum=memory,enum=redis,default=memory"`
+	// Redis configuration for distributed rate limiting
+	Redis RateLimitRedisConfig `mapstructure:"redis" jsonschema:"description=Redis configuration for distributed rate limiting (when store=redis)."`
+	// TrustForwardedFor trusts X-Forwarded-For header for client IP
+	TrustForwardedFor bool `mapstructure:"trust_forwarded_for" jsonschema:"description=Trust X-Forwarded-For header for client IP identification. Enable when behind proxy/load balancer.,default=true"`
+	// ExcludePaths excludes paths from rate limiting
+	ExcludePaths []string `mapstructure:"exclude_paths" jsonschema:"description=Paths to exclude from rate limiting. Supports glob patterns.,example=/health,example=/metrics,example=/ready"`
+	// ByEndpoint enables per-endpoint rate limiting
+	ByEndpoint bool `mapstructure:"by_endpoint" jsonschema:"description=Apply rate limits per endpoint instead of globally.,default=false"`
+	// EndpointRates defines per-endpoint rate limits
+	EndpointRates map[string]string `mapstructure:"endpoint_rates" jsonschema:"description=Per-endpoint rate limits. Key is path prefix\\, value is rate. Example: {'/v1/authorize': '1000-S'\\, '/v1/token': '100-S'}."`
+	// Headers configuration for rate limit response headers
+	Headers RateLimitHeadersConfig `mapstructure:"headers" jsonschema:"description=Rate limit response headers configuration."`
+}
+
+// RateLimitRedisConfig holds Redis configuration for rate limiting.
+type RateLimitRedisConfig struct {
+	// Address is Redis server address
+	Address string `mapstructure:"address" jsonschema:"description=Redis server address.,example=localhost:6379"`
+	// Password is Redis password
+	Password string `mapstructure:"password" jsonschema:"description=Redis password. Consider using environment variable AUTHZ_RESILIENCE_RATE_LIMIT_REDIS_PASSWORD."`
+	// DB is Redis database number
+	DB int `mapstructure:"db" jsonschema:"description=Redis database number.,default=1"`
+	// KeyPrefix is the prefix for rate limit keys
+	KeyPrefix string `mapstructure:"key_prefix" jsonschema:"description=Prefix for rate limit keys in Redis.,default=authz:ratelimit:"`
+}
+
+// RateLimitHeadersConfig holds rate limit headers configuration.
+type RateLimitHeadersConfig struct {
+	// Enabled enables rate limit headers in response
+	Enabled bool `mapstructure:"enabled" jsonschema:"description=Include rate limit headers in HTTP response (X-RateLimit-*).,default=true"`
+	// LimitHeader is the header name for rate limit
+	LimitHeader string `mapstructure:"limit_header" jsonschema:"description=Header name for rate limit value.,default=X-RateLimit-Limit"`
+	// RemainingHeader is the header name for remaining requests
+	RemainingHeader string `mapstructure:"remaining_header" jsonschema:"description=Header name for remaining requests.,default=X-RateLimit-Remaining"`
+	// ResetHeader is the header name for reset timestamp
+	ResetHeader string `mapstructure:"reset_header" jsonschema:"description=Header name for reset timestamp.,default=X-RateLimit-Reset"`
+}
+
+// CircuitBreakerConfig holds circuit breaker configuration.
+type CircuitBreakerConfig struct {
+	// Enabled enables circuit breaker
+	Enabled bool `mapstructure:"enabled" jsonschema:"description=Enable circuit breaker for external service calls.,default=true"`
+	// Default settings for all circuit breakers
+	Default CircuitBreakerSettings `mapstructure:"default" jsonschema:"description=Default circuit breaker settings applied to all external calls."`
+	// Services holds per-service circuit breaker settings
+	Services map[string]CircuitBreakerSettings `mapstructure:"services" jsonschema:"description=Per-service circuit breaker settings. Key is service name (e.g. 'opa'\\, 'keycloak')."`
+}
+
+// CircuitBreakerSettings holds settings for a single circuit breaker.
+type CircuitBreakerSettings struct {
+	// MaxRequests is the maximum number of requests in half-open state
+	MaxRequests uint32 `mapstructure:"max_requests" jsonschema:"description=Maximum requests allowed in half-open state before deciding to close or open.,default=3,minimum=1"`
+	// Interval is the cyclic period for clearing counts in closed state
+	Interval time.Duration `mapstructure:"interval" jsonschema:"description=Cyclic period for clearing failure counts when circuit is closed.,default=60s"`
+	// Timeout is the period of open state before switching to half-open
+	Timeout time.Duration `mapstructure:"timeout" jsonschema:"description=Duration of open state before switching to half-open.,default=30s"`
+	// FailureThreshold is the number of consecutive failures to open circuit
+	FailureThreshold uint32 `mapstructure:"failure_threshold" jsonschema:"description=Number of consecutive failures before opening circuit.,default=5,minimum=1"`
+	// SuccessThreshold is the number of consecutive successes to close circuit
+	SuccessThreshold uint32 `mapstructure:"success_threshold" jsonschema:"description=Number of consecutive successes in half-open state to close circuit.,default=2,minimum=1"`
+	// OnStateChange enables logging on state changes
+	OnStateChange bool `mapstructure:"on_state_change" jsonschema:"description=Log circuit breaker state changes.,default=true"`
+}
+
+// =============================================================================
+// Sensitive Data Masking Configuration
+// =============================================================================
+
+// SensitiveDataConfig holds sensitive data handling configuration.
+type SensitiveDataConfig struct {
+	// Enabled enables sensitive data masking in logs
+	Enabled bool `mapstructure:"enabled" jsonschema:"description=Enable automatic masking of sensitive data in logs.,default=true"`
+	// MaskValue is the replacement value for masked data
+	MaskValue string `mapstructure:"mask_value" jsonschema:"description=Value to replace sensitive data with.,default=***MASKED***"`
+	// Fields are field names to mask (case-insensitive)
+	Fields []string `mapstructure:"fields" jsonschema:"description=Field names to mask in logs (case-insensitive). Applied to JSON keys and struct fields.,default=[password\\,secret\\,token\\,api_key\\,apikey\\,authorization\\,client_secret\\,access_token\\,refresh_token\\,private_key\\,credential]"`
+	// Headers are HTTP header names to mask
+	Headers []string `mapstructure:"headers" jsonschema:"description=HTTP header names to mask in logs (case-insensitive).,default=[Authorization\\,X-API-Key\\,Cookie\\,Set-Cookie]"`
+	// MaskJWT masks JWT token payload (keeps header visible)
+	MaskJWT bool `mapstructure:"mask_jwt" jsonschema:"description=Mask JWT token payload in logs (keeps header and signature indicator visible).,default=true"`
+	// PartialMask enables partial masking (show first/last N chars)
+	PartialMask PartialMaskConfig `mapstructure:"partial_mask" jsonschema:"description=Partial masking configuration to show parts of sensitive values."`
+}
+
+// PartialMaskConfig holds partial masking configuration.
+type PartialMaskConfig struct {
+	// Enabled enables partial masking
+	Enabled bool `mapstructure:"enabled" jsonschema:"description=Enable partial masking (show first/last characters).,default=false"`
+	// ShowFirst is the number of first characters to show
+	ShowFirst int `mapstructure:"show_first" jsonschema:"description=Number of first characters to show.,default=4"`
+	// ShowLast is the number of last characters to show
+	ShowLast int `mapstructure:"show_last" jsonschema:"description=Number of last characters to show.,default=4"`
+	// MinLength is the minimum value length to apply partial masking
+	MinLength int `mapstructure:"min_length" jsonschema:"description=Minimum value length for partial masking. Shorter values are fully masked.,default=12"`
 }
 
 // Load loads configuration from file and environment.
@@ -563,6 +655,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.http.read_timeout", "10s")
 	v.SetDefault("server.http.write_timeout", "10s")
 	v.SetDefault("server.http.idle_timeout", "120s")
+	v.SetDefault("server.http.shutdown_timeout", "30s")
 	v.SetDefault("server.http.max_header_bytes", 1<<20) // 1MB
 
 	v.SetDefault("server.grpc.enabled", false)
@@ -660,4 +753,44 @@ func setDefaults(v *viper.Viper) {
 	// Health defaults
 	v.SetDefault("health.check_interval", "10s")
 	v.SetDefault("health.timeout", "5s")
+
+	// Resilience defaults - Rate Limiting
+	v.SetDefault("resilience.rate_limit.enabled", true)
+	v.SetDefault("resilience.rate_limit.rate", "100-S")
+	v.SetDefault("resilience.rate_limit.store", "memory")
+	v.SetDefault("resilience.rate_limit.trust_forwarded_for", true)
+	v.SetDefault("resilience.rate_limit.exclude_paths", []string{"/health", "/ready", "/live", "/metrics"})
+	v.SetDefault("resilience.rate_limit.by_endpoint", false)
+	v.SetDefault("resilience.rate_limit.redis.db", 1)
+	v.SetDefault("resilience.rate_limit.redis.key_prefix", "authz:ratelimit:")
+	v.SetDefault("resilience.rate_limit.headers.enabled", true)
+	v.SetDefault("resilience.rate_limit.headers.limit_header", "X-RateLimit-Limit")
+	v.SetDefault("resilience.rate_limit.headers.remaining_header", "X-RateLimit-Remaining")
+	v.SetDefault("resilience.rate_limit.headers.reset_header", "X-RateLimit-Reset")
+
+	// Resilience defaults - Circuit Breaker
+	v.SetDefault("resilience.circuit_breaker.enabled", true)
+	v.SetDefault("resilience.circuit_breaker.default.max_requests", 3)
+	v.SetDefault("resilience.circuit_breaker.default.interval", "60s")
+	v.SetDefault("resilience.circuit_breaker.default.timeout", "30s")
+	v.SetDefault("resilience.circuit_breaker.default.failure_threshold", 5)
+	v.SetDefault("resilience.circuit_breaker.default.success_threshold", 2)
+	v.SetDefault("resilience.circuit_breaker.default.on_state_change", true)
+
+	// Sensitive Data defaults
+	v.SetDefault("sensitive_data.enabled", true)
+	v.SetDefault("sensitive_data.mask_value", "***MASKED***")
+	v.SetDefault("sensitive_data.fields", []string{
+		"password", "secret", "token", "api_key", "apikey",
+		"authorization", "client_secret", "access_token",
+		"refresh_token", "private_key", "credential",
+	})
+	v.SetDefault("sensitive_data.headers", []string{
+		"Authorization", "X-API-Key", "Cookie", "Set-Cookie",
+	})
+	v.SetDefault("sensitive_data.mask_jwt", true)
+	v.SetDefault("sensitive_data.partial_mask.enabled", false)
+	v.SetDefault("sensitive_data.partial_mask.show_first", 4)
+	v.SetDefault("sensitive_data.partial_mask.show_last", 4)
+	v.SetDefault("sensitive_data.partial_mask.min_length", 12)
 }

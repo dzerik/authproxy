@@ -1,0 +1,299 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/your-org/authz-service/schemas/rules.schema.json",
+  "$ref": "#/$defs/rule_set",
+  "$defs": {
+    "conditions": {
+      "properties": {
+        "methods": {
+          "items": {
+            "type": "string",
+            "examples": [
+              "GET",
+              "POST"
+            ]
+          },
+          "type": "array",
+          "description": "HTTP methods to match. Empty means any method."
+        },
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "URL paths to match using glob patterns. Supports * (single segment) and ** (multiple segments). Example: '/api/*' matches '/api/users'. '/api/**' matches '/api/v1/users/123'."
+        },
+        "hosts": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Request hosts to match (exact match). Example: 'api.example.com'."
+        },
+        "path_templates": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "URL path templates with parameter extraction. Supports two syntaxes: 1) Simple: '/api/v1/{resource_type}/{resource_id}' - parameters in braces. 2) Regex: '^/api/v1/(?P\u003cresource\u003e\\w+)/(?P\u003cid\u003e[^/]+)$' - named capture groups. Extracted parameters: resource_type, resource_id, action are used for RBAC."
+        },
+        "roles": {
+          "items": {
+            "type": "string",
+            "examples": [
+              "admin",
+              "user"
+            ]
+          },
+          "type": "array",
+          "description": "Required roles from JWT token. User must have at least one of these roles. Roles are extracted from 'realm_access.roles' and 'resource_access.*.roles' claims."
+        },
+        "scopes": {
+          "items": {
+            "type": "string",
+            "examples": [
+              "read",
+              "write"
+            ]
+          },
+          "type": "array",
+          "description": "Required OAuth2 scopes. User must have at least one of these scopes. Extracted from 'scope' claim (space-separated)."
+        },
+        "issuers": {
+          "items": {
+            "type": "string",
+            "examples": [
+              "https://keycloak.example.com/realms/app"
+            ]
+          },
+          "type": "array",
+          "description": "Allowed token issuers (exact match on 'iss' claim). Use to restrict which identity providers are accepted."
+        },
+        "subjects": {
+          "items": {
+            "type": "string",
+            "examples": [
+              "user-*",
+              "service-account-*"
+            ]
+          },
+          "type": "array",
+          "description": "Subject ID patterns to match against 'sub' claim. Supports glob (*) and regex patterns."
+        },
+        "audiences": {
+          "items": {
+            "type": "string",
+            "examples": [
+              "my-api",
+              "https://api.example.com"
+            ]
+          },
+          "type": "array",
+          "description": "Required audiences. At least one must be present in the 'aud' claim."
+        },
+        "resource_types": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Resource types to match. Compared against: 1) Values extracted from path_templates ({resource_type}). 2) Input resource.type field. Example: 'users', 'orders', 'documents'."
+        },
+        "actions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Actions to match. Compared against: 1) Value extracted from path_templates ({action}). 2) Input resource.action field. 3) Derived from HTTP method (GET→read, POST→create, PUT/PATCH→update, DELETE→delete). Example: 'read', 'write', 'delete', 'admin'."
+        },
+        "source_ips": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Source IP addresses or CIDR ranges to match. Examples: '192.168.1.100', '10.0.0.0/8', '2001:db8::/32'. Use for IP-based access control."
+        },
+        "source_principals": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Source principals (mTLS/SPIFFE identities) to match. Supports glob patterns. Example: 'spiffe://cluster.local/ns/*/sa/frontend'."
+        },
+        "custom": {
+          "type": "object",
+          "description": "Custom conditions for extension. Key-value pairs passed to custom evaluators. Structure depends on your custom implementation."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "constraints": {
+      "properties": {
+        "max_token_age": {
+          "type": "string",
+          "description": "Maximum age of the JWT token (time since 'iat' claim). Tokens older than this are rejected even if otherwise valid. Format: Go duration string.",
+          "examples": [
+            "1h",
+            "30m",
+            "24h"
+          ]
+        },
+        "required_claims": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "Claims that must be present in the token with exact values. Key is the claim name (supports dot notation for nested claims), value is the required value. Example: {'email_verified': 'true', 'custom.level': 'premium'}."
+        },
+        "allowed_headers": {
+          "items": {
+            "type": "string",
+            "examples": [
+              "X-Request-ID",
+              "X-Correlation-ID"
+            ]
+          },
+          "type": "array",
+          "description": "HTTP headers allowed to be forwarded to upstream services. Use for header-based authorization or filtering sensitive headers."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "rule": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique identifier for this rule. Used in logs, metrics, and decision metadata.",
+          "examples": [
+            "allow-admin-access"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description explaining the purpose of this rule."
+        },
+        "priority": {
+          "type": "integer",
+          "maximum": 10000,
+          "minimum": 0,
+          "description": "Rule priority. Higher values are evaluated first. Use ranges: 1000+ for system rules, 100-999 for application rules, 1-99 for default rules.",
+          "default": 0,
+          "examples": [
+            100
+          ]
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether this rule is active. Disabled rules are skipped during evaluation.",
+          "default": true
+        },
+        "conditions": {
+          "$ref": "#/$defs/conditions",
+          "description": "Conditions that must be satisfied for this rule to match. All specified conditions must match (AND logic)."
+        },
+        "effect": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "deny"
+          ],
+          "description": "Authorization decision when this rule matches."
+        },
+        "constraints": {
+          "$ref": "#/$defs/constraints",
+          "description": "Additional constraints applied when the rule matches (e.g. token age limits, required claims)."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "effect"
+      ]
+    },
+    "rule_set": {
+      "properties": {
+        "version": {
+          "type": "string",
+          "description": "Version identifier for this rule set (e.g. '1.0', '2024-01-15'). Used for tracking and cache invalidation.",
+          "examples": [
+            "1.0"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of this rule set's purpose and scope."
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/rule"
+          },
+          "type": "array",
+          "description": "List of authorization rules. Rules are evaluated in priority order (highest first). First matching rule determines the decision."
+        },
+        "default_deny": {
+          "type": "boolean",
+          "description": "Default decision when no rules match. If true, requests are denied by default (recommended for security). If false, requests are allowed by default.",
+          "default": true
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "rules"
+      ]
+    }
+  },
+  "title": "Authz Service Rules",
+  "description": "Policy rules schema for the builtin authorization engine.\n\nRules are evaluated in priority order (higher priority first).\nFirst matching rule determines the authorization decision.",
+  "examples": [
+    {
+      "default_deny": true,
+      "description": "Example authorization rules",
+      "rules": [
+        {
+          "conditions": {
+            "methods": [
+              "GET"
+            ],
+            "paths": [
+              "/health",
+              "/ready",
+              "/live"
+            ]
+          },
+          "description": "Allow health check endpoints",
+          "effect": "allow",
+          "enabled": true,
+          "name": "allow-health",
+          "priority": 1000
+        },
+        {
+          "conditions": {
+            "actions": [
+              "read"
+            ],
+            "methods": [
+              "GET"
+            ],
+            "path_templates": [
+              "/api/v1/{resource_type}/{resource_id}"
+            ],
+            "roles": [
+              "user",
+              "admin"
+            ]
+          },
+          "description": "Allow read access to API for authenticated users",
+          "effect": "allow",
+          "enabled": true,
+          "name": "api-read-access",
+          "priority": 100
+        }
+      ],
+      "version": "1.0"
+    }
+  ]
+}
