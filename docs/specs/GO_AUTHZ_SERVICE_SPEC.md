@@ -405,6 +405,31 @@ sequenceDiagram
 | FR-POLICY-04 | Переключение между policy engines | P0 |
 | FR-POLICY-05 | Fallback при недоступности OPA | P0 |
 | FR-POLICY-06 | Hot-reload политик | P2 |
+| FR-POLICY-07 | CEL expressions в Built-in rules | P1 |
+
+#### FR-POLICY-07: CEL Expressions
+
+Built-in policy engine поддерживает [CEL (Common Expression Language)](https://github.com/google/cel-spec) для сложной логики авторизации.
+
+**Возможности:**
+- Доступ к JWT claims, request info, resource params
+- Кастомные функции: `cidrMatch()`, `globMatch()`
+- Три режима: `and`, `or`, `override`
+- Компиляция и кеширование выражений
+
+**Пример:**
+```yaml
+rules:
+  - name: owner-or-admin
+    conditions:
+      path_templates:
+        - "/api/v1/documents/{document_id}"
+      expression: '"admin" in token.roles || resource.params["owner_id"] == token.sub'
+      expression_mode: override
+    effect: allow
+```
+
+**См. также:** [CEL Expressions Guide](../guides/CEL_EXPRESSIONS_GUIDE.md)
 
 ### 4.3. Caching (FR-CACHE)
 

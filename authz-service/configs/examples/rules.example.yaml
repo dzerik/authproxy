@@ -1,0 +1,933 @@
+# ==============================================================================
+# Authorization Rules Configuration - Comprehensive Example
+# ==============================================================================
+#
+# This file defines authorization rules for the builtin policy engine.
+# Rules are evaluated in PRIORITY ORDER (highest first).
+# The FIRST matching rule determines the authorization decision.
+#
+# IMPORTANT CONCEPTS:
+# - All conditions within a rule use AND logic (all must match)
+# - Within arrays (e.g., roles), OR logic is used (any role matches)
+# - Empty conditions mean "no restriction" for that attribute
+# - Higher priority = evaluated first (1000+ for system, 100-999 for app)
+#
+# ==============================================================================
+
+version: "v2.0.0"
+description: "Production authorization rules with path matchers and RBAC"
+
+# Default behavior when no rule matches:
+# - true (recommended): deny all requests that don't match any rule
+# - false: allow all requests that don't match (dangerous!)
+default_deny: true
+
+rules:
+  # ============================================================================
+  # SECTION 1: SYSTEM RULES (Priority 1000+)
+  # ============================================================================
+  # These rules handle infrastructure endpoints that should always be accessible.
+  # Use highest priorities to ensure they're evaluated first.
+
+  # --------------------------------------------------------------------------
+  # Health Check Endpoints
+  # --------------------------------------------------------------------------
+  # Allow unauthenticated access to health endpoints for load balancers,
+  # Kubernetes probes, and monitoring systems.
+  - name: allow-health-endpoints
+    description: "Allow access to health check endpoints for monitoring"
+    priority: 1000  # Highest priority - evaluated first
+    enabled: true
+    conditions:
+      # Path matching using glob patterns:
+      # - "*" matches any single path segment (e.g., "/health/liveness")
+      # - "**" matches multiple segments (e.g., "/health/check/deep")
+      paths:
+        - "/health"           # Exact match
+        - "/health/*"         # Matches /health/liveness, /health/readiness
+        - "/healthz"          # Kubernetes convention
+        - "/ready"            # Readiness probe
+        - "/readyz"           # Kubernetes convention
+        - "/live"             # Liveness probe
+        - "/livez"            # Kubernetes convention
+
+      # Only allow GET method for health checks
+      methods:
+        - GET
+        - HEAD
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Metrics Endpoint
+  # --------------------------------------------------------------------------
+  # Prometheus metrics endpoint - typically accessed by monitoring stack
+  - name: allow-metrics-endpoint
+    description: "Allow access to Prometheus metrics"
+    priority: 999
+    enabled: true
+    conditions:
+      paths:
+        - "/metrics"
+        - "/metrics/*"
+      methods:
+        - GET
+
+      # OPTIONAL: Restrict metrics access to internal network only
+      # Uncomment to enable IP-based restriction
+      # source_ips:
+      #   - "10.0.0.0/8"       # Private network Class A
+      #   - "172.16.0.0/12"    # Private network Class B
+      #   - "192.168.0.0/16"   # Private network Class C
+      #   - "::1/128"          # IPv6 localhost
+
+    effect: allow
+
+  # ============================================================================
+  # SECTION 2: ADMIN RULES (Priority 800-899)
+  # ============================================================================
+  # Rules for administrative access. Typically require special roles.
+
+  # --------------------------------------------------------------------------
+  # Super Admin Access
+  # --------------------------------------------------------------------------
+  # Full access for super-admin role to all admin endpoints
+  - name: super-admin-full-access
+    description: "Super admin has full access to all admin endpoints"
+    priority: 850
+    enabled: true
+    conditions:
+      # Path template with parameter extraction:
+      # {resource_type} - extracts "users", "roles", etc.
+      # {resource_id}   - extracts specific resource ID
+      path_templates:
+        - "/api/v1/admin/{resource_type}"
+        - "/api/v1/admin/{resource_type}/{resource_id}"
+        - "/api/v1/admin/{resource_type}/{resource_id}/{action}"
+
+      # Require super-admin role from JWT token
+      # Roles are extracted from:
+      # - realm_access.roles
+      # - resource_access.{client}.roles
+      roles:
+        - super-admin
+        - realm-admin
+
+    effect: allow
+
+    # Additional constraints for admin access
+    constraints:
+      # Token must be fresh (issued within last hour)
+      max_token_age: "1h"
+
+      # Required claims in the token
+      required_claims:
+        email_verified: "true"
+
+  # --------------------------------------------------------------------------
+  # Cache Management
+  # --------------------------------------------------------------------------
+  - name: admin-cache-management
+    description: "Allow admins to manage cache"
+    priority: 840
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/admin/cache/*"
+      methods:
+        - POST
+        - DELETE
+      roles:
+        - admin
+        - cache-manager
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Policy Management
+  # --------------------------------------------------------------------------
+  - name: admin-policy-reload
+    description: "Allow admins to reload policies"
+    priority: 830
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/admin/policy/reload"
+      methods:
+        - POST
+      roles:
+        - admin
+        - policy-admin
+    effect: allow
+    constraints:
+      max_token_age: "30m"
+
+  # ============================================================================
+  # SECTION 3: API RULES WITH RBAC (Priority 100-199)
+  # ============================================================================
+  # Application-level authorization rules with role-based access control.
+
+  # --------------------------------------------------------------------------
+  # User Management API - Full CRUD
+  # --------------------------------------------------------------------------
+  # Admin role can perform all operations on users
+  - name: users-admin-access
+    description: "Admin role has full access to user management"
+    priority: 150
+    enabled: true
+    conditions:
+      # Path template extracts user_id for fine-grained control
+      path_templates:
+        - "/api/v1/users"
+        - "/api/v1/users/{user_id}"
+        - "/api/v1/users/{user_id}/{action}"
+
+      # Resource type condition - matches extracted {resource_type} or explicit type
+      resource_types:
+        - users
+
+      roles:
+        - admin
+        - user-admin
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # User Management API - Read Only
+  # --------------------------------------------------------------------------
+  # Regular users can only read their own profile
+  - name: users-self-read
+    description: "Users can read their own profile"
+    priority: 145
+    enabled: true
+    conditions:
+      path_templates:
+        - "/api/v1/users/{user_id}"
+
+      methods:
+        - GET
+
+      # Actions derived from HTTP method:
+      # GET -> read, POST -> create, PUT/PATCH -> update, DELETE -> delete
+      actions:
+        - read
+
+      roles:
+        - user
+
+      # NOTE: Additional check for {user_id} == token.sub should be
+      # implemented in custom evaluator or OPA policy
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # User Profile - Self Service
+  # --------------------------------------------------------------------------
+  - name: user-profile-self-service
+    description: "Users can manage their own profile"
+    priority: 140
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/profile"
+        - "/api/v1/profile/*"
+
+      methods:
+        - GET
+        - PUT
+        - PATCH
+
+      roles:
+        - user
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Orders API - Role-based Access
+  # --------------------------------------------------------------------------
+  # Different access levels for orders based on role
+
+  - name: orders-admin-full-access
+    description: "Admin can access all orders"
+    priority: 135
+    enabled: true
+    conditions:
+      # Using regex pattern for complex matching
+      # (?P<name>pattern) creates named capture groups
+      path_templates:
+        - "^/api/v1/orders(?:/(?P<order_id>[0-9a-f-]+))?(?:/(?P<action>cancel|refund|ship))?$"
+
+      resource_types:
+        - orders
+
+      roles:
+        - admin
+        - order-admin
+
+    effect: allow
+
+  - name: orders-user-own-orders
+    description: "Users can view and cancel their own orders"
+    priority: 130
+    enabled: true
+    conditions:
+      path_templates:
+        - "/api/v1/orders"
+        - "/api/v1/orders/{order_id}"
+        - "/api/v1/orders/{order_id}/cancel"
+
+      methods:
+        - GET
+        - POST  # For cancel action
+
+      actions:
+        - read
+        - create
+        - cancel
+
+      roles:
+        - user
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Products API - Public Read, Admin Write
+  # --------------------------------------------------------------------------
+  - name: products-public-read
+    description: "Anyone can read product information"
+    priority: 125
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/products"
+        - "/api/v1/products/*"
+        - "/api/v1/products/**"  # Includes nested resources
+
+      methods:
+        - GET
+
+      # No roles required - public access
+
+    effect: allow
+
+  - name: products-admin-write
+    description: "Only product-admin can modify products"
+    priority: 120
+    enabled: true
+    conditions:
+      path_templates:
+        - "/api/v1/products"
+        - "/api/v1/products/{product_id}"
+
+      methods:
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+
+      roles:
+        - admin
+        - product-admin
+
+    effect: allow
+
+  # ============================================================================
+  # SECTION 4: SERVICE-TO-SERVICE RULES (Priority 80-99)
+  # ============================================================================
+  # Rules for internal microservice communication using OAuth scopes.
+
+  # --------------------------------------------------------------------------
+  # Internal API Access via Scopes
+  # --------------------------------------------------------------------------
+  - name: service-internal-read
+    description: "Services with read scope can access internal endpoints"
+    priority: 90
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/internal/**"
+
+      methods:
+        - GET
+
+      # Scopes from JWT token (space-separated in 'scope' claim)
+      scopes:
+        - service:read
+        - internal:read
+
+    effect: allow
+
+  - name: service-internal-write
+    description: "Services with write scope can modify internal data"
+    priority: 85
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/internal/**"
+
+      methods:
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+
+      scopes:
+        - service:write
+        - internal:write
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # mTLS Service Identity (SPIFFE)
+  # --------------------------------------------------------------------------
+  - name: trusted-service-mtls
+    description: "Allow access from trusted services via mTLS"
+    priority: 80
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/internal/**"
+        - "/api/v1/service/**"
+
+      # SPIFFE identity patterns (from mTLS certificate)
+      # Supports glob patterns for flexible matching
+      source_principals:
+        - "spiffe://cluster.local/ns/production/sa/backend-service"
+        - "spiffe://cluster.local/ns/production/sa/worker-*"
+        - "spiffe://cluster.local/ns/*/sa/monitoring"  # Any namespace
+
+    effect: allow
+
+  # ============================================================================
+  # SECTION 5: NETWORK-BASED RULES (Priority 60-79)
+  # ============================================================================
+  # Rules based on source IP address.
+
+  # --------------------------------------------------------------------------
+  # Internal Network Only
+  # --------------------------------------------------------------------------
+  - name: internal-network-debug
+    description: "Debug endpoints only from internal network"
+    priority: 70
+    enabled: true
+    conditions:
+      paths:
+        - "/debug/**"
+        - "/api/v1/debug/**"
+
+      # CIDR notation for IP ranges
+      source_ips:
+        - "10.0.0.0/8"        # RFC 1918 Private - Class A
+        - "172.16.0.0/12"     # RFC 1918 Private - Class B
+        - "192.168.0.0/16"    # RFC 1918 Private - Class C
+        - "127.0.0.1"         # Localhost IPv4
+        - "::1"               # Localhost IPv6
+        - "fd00::/8"          # IPv6 ULA (private)
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Specific IP Allowlist
+  # --------------------------------------------------------------------------
+  - name: partner-api-access
+    description: "Partner API access from specific IPs"
+    priority: 65
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/partner/**"
+
+      source_ips:
+        - "203.0.113.10"      # Partner A server
+        - "203.0.113.20"      # Partner B server
+        - "198.51.100.0/24"   # Partner C network
+
+      # Also require partner scope in token
+      scopes:
+        - partner:api
+
+    effect: allow
+
+  # ============================================================================
+  # SECTION 6: TOKEN EXCHANGE RULES (Priority 50-59)
+  # ============================================================================
+  # Rules for OAuth 2.0 Token Exchange (RFC 8693).
+
+  - name: token-exchange-allowed
+    description: "Allow token exchange for authenticated users"
+    priority: 55
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/token/exchange"
+
+      methods:
+        - POST
+
+      # Require openid scope for token exchange
+      scopes:
+        - openid
+
+      # Only from trusted issuers
+      issuers:
+        - "https://keycloak.example.com/realms/production"
+        - "https://keycloak.example.com/realms/staging"
+
+    effect: allow
+
+  # ============================================================================
+  # SECTION 7: ISSUER-SPECIFIC RULES (Priority 40-49)
+  # ============================================================================
+  # Rules that restrict access based on token issuer.
+
+  - name: external-idp-limited-access
+    description: "Tokens from external IdP have limited access"
+    priority: 45
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/public/**"
+        - "/api/v1/external/**"
+
+      issuers:
+        - "https://external-idp.partner.com"
+
+      # Require specific audience
+      audiences:
+        - "my-api"
+        - "https://api.example.com"
+
+    effect: allow
+
+  # ============================================================================
+  # SECTION 8: SUBJECT PATTERN RULES (Priority 30-39)
+  # ============================================================================
+  # Rules based on subject (user/service account) patterns.
+
+  - name: service-account-automation
+    description: "Service accounts can access automation endpoints"
+    priority: 35
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/automation/**"
+
+      # Subject patterns (supports glob and regex)
+      subjects:
+        - "service-account-*"           # Glob pattern
+        - "system:serviceaccount:*:*"   # Kubernetes SA format
+
+    effect: allow
+
+  # ============================================================================
+  # SECTION 9: EXPLICIT DENY RULES (Priority 10-29)
+  # ============================================================================
+  # Explicit deny rules for sensitive resources or deprecated endpoints.
+
+  - name: deny-deprecated-api
+    description: "Block access to deprecated API versions"
+    priority: 25
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v0/**"        # Old API version
+        - "/api/beta/**"      # Beta endpoints
+        - "/legacy/**"        # Legacy system
+
+    effect: deny
+
+  - name: deny-sensitive-paths
+    description: "Block access to sensitive internal paths"
+    priority: 20
+    enabled: true
+    conditions:
+      paths:
+        - "/.git/**"
+        - "/.env"
+        - "/config/**"
+        - "/.well-known/security.txt"
+
+    effect: deny
+
+  # ============================================================================
+  # SECTION 9.5: CEL EXPRESSION RULES (Priority 15-19)
+  # ============================================================================
+  # Rules using Common Expression Language (CEL) for advanced authorization logic.
+  # CEL provides powerful, flexible expressions for complex conditions.
+  #
+  # Available variables:
+  #   - token: JWT claims (sub, iss, aud, roles, scopes, groups, claims, valid)
+  #   - request: HTTP request (method, path, host, headers, query)
+  #   - resource: Extracted resource (type, id, action, params)
+  #   - source: Client info (address, principal, namespace, service_account)
+  #   - context: Request context (request_id, trace_id, timestamp)
+  #   - now: Current timestamp
+  #
+  # Custom functions:
+  #   - cidrMatch(ip, cidr): Check if IP is in CIDR range
+  #   - globMatch(str, pattern): Check if string matches glob pattern
+  #
+  # Expression modes:
+  #   - "and" (default): expression AND other conditions must match
+  #   - "or": expression OR other conditions must match
+  #   - "override": only expression evaluated, other conditions ignored
+
+  # --------------------------------------------------------------------------
+  # Resource Owner Access (Owner-based Authorization)
+  # --------------------------------------------------------------------------
+  # Allow users to access only their own resources using CEL
+  - name: resource-owner-access
+    description: "Users can access their own resources via owner_id check"
+    priority: 19
+    enabled: true
+    conditions:
+      path_templates:
+        - "/api/v1/{resource_type}/{resource_id}"
+
+      methods:
+        - GET
+        - PUT
+        - PATCH
+        - DELETE
+
+      roles:
+        - user
+
+      # CEL expression: resource owner_id must match user's subject claim
+      # This enables fine-grained owner-based access control
+      expression: 'resource.params["owner_id"] == token.sub'
+      expression_mode: and  # Both roles AND expression must match
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Admin Override with CEL
+  # --------------------------------------------------------------------------
+  # Admins can access any resource, or users can access their own
+  - name: admin-or-owner-access
+    description: "Admin has full access, users can access own resources"
+    priority: 18
+    enabled: true
+    conditions:
+      path_templates:
+        - "/api/v1/documents/{document_id}"
+
+      # CEL expression: admin role OR owner matches
+      # Using "override" mode - only CEL expression is evaluated
+      expression: '"admin" in token.roles || resource.params["owner_id"] == token.sub'
+      expression_mode: override
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Time-based Access with CEL
+  # --------------------------------------------------------------------------
+  # Restrict access to business hours using CEL timestamp functions
+  - name: business-hours-api-access
+    description: "API access only during business hours (9 AM - 6 PM UTC)"
+    priority: 17
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/trading/**"
+
+      roles:
+        - trader
+
+      # CEL expression: check current hour is within business hours
+      # now.getHours() returns hour in UTC
+      expression: 'now.getHours() >= 9 && now.getHours() < 18'
+      expression_mode: and
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # IP-based Access with CIDR Matching
+  # --------------------------------------------------------------------------
+  # Use custom cidrMatch function for flexible IP authorization
+  - name: internal-api-cidr-check
+    description: "Internal API only from corporate network with CIDR check"
+    priority: 16
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/internal/**"
+
+      # CEL expression: check source IP against CIDR ranges
+      expression: |
+        cidrMatch(source.address, "10.0.0.0/8") ||
+        cidrMatch(source.address, "172.16.0.0/12") ||
+        cidrMatch(source.address, "192.168.0.0/16")
+      expression_mode: override
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Complex Multi-condition Access
+  # --------------------------------------------------------------------------
+  # Combine multiple conditions with CEL for sophisticated authorization
+  - name: premium-feature-access
+    description: "Premium features require premium role AND verified email AND active subscription"
+    priority: 15
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/premium/**"
+
+      # Complex CEL expression with multiple checks
+      expression: |
+        "premium" in token.roles &&
+        token.claims["email_verified"] == true &&
+        token.claims["subscription_status"] == "active" &&
+        int(token.claims["subscription_tier"]) >= 2
+      expression_mode: override
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Method-specific Authorization with CEL
+  # --------------------------------------------------------------------------
+  # Different authorization logic based on HTTP method
+  - name: document-method-based-access
+    description: "Read for all users, write only for editors, delete only for admins"
+    priority: 14
+    enabled: true
+    conditions:
+      path_templates:
+        - "/api/v1/documents/{document_id}"
+
+      # CEL expression: method-specific role checks
+      expression: |
+        (request.method == "GET" && "user" in token.roles) ||
+        (request.method in ["PUT", "PATCH", "POST"] && "editor" in token.roles) ||
+        (request.method == "DELETE" && "admin" in token.roles)
+      expression_mode: override
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Scope + Role Combination
+  # --------------------------------------------------------------------------
+  # Require both OAuth scope AND role for sensitive operations
+  - name: sensitive-operation-dual-check
+    description: "Sensitive operations require both write scope AND manager role"
+    priority: 13
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/sensitive/**"
+
+      methods:
+        - POST
+        - PUT
+        - DELETE
+
+      # CEL: require BOTH scope AND role
+      expression: '"write" in token.scopes && "manager" in token.roles'
+      expression_mode: and  # Also applies path/method conditions
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Request Header Validation
+  # --------------------------------------------------------------------------
+  # Validate custom headers using CEL
+  - name: api-version-header-check
+    description: "Require specific API version header"
+    priority: 12
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v2/**"
+
+      # CEL: check for required header
+      expression: |
+        "X-Api-Version" in request.headers &&
+        request.headers["X-Api-Version"] == "2.0"
+      expression_mode: and
+
+    effect: allow
+
+  # ============================================================================
+  # SECTION 10: DEFAULT DENY (Priority 1)
+  # ============================================================================
+  # Catch-all rule to deny unauthenticated access to API endpoints.
+  # This is a safety net - default_deny: true also handles this.
+
+  - name: deny-unauthenticated-api
+    description: "Deny all unauthenticated API access"
+    priority: 1
+    enabled: true
+    conditions:
+      paths:
+        - "/api/**"
+
+      # No roles/scopes required means this matches any request
+      # to /api/** that wasn't matched by earlier rules
+
+    effect: deny
+
+# ==============================================================================
+# NOTES ON PATH MATCHING SYNTAX
+# ==============================================================================
+#
+# 1. GLOB PATTERNS (paths field):
+#    - "*"  matches any single path segment
+#    - "**" matches any number of path segments
+#    - "?"  matches any single character
+#
+#    Examples:
+#    - "/api/*"       matches /api/users, /api/orders (but NOT /api/v1/users)
+#    - "/api/**"      matches /api/users, /api/v1/users, /api/v1/users/123
+#    - "/api/v?"      matches /api/v1, /api/v2
+#
+# 2. TEMPLATE PATTERNS (path_templates field):
+#    - "{name}" extracts parameter into 'name'
+#    - "{name:pattern}" extracts with custom regex pattern
+#
+#    Examples:
+#    - "/api/{version}/users/{user_id}"
+#      /api/v1/users/123 -> version="v1", user_id="123"
+#
+#    - "/api/{version:v[0-9]+}/users/{user_id:[0-9a-f-]+}"
+#      /api/v2/users/abc-123 -> version="v2", user_id="abc-123"
+#
+# 3. REGEX PATTERNS (path_templates field):
+#    - Start with "^" or end with "$" or contain "(?P<"
+#    - Use (?P<name>pattern) for named capture groups
+#
+#    Examples:
+#    - "^/api/v[0-9]+/(?P<resource>\w+)$"
+#    - "^/users/(?P<id>[0-9]+)/(?P<action>edit|delete)?$"
+#
+# ==============================================================================
+# NOTES ON RESOURCE EXTRACTION
+# ==============================================================================
+#
+# Named parameters are automatically mapped to resource fields:
+#
+# Type extraction (first match wins):
+#   - {resource_type} -> resource.type
+#   - {resource}      -> resource.type
+#   - {type}          -> resource.type
+#   - {entity}        -> resource.type
+#   - {collection}    -> resource.type
+#
+# ID extraction (first match wins):
+#   - {resource_id}   -> resource.id
+#   - {id}            -> resource.id
+#   - {uuid}          -> resource.id
+#   - {key}           -> resource.id
+#
+# Action extraction:
+#   - {action}        -> resource.action
+#   - If not specified, derived from HTTP method:
+#     GET -> read, POST -> create, PUT/PATCH -> update, DELETE -> delete
+#
+# ==============================================================================
+# NOTES ON CEL EXPRESSIONS
+# ==============================================================================
+#
+# CEL (Common Expression Language) provides powerful, type-safe expressions
+# for advanced authorization logic. Expressions are evaluated server-side
+# with compiled caching for optimal performance.
+#
+# 1. AVAILABLE VARIABLES:
+#
+#    token - JWT token claims:
+#      - token.sub          (string) Subject ID
+#      - token.iss          (string) Issuer URL
+#      - token.aud          (list)   Audiences
+#      - token.exp          (timestamp) Expiration
+#      - token.iat          (timestamp) Issued at
+#      - token.roles        (list)   User roles
+#      - token.scopes       (list)   OAuth scopes
+#      - token.groups       (list)   User groups
+#      - token.client_id    (string) OAuth client ID
+#      - token.claims       (map)    Extra claims
+#      - token.valid        (bool)   Token validity
+#
+#    request - HTTP request info:
+#      - request.method     (string) HTTP method (GET, POST, etc.)
+#      - request.path       (string) Request path
+#      - request.host       (string) Request host
+#      - request.headers    (map)    Request headers
+#      - request.query      (map)    Query parameters
+#      - request.protocol   (string) Protocol (HTTP/1.1, HTTP/2)
+#
+#    resource - Extracted resource:
+#      - resource.type      (string) Resource type
+#      - resource.id        (string) Resource ID
+#      - resource.action    (string) Action (read, write, etc.)
+#      - resource.params    (map)    Path parameters
+#
+#    source - Client info:
+#      - source.address          (string) Client IP address
+#      - source.principal        (string) mTLS/SPIFFE principal
+#      - source.namespace        (string) K8s namespace
+#      - source.service_account  (string) K8s service account
+#
+#    context - Request context:
+#      - context.request_id  (string) Unique request ID
+#      - context.trace_id    (string) Distributed trace ID
+#      - context.timestamp   (int)    Request timestamp
+#      - context.custom      (map)    Custom context data
+#
+#    now - Current timestamp (CEL timestamp type)
+#
+# 2. CUSTOM FUNCTIONS:
+#
+#    cidrMatch(ip, cidr) - Check if IP is in CIDR range
+#      Example: cidrMatch(source.address, "10.0.0.0/8")
+#
+#    globMatch(str, pattern) - Check if string matches glob pattern
+#      Example: globMatch(request.path, "/api/*/users")
+#
+# 3. EXPRESSION MODES:
+#
+#    - "and" (default): Expression AND other conditions must match
+#      Use when you want to ADD CEL check to existing conditions
+#
+#    - "or": Expression OR other conditions must match
+#      Use when CEL can serve as alternative authorization path
+#
+#    - "override": Only expression evaluated, other conditions ignored
+#      Use when CEL should be the SOLE authorization logic
+#
+# 4. COMMON PATTERNS:
+#
+#    # Role check
+#    '"admin" in token.roles'
+#
+#    # Scope check
+#    '"read" in token.scopes || "write" in token.scopes'
+#
+#    # Owner check
+#    'resource.params["owner_id"] == token.sub'
+#
+#    # Admin OR owner
+#    '"admin" in token.roles || resource.params["owner_id"] == token.sub'
+#
+#    # Time-based access
+#    'now.getHours() >= 9 && now.getHours() < 18'
+#
+#    # IP whitelist with CIDR
+#    'cidrMatch(source.address, "192.168.0.0/16")'
+#
+#    # Method-specific authorization
+#    '(request.method == "GET" && "user" in token.roles) ||
+#     (request.method == "DELETE" && "admin" in token.roles)'
+#
+#    # Claim validation
+#    'token.claims["email_verified"] == true'
+#
+#    # Header check
+#    '"X-Api-Key" in request.headers && request.headers["X-Api-Key"] != ""'
+#
+# 5. PERFORMANCE NOTES:
+#
+#    - Expressions are compiled once and cached
+#    - Precompilation happens at rule load time
+#    - Invalid expressions cause rule load to fail (fail-fast)
+#    - Cache is cleared on policy reload
+#
+# ==============================================================================
