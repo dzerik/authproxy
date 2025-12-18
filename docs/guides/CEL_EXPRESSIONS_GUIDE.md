@@ -205,6 +205,67 @@ now.getHours() >= 9 && now.getHours() < 18
 now.getDayOfWeek() >= 1 && now.getDayOfWeek() <= 5
 ```
 
+### 3.7. env — информация об окружении
+
+| Переменная | Тип | Описание |
+|------------|-----|----------|
+| `env.name` | string | Имя окружения (production, staging, development) |
+| `env.region` | string | Регион деплоя (eu-west-1, us-east-1) |
+| `env.cluster` | string | Идентификатор кластера (k8s-prod-01) |
+| `env.version` | string | Версия сервиса (2.1.0, v1.2.3-beta) |
+| `env.features` | map[bool] | Feature flags для gradual rollouts |
+| `env.custom` | map | Кастомные атрибуты окружения |
+
+**Конфигурация env (config.yaml):**
+
+```yaml
+env:
+  name: "production"
+  region: "eu-west-1"
+  cluster: "k8s-prod-01"
+  version: "2.1.0"
+  features:
+    new_api: true
+    beta_users: false
+    experimental_auth: true
+  custom:
+    datacenter: "dc1"
+    tier: "premium"
+```
+
+**Примеры:**
+
+```cel
+// Разрешить только в production
+env.name == "production"
+
+// Разрешить в нескольких окружениях
+env.name in ["production", "staging"]
+
+// Проверка региона
+env.region == "eu-west-1" || env.region == "eu-central-1"
+
+// Проверка feature flag
+env.features["new_api"] == true
+
+// Комбинация: feature flag только в staging
+env.features["experimental_auth"] == true && env.name == "staging"
+
+// Проверка кастомного атрибута
+env.custom["tier"] == "premium"
+
+// Разрешить beta-функции только определённой версии
+env.features["beta_users"] == true && env.version.startsWith("2.")
+```
+
+**Сценарии использования env:**
+
+1. **Gradual rollout** — включение функций только в определённых окружениях
+2. **Региональные ограничения** — разная авторизация по регионам (GDPR, compliance)
+3. **Canary deployment** — разные политики для разных кластеров
+4. **Feature flags** — условная авторизация на основе флагов
+5. **Version-specific rules** — правила для определённых версий сервиса
+
 ---
 
 ## 4. Пользовательские функции
@@ -463,6 +524,58 @@ conditions:
       "X-Api-Key" in request.headers &&
       request.headers["X-Api-Key"] != ""
     expression_mode: and
+  effect: allow
+```
+
+### 6.9. Environment-based авторизация
+
+```yaml
+# Правило только для production
+- name: production-only-endpoint
+  description: "Эндпоинт доступен только в production"
+  conditions:
+    paths:
+      - "/api/v1/production/**"
+    expression: 'env.name == "production"'
+    expression_mode: and
+  effect: allow
+
+# Feature flag для gradual rollout
+- name: new-feature-beta
+  description: "Новая функция доступна только если включён feature flag"
+  conditions:
+    paths:
+      - "/api/v2/experimental/**"
+    expression: |
+      env.features["new_api"] == true &&
+      ("beta_tester" in token.roles || env.name != "production")
+    expression_mode: override
+  effect: allow
+
+# Региональные ограничения (GDPR compliance)
+- name: eu-data-residency
+  description: "EU данные доступны только из EU регионов"
+  conditions:
+    paths:
+      - "/api/v1/eu-data/**"
+    expression: |
+      env.region.startsWith("eu-") &&
+      "eu_data_access" in token.scopes
+    expression_mode: override
+  effect: allow
+
+# Canary deployment - разные правила для разных кластеров
+- name: canary-cluster-access
+  description: "Расширенный доступ в canary кластере"
+  conditions:
+    paths:
+      - "/api/v1/admin/**"
+    roles:
+      - admin
+    expression: |
+      env.cluster == "k8s-canary-01" ||
+      ("super_admin" in token.roles)
+    expression_mode: or
   effect: allow
 ```
 

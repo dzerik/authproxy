@@ -744,3 +744,190 @@ func TestCELEvaluator_Groups(t *testing.T) {
 		})
 	}
 }
+
+func TestCELEvaluator_Environment(t *testing.T) {
+	eval, err := NewCELEvaluator()
+	require.NoError(t, err)
+
+	tests := []struct {
+		name       string
+		expression string
+		input      *domain.PolicyInput
+		want       bool
+	}{
+		{
+			name:       "env name check - production",
+			expression: `env.name == "production"`,
+			input: &domain.PolicyInput{
+				Request: domain.RequestInfo{Method: "GET", Path: "/api/test"},
+				Env: domain.EnvInfo{
+					Name:    "production",
+					Region:  "eu-west-1",
+					Cluster: "k8s-prod-01",
+					Version: "2.1.0",
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "env name check - staging not production",
+			expression: `env.name == "production"`,
+			input: &domain.PolicyInput{
+				Request: domain.RequestInfo{Method: "GET", Path: "/api/test"},
+				Env: domain.EnvInfo{
+					Name: "staging",
+				},
+			},
+			want: false,
+		},
+		{
+			name:       "env region check - EU region",
+			expression: `env.region.startsWith("eu-")`,
+			input: &domain.PolicyInput{
+				Request: domain.RequestInfo{Method: "GET", Path: "/api/test"},
+				Env: domain.EnvInfo{
+					Name:   "production",
+					Region: "eu-west-1",
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "env region check - US region not EU",
+			expression: `env.region.startsWith("eu-")`,
+			input: &domain.PolicyInput{
+				Request: domain.RequestInfo{Method: "GET", Path: "/api/test"},
+				Env: domain.EnvInfo{
+					Name:   "production",
+					Region: "us-east-1",
+				},
+			},
+			want: false,
+		},
+		{
+			name:       "env feature flag - enabled",
+			expression: `env.features["new_api"] == true`,
+			input: &domain.PolicyInput{
+				Request: domain.RequestInfo{Method: "GET", Path: "/api/test"},
+				Env: domain.EnvInfo{
+					Name: "production",
+					Features: map[string]bool{
+						"new_api":    true,
+						"beta_users": false,
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "env feature flag - disabled",
+			expression: `env.features["beta_users"] == true`,
+			input: &domain.PolicyInput{
+				Request: domain.RequestInfo{Method: "GET", Path: "/api/test"},
+				Env: domain.EnvInfo{
+					Name: "production",
+					Features: map[string]bool{
+						"new_api":    true,
+						"beta_users": false,
+					},
+				},
+			},
+			want: false,
+		},
+		{
+			name:       "env cluster check",
+			expression: `env.cluster == "k8s-canary-01"`,
+			input: &domain.PolicyInput{
+				Request: domain.RequestInfo{Method: "GET", Path: "/api/test"},
+				Env: domain.EnvInfo{
+					Cluster: "k8s-canary-01",
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "env version check",
+			expression: `env.version.startsWith("2.")`,
+			input: &domain.PolicyInput{
+				Request: domain.RequestInfo{Method: "GET", Path: "/api/test"},
+				Env: domain.EnvInfo{
+					Version: "2.1.0",
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "env custom attribute check",
+			expression: `env.custom["tier"] == "premium"`,
+			input: &domain.PolicyInput{
+				Request: domain.RequestInfo{Method: "GET", Path: "/api/test"},
+				Env: domain.EnvInfo{
+					Custom: map[string]any{
+						"tier":       "premium",
+						"datacenter": "dc1",
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "complex env condition - production + feature flag",
+			expression: `env.name == "production" && env.features["new_api"] == true`,
+			input: &domain.PolicyInput{
+				Request: domain.RequestInfo{Method: "GET", Path: "/api/test"},
+				Env: domain.EnvInfo{
+					Name: "production",
+					Features: map[string]bool{
+						"new_api": true,
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "env with token role check - production admin",
+			expression: `env.name == "production" && "admin" in token.roles`,
+			input: &domain.PolicyInput{
+				Request: domain.RequestInfo{Method: "GET", Path: "/api/test"},
+				Token: &domain.TokenInfo{
+					Valid: true,
+					Roles: []string{"admin", "user"},
+				},
+				Env: domain.EnvInfo{
+					Name: "production",
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "env in list check",
+			expression: `env.name in ["production", "staging"]`,
+			input: &domain.PolicyInput{
+				Request: domain.RequestInfo{Method: "GET", Path: "/api/test"},
+				Env: domain.EnvInfo{
+					Name: "staging",
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "env in list check - not in list",
+			expression: `env.name in ["production", "staging"]`,
+			input: &domain.PolicyInput{
+				Request: domain.RequestInfo{Method: "GET", Path: "/api/test"},
+				Env: domain.EnvInfo{
+					Name: "development",
+				},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := eval.Evaluate(tt.expression, tt.input)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, result)
+		})
+	}
+}

@@ -136,6 +136,8 @@ func (a *App) Initialize(ctx context.Context) error {
 			HTTP:      a.cfg.Server.HTTP,
 			Endpoints: a.cfg.Endpoints,
 			Proxy:     a.cfg.Proxy,
+			Egress:    a.cfg.Egress,
+			Env:       a.cfg.Env,
 		}
 
 		serverOpts := []httpTransport.ServerOption{}

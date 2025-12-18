@@ -38,6 +38,8 @@ type Config struct {
 	Resilience ResilienceConfig `mapstructure:"resilience" jsonschema:"description=Resilience patterns configuration. Includes rate limiting for incoming requests and circuit breaker for external calls."`
 	// Sensitive data handling configuration
 	SensitiveData SensitiveDataConfig `mapstructure:"sensitive_data" jsonschema:"description=Sensitive data handling configuration. Controls masking of secrets\\, tokens\\, and PII in logs."`
+	// Environment configuration for CEL expressions
+	Env EnvConfig `mapstructure:"env" jsonschema:"description=Environment information for context-aware authorization. Available in CEL expressions as 'env' variable."`
 }
 
 // ProxyConfig holds reverse proxy configuration for forwarding authorized requests.
@@ -611,6 +613,23 @@ type PartialMaskConfig struct {
 	MinLength int `mapstructure:"min_length" jsonschema:"description=Minimum value length for partial masking. Shorter values are fully masked.,default=12"`
 }
 
+// EnvConfig holds environment information for context-aware authorization.
+// This data is available in CEL expressions via the 'env' variable.
+type EnvConfig struct {
+	// Name is the environment name (e.g., "production", "staging", "development")
+	Name string `mapstructure:"name" jsonschema:"description=Environment name (e.g. production\\, staging\\, development). Available in CEL as env.name.,default=development"`
+	// Region is the deployment region (e.g., "eu-west-1", "us-east-1")
+	Region string `mapstructure:"region" jsonschema:"description=Deployment region (e.g. eu-west-1\\, us-east-1). Available in CEL as env.region."`
+	// Cluster is the cluster identifier (e.g., "k8s-prod-01", "ecs-staging")
+	Cluster string `mapstructure:"cluster" jsonschema:"description=Cluster identifier (e.g. k8s-prod-01). Available in CEL as env.cluster."`
+	// Version is the service version (e.g., "2.1.0", "v1.2.3-beta")
+	Version string `mapstructure:"version" jsonschema:"description=Service version (e.g. 2.1.0). Available in CEL as env.version."`
+	// Features contains feature flags for gradual rollouts
+	Features map[string]bool `mapstructure:"features" jsonschema:"description=Feature flags for gradual rollouts. Available in CEL as env.features['flag_name']."`
+	// Custom contains any additional environment-specific attributes
+	Custom map[string]any `mapstructure:"custom" jsonschema:"description=Custom environment attributes. Available in CEL as env.custom['key']."`
+}
+
 // Load loads configuration from file and environment.
 func Load(configPath string) (*Config, error) {
 	v := viper.New()
@@ -793,4 +812,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("sensitive_data.partial_mask.show_first", 4)
 	v.SetDefault("sensitive_data.partial_mask.show_last", 4)
 	v.SetDefault("sensitive_data.partial_mask.min_length", 12)
+
+	// Environment defaults
+	v.SetDefault("env.name", "development")
 }

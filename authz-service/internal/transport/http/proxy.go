@@ -24,6 +24,7 @@ import (
 // ReverseProxy handles reverse proxying of authorized requests.
 type ReverseProxy struct {
 	cfg           config.ProxyConfig
+	envCfg        config.EnvConfig
 	jwtService    *jwt.Service
 	policyService *policy.Service
 	proxies       map[string]*httputil.ReverseProxy
@@ -41,11 +42,13 @@ type compiledRoute struct {
 // NewReverseProxy creates a new reverse proxy handler.
 func NewReverseProxy(
 	cfg config.ProxyConfig,
+	envCfg config.EnvConfig,
 	jwtService *jwt.Service,
 	policyService *policy.Service,
 ) (*ReverseProxy, error) {
 	rp := &ReverseProxy{
 		cfg:           cfg,
+		envCfg:        envCfg,
 		jwtService:    jwtService,
 		policyService: policyService,
 		proxies:       make(map[string]*httputil.ReverseProxy),
@@ -296,6 +299,14 @@ func (rp *ReverseProxy) buildPolicyInput(r *http.Request) *domain.PolicyInput {
 		},
 		Destination: domain.DestinationInfo{
 			Address: r.Host,
+		},
+		Env: domain.EnvInfo{
+			Name:     rp.envCfg.Name,
+			Region:   rp.envCfg.Region,
+			Cluster:  rp.envCfg.Cluster,
+			Version:  rp.envCfg.Version,
+			Features: rp.envCfg.Features,
+			Custom:   rp.envCfg.Custom,
 		},
 	}
 }

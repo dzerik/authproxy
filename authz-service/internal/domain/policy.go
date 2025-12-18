@@ -20,6 +20,9 @@ type PolicyInput struct {
 	// Context contains additional context information
 	Context ContextInfo `json:"context,omitempty"`
 
+	// Env contains environment information (production, staging, etc.)
+	Env EnvInfo `json:"env,omitempty"`
+
 	// Extensions is an extension point for future attributes (agent identity, intent, etc.)
 	Extensions map[string]any `json:"extensions,omitempty"`
 }
@@ -127,6 +130,28 @@ type ContextInfo struct {
 	Timestamp int64 `json:"timestamp,omitempty"`
 
 	// Custom contains custom context attributes
+	Custom map[string]any `json:"custom,omitempty"`
+}
+
+// EnvInfo contains environment information for context-aware authorization.
+// This allows policies to make decisions based on deployment environment.
+type EnvInfo struct {
+	// Name is the environment name (e.g., "production", "staging", "development")
+	Name string `json:"name,omitempty"`
+
+	// Region is the deployment region (e.g., "eu-west-1", "us-east-1")
+	Region string `json:"region,omitempty"`
+
+	// Cluster is the cluster identifier (e.g., "k8s-prod-01", "ecs-staging")
+	Cluster string `json:"cluster,omitempty"`
+
+	// Version is the service version (e.g., "2.1.0", "v1.2.3-beta")
+	Version string `json:"version,omitempty"`
+
+	// Features contains feature flags for gradual rollouts
+	Features map[string]bool `json:"features,omitempty"`
+
+	// Custom contains any additional environment-specific attributes
 	Custom map[string]any `json:"custom,omitempty"`
 }
 

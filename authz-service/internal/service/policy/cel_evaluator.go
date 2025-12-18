@@ -43,6 +43,9 @@ func NewCELEvaluator() (*CELEvaluator, error) {
 		// Context
 		cel.Variable("context", cel.MapType(cel.StringType, cel.DynType)),
 
+		// Environment info (production, staging, etc.)
+		cel.Variable("env", cel.MapType(cel.StringType, cel.DynType)),
+
 		// Current timestamp
 		cel.Variable("now", cel.TimestampType),
 
@@ -234,6 +237,24 @@ func (e *CELEvaluator) buildEvalContext(input *domain.PolicyInput) map[string]an
 		"trace_id":   input.Context.TraceID,
 		"timestamp":  input.Context.Timestamp,
 		"custom":     input.Context.Custom,
+	}
+
+	// Environment variables
+	features := input.Env.Features
+	if features == nil {
+		features = map[string]bool{}
+	}
+	custom := input.Env.Custom
+	if custom == nil {
+		custom = map[string]any{}
+	}
+	vars["env"] = map[string]any{
+		"name":     input.Env.Name,
+		"region":   input.Env.Region,
+		"cluster":  input.Env.Cluster,
+		"version":  input.Env.Version,
+		"features": features,
+		"custom":   custom,
 	}
 
 	return vars

@@ -845,6 +845,66 @@ tracing:
     service.version: "2.0.0"
 
 # ==============================================================================
+# ENVIRONMENT CONFIGURATION (CEL Context)
+# ==============================================================================
+# Environment information available in CEL expressions as 'env' variable.
+# This enables deployment-aware authorization rules.
+#
+# Use cases:
+#   - Environment-specific rules (production-only endpoints)
+#   - Regional restrictions (GDPR/data residency compliance)
+#   - Feature flags for gradual rollouts
+#   - Canary deployment rules
+#
+# CEL Examples:
+#   env.name == "production"                    # Check environment
+#   env.region.startsWith("eu-")                # Check EU region
+#   env.features["new_api"] == true             # Check feature flag
+#   env.cluster == "k8s-canary-01"              # Check cluster
+
+env:
+  # Environment name (production, staging, development)
+  # CEL: env.name
+  # Env: AUTHZ_ENV_NAME
+  name: "production"
+
+  # Deployment region (AWS/GCP region identifier)
+  # CEL: env.region
+  # Env: AUTHZ_ENV_REGION
+  region: "eu-west-1"
+
+  # Cluster identifier (Kubernetes cluster name, ECS cluster)
+  # CEL: env.cluster
+  # Env: AUTHZ_ENV_CLUSTER
+  cluster: "k8s-prod-01"
+
+  # Service version (semantic versioning)
+  # CEL: env.version
+  # Env: AUTHZ_ENV_VERSION
+  version: "2.1.0"
+
+  # Feature flags for gradual rollouts
+  # CEL: env.features["flag_name"] == true
+  # Env: Not supported (use config file)
+  features:
+    # Enable new API version
+    new_api: true
+    # Enable beta features for specific users
+    beta_users: false
+    # Experimental authentication methods
+    experimental_auth: false
+    # Enhanced audit logging
+    enhanced_audit: true
+
+  # Custom environment attributes
+  # CEL: env.custom["key"]
+  # Env: Not supported (use config file)
+  custom:
+    datacenter: "dc1"
+    tier: "premium"
+    compliance_mode: "gdpr"
+
+# ==============================================================================
 # ENVIRONMENT VARIABLES REFERENCE
 # ==============================================================================
 #
@@ -888,6 +948,13 @@ tracing:
 #   AUTHZ_RESILIENCE_RATE_LIMIT_ENABLED=true
 #   AUTHZ_RESILIENCE_RATE_LIMIT_RATE="1000-S"
 #   AUTHZ_RESILIENCE_CIRCUIT_BREAKER_ENABLED=true
+#
+# Environment Configuration (CEL context):
+#   AUTHZ_ENV_NAME="production"
+#   AUTHZ_ENV_REGION="eu-west-1"
+#   AUTHZ_ENV_CLUSTER="k8s-prod-01"
+#   AUTHZ_ENV_VERSION="2.1.0"
+#   # Note: features and custom maps not supported via env vars
 #
 # Secrets (always use environment variables!):
 #   AUTHZ_CACHE_L2_REDIS_PASSWORD="secret"

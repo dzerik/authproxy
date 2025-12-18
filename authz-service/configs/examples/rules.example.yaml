@@ -158,6 +158,7 @@ rules:
         - admin
         - policy-admin
     effect: allow
+
     constraints:
       max_token_age: "30m"
 
@@ -560,6 +561,7 @@ rules:
   #   - resource: Extracted resource (type, id, action, params)
   #   - source: Client info (address, principal, namespace, service_account)
   #   - context: Request context (request_id, trace_id, timestamp)
+  #   - env: Environment info (name, region, cluster, version, features, custom)
   #   - now: Current timestamp
   #
   # Custom functions:
@@ -744,6 +746,104 @@ rules:
         "X-Api-Version" in request.headers &&
         request.headers["X-Api-Version"] == "2.0"
       expression_mode: and
+
+    effect: allow
+
+  # ============================================================================
+  # SECTION 9.6: ENVIRONMENT-BASED RULES (Priority 9-11)
+  # ============================================================================
+  # Rules using environment context (env) for deployment-aware authorization.
+  # Configured in config.yaml under 'env' section.
+  #
+  # Available env variables:
+  #   - env.name: Environment name (production, staging, development)
+  #   - env.region: Deployment region (eu-west-1, us-east-1)
+  #   - env.cluster: Cluster identifier (k8s-prod-01, ecs-staging)
+  #   - env.version: Service version (2.1.0, v1.2.3-beta)
+  #   - env.features: Feature flags map (env.features["flag_name"])
+  #   - env.custom: Custom attributes map (env.custom["key"])
+
+  # --------------------------------------------------------------------------
+  # Production-only Endpoints
+  # --------------------------------------------------------------------------
+  # Restrict certain endpoints to production environment only
+  - name: production-only-endpoint
+    description: "Critical endpoints accessible only in production environment"
+    priority: 11
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/production/**"
+        - "/api/v1/billing/**"
+
+      roles:
+        - admin
+        - billing_admin
+
+      # CEL: require production environment
+      expression: 'env.name == "production"'
+      expression_mode: and
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Feature Flag Controlled Access
+  # --------------------------------------------------------------------------
+  # Gradual rollout using feature flags
+  - name: new-api-feature-flag
+    description: "New API v2 accessible only when feature flag is enabled"
+    priority: 10
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v2/**"
+
+      # CEL: check feature flag AND either beta_tester role OR non-production
+      expression: |
+        env.features["new_api"] == true &&
+        ("beta_tester" in token.roles || env.name != "production")
+      expression_mode: override
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Region-based Data Residency
+  # --------------------------------------------------------------------------
+  # GDPR/Compliance: EU data accessible only from EU regions
+  - name: eu-data-residency
+    description: "EU data only accessible from EU deployment regions"
+    priority: 9
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/eu-data/**"
+        - "/api/v1/gdpr/**"
+
+      # CEL: require EU region AND appropriate scope
+      expression: |
+        (env.region.startsWith("eu-") || env.region == "eu-central-1") &&
+        "eu_data_access" in token.scopes
+      expression_mode: override
+
+    effect: allow
+
+  # --------------------------------------------------------------------------
+  # Canary Deployment Rules
+  # --------------------------------------------------------------------------
+  # Different access rules for canary vs stable clusters
+  - name: canary-extended-access
+    description: "Extended admin access in canary cluster for testing"
+    priority: 8
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/admin/experimental/**"
+
+      # CEL: canary cluster or super_admin role
+      expression: |
+        env.cluster == "k8s-canary-01" ||
+        "super_admin" in token.roles
+      expression_mode: override
 
     effect: allow
 

@@ -46,6 +46,7 @@ type ServerConfig struct {
 	Endpoints config.EndpointsConfig
 	Proxy     config.ProxyConfig
 	Egress    config.EgressConfig
+	Env       config.EnvConfig
 }
 
 // NewServer creates a new HTTP server.
@@ -73,7 +74,7 @@ func NewServer(
 
 	// Create reverse proxy if enabled
 	if server.proxyEnabled {
-		proxy, err := NewReverseProxy(cfg.Proxy, jwtService, policyService)
+		proxy, err := NewReverseProxy(cfg.Proxy, cfg.Env, jwtService, policyService)
 		if err != nil {
 			return nil, err
 		}
