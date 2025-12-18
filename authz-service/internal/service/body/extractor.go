@@ -40,6 +40,7 @@ type Extractor struct {
 type jsonSchema struct {
 	raw      map[string]any
 	required []string
+	notFound bool // true if schema file was not found (negative cache)
 }
 
 // NewExtractor creates a new body extractor.
@@ -214,16 +215,21 @@ func (e *Extractor) validateSchema(method, path string, body map[string]any) err
 }
 
 // getSchema loads schema from cache or file.
+// Uses negative caching to avoid repeated file reads for non-existent schemas.
 func (e *Extractor) getSchema(method, path string) (*jsonSchema, error) {
 	// Build schema key: path/method.json
 	// /api/v1/users POST -> /api/v1/users/POST.json
 	cleanPath := strings.Trim(path, "/")
 	schemaKey := fmt.Sprintf("%s/%s", cleanPath, strings.ToUpper(method))
 
-	// Check cache
+	// Check cache (including negative cache)
 	e.schemaCacheMu.RLock()
 	if schema, ok := e.schemaCache[schemaKey]; ok {
 		e.schemaCacheMu.RUnlock()
+		if schema.notFound {
+			// Negative cache hit - schema file doesn't exist
+			return nil, fmt.Errorf("schema not found (cached): %s", schemaKey)
+		}
 		return schema, nil
 	}
 	e.schemaCacheMu.RUnlock()
@@ -236,11 +242,15 @@ func (e *Extractor) getSchema(method, path string) (*jsonSchema, error) {
 		schemaPath = filepath.Join(e.cfg.Schema.SchemaDir, cleanPath+".json")
 		schema, err = loadSchemaFile(schemaPath)
 		if err != nil {
+			// Cache negative result to avoid repeated file reads
+			e.schemaCacheMu.Lock()
+			e.schemaCache[schemaKey] = &jsonSchema{notFound: true}
+			e.schemaCacheMu.Unlock()
 			return nil, err
 		}
 	}
 
-	// Cache schema
+	// Cache positive result
 	e.schemaCacheMu.Lock()
 	e.schemaCache[schemaKey] = schema
 	e.schemaCacheMu.Unlock()
@@ -379,13 +389,11 @@ var readFile = func(path string) ([]byte, error) {
 }
 
 func readFileFromDisk(path string) ([]byte, error) {
-	// Use os package to read file
-	// Import is already available through io package
 	file, err := openFile(path)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	return io.ReadAll(file)
 }
 

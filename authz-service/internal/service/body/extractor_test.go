@@ -458,6 +458,48 @@ func TestExtractor_ClearSchemaCache(t *testing.T) {
 	e.schemaCacheMu.RUnlock()
 }
 
+func TestExtractor_SchemaNegativeCache(t *testing.T) {
+	// Test that non-existent schemas are cached (negative caching)
+	cfg := config.RequestBodyConfig{
+		Enabled: true,
+		Schema: config.RequestBodySchemaConfig{
+			Enabled:   true,
+			SchemaDir: "/nonexistent/schemas",
+		},
+	}
+	e := NewExtractor(cfg)
+
+	// First call should try to load file (and fail)
+	schema1, err1 := e.getSchema("POST", "/api/test")
+	if err1 == nil {
+		t.Error("Expected error for non-existent schema")
+	}
+	if schema1 != nil {
+		t.Error("Expected nil schema for non-existent file")
+	}
+
+	// Check that negative result was cached
+	e.schemaCacheMu.RLock()
+	cachedSchema, exists := e.schemaCache["api/test/POST"]
+	e.schemaCacheMu.RUnlock()
+
+	if !exists {
+		t.Error("Expected schema to be in cache")
+	}
+	if cachedSchema != nil && !cachedSchema.notFound {
+		t.Error("Expected notFound flag to be true in cached schema")
+	}
+
+	// Second call should return cached negative result
+	schema2, err2 := e.getSchema("POST", "/api/test")
+	if err2 == nil {
+		t.Error("Expected error from negative cache")
+	}
+	if schema2 != nil {
+		t.Error("Expected nil schema from negative cache")
+	}
+}
+
 // compareBody performs a deep comparison of two body maps
 func compareBody(got, want map[string]any) bool {
 	if len(got) != len(want) {
