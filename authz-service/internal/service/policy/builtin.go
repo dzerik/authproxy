@@ -17,12 +17,13 @@ import (
 
 // BuiltinEngine implements a built-in policy engine with YAML-based rules.
 type BuiltinEngine struct {
-	mu          sync.RWMutex
-	rules       *RuleSet
-	rulesPath   string
-	version     string
-	pathMatcher *PathMatcher
-	cidrMatcher *CIDRMatcher
+	mu           sync.RWMutex
+	rules        *RuleSet
+	rulesPath    string
+	version      string
+	pathMatcher  *PathMatcher
+	cidrMatcher  *CIDRMatcher
+	celEvaluator *CELEvaluator
 }
 
 // RuleSet contains all authorization rules.
@@ -100,6 +101,14 @@ type Conditions struct {
 
 	// Custom conditions for advanced use cases
 	Custom map[string]any `yaml:"custom,omitempty" jsonschema:"description=Custom conditions for extension. Key-value pairs passed to custom evaluators. Structure depends on your custom implementation."`
+
+	// === CEL Expression ===
+
+	// Expression is a CEL expression for complex authorization logic
+	Expression string `yaml:"expression,omitempty" jsonschema:"description=CEL (Common Expression Language) expression for advanced conditions. Available variables: token (JWT claims)\\, request (HTTP request)\\, resource (extracted resource)\\, source (client info)\\, context (request context)\\, now (current timestamp). Examples: 'resource.owner_id == token.sub'\\, '\"admin\" in token.roles && request.method == \"DELETE\"'."`
+
+	// ExpressionMode defines how expression combines with other conditions
+	ExpressionMode string `yaml:"expression_mode,omitempty" jsonschema:"description=How the CEL expression combines with other conditions. 'and' (default): expression AND other conditions must match. 'or': expression OR other conditions must match. 'override': only expression is evaluated\\, other conditions ignored.,enum=and,enum=or,enum=override,default=and"`
 }
 
 // Constraints defines constraints to be applied when the rule matches.
@@ -113,12 +122,18 @@ type Constraints struct {
 }
 
 // NewBuiltinEngine creates a new built-in policy engine.
-func NewBuiltinEngine(cfg config.BuiltinPolicyConfig) *BuiltinEngine {
-	return &BuiltinEngine{
-		rulesPath:   cfg.RulesPath,
-		pathMatcher: NewPathMatcher(),
-		cidrMatcher: NewCIDRMatcher(),
+func NewBuiltinEngine(cfg config.BuiltinPolicyConfig) (*BuiltinEngine, error) {
+	celEvaluator, err := NewCELEvaluator()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create CEL evaluator: %w", err)
 	}
+
+	return &BuiltinEngine{
+		rulesPath:    cfg.RulesPath,
+		pathMatcher:  NewPathMatcher(),
+		cidrMatcher:  NewCIDRMatcher(),
+		celEvaluator: celEvaluator,
+	}, nil
 }
 
 // Name returns the engine name.
@@ -228,6 +243,24 @@ func (e *BuiltinEngine) Evaluate(ctx context.Context, input *domain.PolicyInput)
 func (e *BuiltinEngine) matchRule(rule Rule, input *domain.PolicyInput) (bool, []string, *domain.ResourceInfo) {
 	var reasons []string
 	var extractedResource *domain.ResourceInfo
+
+	// Handle "override" mode - only evaluate CEL expression
+	if rule.Conditions.Expression != "" && rule.Conditions.ExpressionMode == "override" {
+		result, err := e.celEvaluator.Evaluate(rule.Conditions.Expression, input)
+		if err != nil {
+			logger.Warn("CEL expression evaluation failed",
+				logger.String("rule", rule.Name),
+				logger.Err(err),
+			)
+			return false, nil, nil
+		}
+		if result {
+			reasons = append(reasons, "CEL expression matched (override mode)")
+			reasons = append(reasons, fmt.Sprintf("rule '%s' matched", rule.Name))
+			return true, reasons, nil
+		}
+		return false, nil, nil
+	}
 
 	// Check methods
 	if len(rule.Conditions.Methods) > 0 {
@@ -368,6 +401,28 @@ func (e *BuiltinEngine) matchRule(rule Rule, input *domain.PolicyInput) (bool, [
 		}
 	}
 
+	// Evaluate CEL expression if present (for "and" mode - default)
+	// All standard conditions have passed, now check CEL expression
+	if rule.Conditions.Expression != "" {
+		// Update resource in input for CEL evaluation
+		if extractedResource != nil {
+			input.SetResource(extractedResource)
+		}
+
+		result, err := e.celEvaluator.Evaluate(rule.Conditions.Expression, input)
+		if err != nil {
+			logger.Warn("CEL expression evaluation failed",
+				logger.String("rule", rule.Name),
+				logger.Err(err),
+			)
+			return false, nil, nil
+		}
+		if !result {
+			return false, nil, nil
+		}
+		reasons = append(reasons, "CEL expression matched")
+	}
+
 	reasons = append(reasons, fmt.Sprintf("rule '%s' matched", rule.Name))
 	return true, reasons, extractedResource
 }
@@ -418,6 +473,22 @@ func (e *BuiltinEngine) loadRules() error {
 
 	// Sort rules by priority (higher priority first)
 	sortRules(rules.Rules)
+
+	// Precompile CEL expressions for validation and caching
+	var expressions []string
+	for _, rule := range rules.Rules {
+		if rule.Conditions.Expression != "" {
+			expressions = append(expressions, rule.Conditions.Expression)
+		}
+	}
+	if len(expressions) > 0 {
+		if err := e.celEvaluator.PrecompileExpressions(expressions); err != nil {
+			return errors.Wrap(errors.ErrPolicyInvalid, "CEL expression validation failed: "+err.Error())
+		}
+		logger.Info("CEL expressions precompiled",
+			logger.Int("count", len(expressions)),
+		)
+	}
 
 	e.mu.Lock()
 	e.rules = &rules

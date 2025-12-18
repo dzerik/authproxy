@@ -122,6 +122,20 @@
         "custom": {
           "type": "object",
           "description": "Custom conditions for extension. Key-value pairs passed to custom evaluators. Structure depends on your custom implementation."
+        },
+        "expression": {
+          "type": "string",
+          "description": "CEL (Common Expression Language) expression for advanced conditions. Available variables: token (JWT claims), request (HTTP request), resource (extracted resource), source (client info), context (request context), now (current timestamp). Examples: 'resource.owner_id == token.sub', '\"admin\" in token.roles \u0026\u0026 request.method == \"DELETE\"'."
+        },
+        "expression_mode": {
+          "type": "string",
+          "enum": [
+            "and",
+            "or",
+            "override"
+          ],
+          "description": "How the CEL expression combines with other conditions. 'and' (default): expression AND other conditions must match. 'or': expression OR other conditions must match. 'override': only expression is evaluated, other conditions ignored.",
+          "default": "and"
         }
       },
       "additionalProperties": false,

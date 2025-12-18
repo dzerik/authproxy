@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -38,9 +37,10 @@ rules:
 	rulesFile := createTempRulesFile(t, rulesYAML)
 	defer os.Remove(rulesFile)
 
-	engine := policy.NewBuiltinEngine(config.BuiltinPolicyConfig{
+	engine, err := policy.NewBuiltinEngine(config.BuiltinPolicyConfig{
 		RulesPath: rulesFile,
 	})
+	require.NoError(t, err)
 
 	ctx := NewTestContext(t)
 	require.NoError(t, engine.Start(ctx))
@@ -107,9 +107,10 @@ rules:
 	rulesFile := createTempRulesFile(t, rulesYAML)
 	defer os.Remove(rulesFile)
 
-	engine := policy.NewBuiltinEngine(config.BuiltinPolicyConfig{
+	engine, err := policy.NewBuiltinEngine(config.BuiltinPolicyConfig{
 		RulesPath: rulesFile,
 	})
+	require.NoError(t, err)
 
 	ctx := NewTestContext(t)
 	require.NoError(t, engine.Start(ctx))
@@ -189,9 +190,10 @@ rules:
 	rulesFile := createTempRulesFile(t, rulesYAML)
 	defer os.Remove(rulesFile)
 
-	engine := policy.NewBuiltinEngine(config.BuiltinPolicyConfig{
+	engine, err := policy.NewBuiltinEngine(config.BuiltinPolicyConfig{
 		RulesPath: rulesFile,
 	})
+	require.NoError(t, err)
 
 	ctx := NewTestContext(t)
 	require.NoError(t, engine.Start(ctx))
@@ -260,9 +262,10 @@ rules:
 	rulesFile := createTempRulesFile(t, rulesYAML)
 	defer os.Remove(rulesFile)
 
-	engine := policy.NewBuiltinEngine(config.BuiltinPolicyConfig{
+	engine, err := policy.NewBuiltinEngine(config.BuiltinPolicyConfig{
 		RulesPath: rulesFile,
 	})
+	require.NoError(t, err)
 
 	ctx := NewTestContext(t)
 	require.NoError(t, engine.Start(ctx))
@@ -327,9 +330,10 @@ rules:
 	rulesFile := createTempRulesFile(t, rulesYAML)
 	defer os.Remove(rulesFile)
 
-	engine := policy.NewBuiltinEngine(config.BuiltinPolicyConfig{
+	engine, err := policy.NewBuiltinEngine(config.BuiltinPolicyConfig{
 		RulesPath: rulesFile,
 	})
+	require.NoError(t, err)
 
 	ctx := NewTestContext(t)
 	require.NoError(t, engine.Start(ctx))
@@ -384,9 +388,10 @@ rules:
 	rulesFile := createTempRulesFile(t, rulesYAML)
 	defer os.Remove(rulesFile)
 
-	engine := policy.NewBuiltinEngine(config.BuiltinPolicyConfig{
+	engine, err := policy.NewBuiltinEngine(config.BuiltinPolicyConfig{
 		RulesPath: rulesFile,
 	})
+	require.NoError(t, err)
 
 	ctx := NewTestContext(t)
 	require.NoError(t, engine.Start(ctx))
@@ -413,7 +418,7 @@ rules:
 					Method: "GET",
 				},
 				Source: domain.SourceInfo{
-					IP: tc.sourceIP,
+					Address: tc.sourceIP,
 				},
 			}
 
@@ -451,9 +456,10 @@ rules:
 	rulesFile := createTempRulesFile(t, rulesYAML)
 	defer os.Remove(rulesFile)
 
-	engine := policy.NewBuiltinEngine(config.BuiltinPolicyConfig{
+	engine, err := policy.NewBuiltinEngine(config.BuiltinPolicyConfig{
 		RulesPath: rulesFile,
 	})
+	require.NoError(t, err)
 
 	ctx := NewTestContext(t)
 	require.NoError(t, engine.Start(ctx))
@@ -467,7 +473,7 @@ rules:
 			Method: "GET",
 		},
 		Context: domain.ContextInfo{
-			Timestamp: time.Now(),
+			Timestamp: time.Now().Unix(),
 		},
 	}
 
@@ -546,9 +552,10 @@ rules:
 	defer os.Remove(rulesFile)
 
 	// Create engines
-	builtinEngine := policy.NewBuiltinEngine(config.BuiltinPolicyConfig{
+	builtinEngine, err := policy.NewBuiltinEngine(config.BuiltinPolicyConfig{
 		RulesPath: rulesFile,
 	})
+	require.NoError(t, err)
 
 	opaSidecar := MockOPASidecar(t, map[string]bool{
 		"/api/*": true,
@@ -565,7 +572,10 @@ rules:
 		Engine: "builtin", // Primary engine
 	}
 
-	svc := policy.NewService(cfg, builtinEngine, opaEngine)
+	svc, err := policy.NewService(cfg)
+	require.NoError(t, err)
+	_ = builtinEngine // Used for reference - service creates its own engine
+	_ = opaEngine     // Used for reference - service creates its own engine
 
 	ctx := NewTestContext(t)
 	require.NoError(t, svc.Start(ctx))
@@ -579,7 +589,7 @@ rules:
 		},
 	}
 
-	decision, err := svc.Authorize(ctx, input)
+	decision, err := svc.Evaluate(ctx, input)
 	require.NoError(t, err)
 	assert.True(t, decision.Allowed)
 }

@@ -67,20 +67,32 @@ func NewService(cfg config.PolicyConfig, opts ...ServiceOption) (*Service, error
 	// Create primary engine
 	switch cfg.Engine {
 	case "builtin":
-		s.engine = NewBuiltinEngine(cfg.Builtin)
+		engine, err := NewBuiltinEngine(cfg.Builtin)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to create builtin engine")
+		}
+		s.engine = engine
 	case "opa-sidecar":
 		s.engine = NewOPASidecarEngine(cfg.OPA)
 	case "opa-embedded":
 		s.engine = NewOPAEmbeddedEngine(cfg.OPAEmbedded)
 	default:
-		s.engine = NewBuiltinEngine(cfg.Builtin)
+		engine, err := NewBuiltinEngine(cfg.Builtin)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to create builtin engine")
+		}
+		s.engine = engine
 	}
 
 	// Create fallback engine if configured
 	if cfg.Fallback.Enabled && cfg.Fallback.Engine != cfg.Engine {
 		switch cfg.Fallback.Engine {
 		case "builtin":
-			s.fallbackEngine = NewBuiltinEngine(cfg.Builtin)
+			engine, err := NewBuiltinEngine(cfg.Builtin)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to create fallback builtin engine")
+			}
+			s.fallbackEngine = engine
 		}
 	}
 

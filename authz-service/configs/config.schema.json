@@ -123,6 +123,81 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "CircuitBreakerConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable circuit breaker for external service calls.",
+          "default": true
+        },
+        "default": {
+          "$ref": "#/$defs/CircuitBreakerSettings",
+          "description": "Default circuit breaker settings applied to all external calls."
+        },
+        "services": {
+          "additionalProperties": {
+            "$ref": "#/$defs/CircuitBreakerSettings"
+          },
+          "type": "object",
+          "description": "Per-service circuit breaker settings. Key is service name (e.g. 'opa', 'keycloak')."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "CircuitBreakerSettings": {
+      "properties": {
+        "max_requests": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum requests allowed in half-open state before deciding to close or open.",
+          "default": 3
+        },
+        "interval": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Cyclic period for clearing failure counts when circuit is closed.",
+          "default": "60s",
+          "examples": [
+            "10s",
+            "5m",
+            "1h",
+            "30s"
+          ]
+        },
+        "timeout": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Duration of open state before switching to half-open.",
+          "default": "30s",
+          "examples": [
+            "10s",
+            "5m",
+            "1h",
+            "30s"
+          ]
+        },
+        "failure_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of consecutive failures before opening circuit.",
+          "default": 5
+        },
+        "success_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of consecutive successes in half-open state to close circuit.",
+          "default": 2
+        },
+        "on_state_change": {
+          "type": "boolean",
+          "description": "Log circuit breaker state changes.",
+          "default": true
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "config": {
       "properties": {
         "server": {
@@ -168,6 +243,14 @@
         "health": {
           "$ref": "#/$defs/health_config",
           "description": "Health check configuration for Kubernetes probes and monitoring."
+        },
+        "resilience": {
+          "$ref": "#/$defs/ResilienceConfig",
+          "description": "Resilience patterns configuration. Includes rate limiting for incoming requests and circuit breaker for external calls."
+        },
+        "sensitive_data": {
+          "$ref": "#/$defs/SensitiveDataConfig",
+          "description": "Sensitive data handling configuration. Controls masking of secrets, tokens, and PII in logs."
         }
       },
       "additionalProperties": false,
@@ -721,6 +804,18 @@
             "30s"
           ]
         },
+        "shutdown_timeout": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Maximum duration for graceful shutdown.",
+          "default": "30s",
+          "examples": [
+            "10s",
+            "5m",
+            "1h",
+            "30s"
+          ]
+        },
         "max_header_bytes": {
           "type": "integer",
           "description": "Maximum size of request headers in bytes.",
@@ -1048,6 +1143,32 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "PartialMaskConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable partial masking (show first/last characters).",
+          "default": false
+        },
+        "show_first": {
+          "type": "integer",
+          "description": "Number of first characters to show.",
+          "default": 4
+        },
+        "show_last": {
+          "type": "integer",
+          "description": "Number of last characters to show.",
+          "default": 4
+        },
+        "min_length": {
+          "type": "integer",
+          "description": "Minimum value length for partial masking. Shorter values are fully masked.",
+          "default": 12
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "policy_config": {
       "properties": {
         "engine": {
@@ -1244,6 +1365,121 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "RateLimitConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable rate limiting for incoming requests.",
+          "default": true
+        },
+        "rate": {
+          "type": "string",
+          "description": "Rate limit in format 'requests-period'. Periods: S (second), M (minute), H (hour), D (day). Example: '100-S' = 100 req/sec, '1000-M' = 1000 req/min.",
+          "default": "100-S"
+        },
+        "store": {
+          "type": "string",
+          "enum": [
+            "memory",
+            "redis"
+          ],
+          "description": "Rate limit storage backend.",
+          "default": "memory"
+        },
+        "redis": {
+          "$ref": "#/$defs/RateLimitRedisConfig",
+          "description": "Redis configuration for distributed rate limiting (when store=redis)."
+        },
+        "trust_forwarded_for": {
+          "type": "boolean",
+          "description": "Trust X-Forwarded-For header for client IP identification. Enable when behind proxy/load balancer.",
+          "default": true
+        },
+        "exclude_paths": {
+          "items": {
+            "type": "string",
+            "examples": [
+              "/health",
+              "/metrics",
+              "/ready"
+            ]
+          },
+          "type": "array",
+          "description": "Paths to exclude from rate limiting. Supports glob patterns."
+        },
+        "by_endpoint": {
+          "type": "boolean",
+          "description": "Apply rate limits per endpoint instead of globally.",
+          "default": false
+        },
+        "endpoint_rates": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "Per-endpoint rate limits. Key is path prefix, value is rate. Example: {'/v1/authorize': '1000-S', '/v1/token': '100-S'}."
+        },
+        "headers": {
+          "$ref": "#/$defs/RateLimitHeadersConfig",
+          "description": "Rate limit response headers configuration."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "RateLimitHeadersConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Include rate limit headers in HTTP response (X-RateLimit-*).",
+          "default": true
+        },
+        "limit_header": {
+          "type": "string",
+          "description": "Header name for rate limit value.",
+          "default": "X-RateLimit-Limit"
+        },
+        "remaining_header": {
+          "type": "string",
+          "description": "Header name for remaining requests.",
+          "default": "X-RateLimit-Remaining"
+        },
+        "reset_header": {
+          "type": "string",
+          "description": "Header name for reset timestamp.",
+          "default": "X-RateLimit-Reset"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "RateLimitRedisConfig": {
+      "properties": {
+        "address": {
+          "type": "string",
+          "description": "Redis server address.",
+          "examples": [
+            "localhost:6379"
+          ]
+        },
+        "password": {
+          "type": "string",
+          "description": "Redis password. Consider using environment variable AUTHZ_RESILIENCE_RATE_LIMIT_REDIS_PASSWORD."
+        },
+        "db": {
+          "type": "integer",
+          "description": "Redis database number.",
+          "default": 1
+        },
+        "key_prefix": {
+          "type": "string",
+          "description": "Prefix for rate limit keys in Redis.",
+          "default": "authz:ratelimit:"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "redis_cache_config": {
       "properties": {
         "addresses": {
@@ -1293,6 +1529,20 @@
             "1h",
             "30s"
           ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ResilienceConfig": {
+      "properties": {
+        "rate_limit": {
+          "$ref": "#/$defs/RateLimitConfig",
+          "description": "Rate limiting configuration for incoming HTTP requests. Protects service from overload."
+        },
+        "circuit_breaker": {
+          "$ref": "#/$defs/CircuitBreakerConfig",
+          "description": "Circuit breaker configuration for external service calls. Prevents cascade failures."
         }
       },
       "additionalProperties": false,
@@ -1376,6 +1626,51 @@
         "strip_prefix": {
           "type": "string",
           "description": "Remove this prefix from path before forwarding. Example: '/api' strips '/api/users' to '/users'."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "SensitiveDataConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable automatic masking of sensitive data in logs.",
+          "default": true
+        },
+        "mask_value": {
+          "type": "string",
+          "description": "Value to replace sensitive data with.",
+          "default": "***MASKED***"
+        },
+        "fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Field names to mask in logs (case-insensitive). Applied to JSON keys and struct fields.",
+          "default": [
+            "[password,secret,token,api_key,apikey,authorization,client_secret,access_token,refresh_token,private_key,credential]"
+          ]
+        },
+        "headers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "HTTP header names to mask in logs (case-insensitive).",
+          "default": [
+            "[Authorization,X-API-Key,Cookie,Set-Cookie]"
+          ]
+        },
+        "mask_jwt": {
+          "type": "boolean",
+          "description": "Mask JWT token payload in logs (keeps header and signature indicator visible).",
+          "default": true
+        },
+        "partial_mask": {
+          "$ref": "#/$defs/PartialMaskConfig",
+          "description": "Partial masking configuration to show parts of sensitive values."
         }
       },
       "additionalProperties": false,

@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -32,7 +31,7 @@ func TestJWTService_ValidateToken_Success(t *testing.T) {
 				Algorithms: []string{"RS256"},
 			},
 		},
-		ClockSkew: 30 * time.Second,
+		Validation: config.ValidationConfig{ClockSkew: 30 * time.Second},
 	}
 
 	svc := jwtservice.NewService(cfg)
@@ -289,7 +288,7 @@ func TestJWTService_JWKS_Refresh(t *testing.T) {
 				Algorithms: []string{"RS256"},
 			},
 		},
-		JWKSRefresh: 100 * time.Millisecond, // Short refresh for testing
+		JWKSCache: config.JWKSCacheConfig{RefreshInterval: 100 * time.Millisecond}, // Short refresh for testing
 	}
 
 	svc := jwtservice.NewService(cfg)
