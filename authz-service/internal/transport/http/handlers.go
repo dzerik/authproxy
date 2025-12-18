@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -8,21 +9,33 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/your-org/authz-service/internal/service/jwt"
-	"github.com/your-org/authz-service/internal/service/policy"
+	"github.com/your-org/authz-service/internal/domain"
 	"github.com/your-org/authz-service/pkg/errors"
 	"github.com/your-org/authz-service/pkg/logger"
 )
 
+// JWTService defines the interface for JWT validation operations.
+type JWTService interface {
+	ValidateFromHeader(ctx context.Context, authHeader string) (*domain.TokenInfo, error)
+	ValidateToken(ctx context.Context, token string) (*domain.TokenInfo, error)
+}
+
+// PolicyService defines the interface for policy evaluation operations.
+type PolicyService interface {
+	Evaluate(ctx context.Context, input *domain.PolicyInput) (*domain.Decision, error)
+	Healthy(ctx context.Context) bool
+	Reload(ctx context.Context) error
+}
+
 // Handler contains HTTP handlers for the authorization service.
 type Handler struct {
-	jwtService    *jwt.Service
-	policyService *policy.Service
+	jwtService    JWTService
+	policyService PolicyService
 	version       string
 }
 
 // NewHandler creates a new HTTP handler.
-func NewHandler(jwtService *jwt.Service, policyService *policy.Service, version string) *Handler {
+func NewHandler(jwtService JWTService, policyService PolicyService, version string) *Handler {
 	return &Handler{
 		jwtService:    jwtService,
 		policyService: policyService,
