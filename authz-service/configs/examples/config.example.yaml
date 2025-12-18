@@ -1,0 +1,928 @@
+# ==============================================================================
+# Authorization Service Configuration - Comprehensive Example
+# ==============================================================================
+#
+# Configuration priority (highest to lowest):
+# 1. Environment variables (AUTHZ_SECTION_SUBSECTION_FIELD)
+# 2. Config file values
+# 3. Default values
+#
+# Environment variable naming:
+# - Prefix: AUTHZ_
+# - Separator: _ (underscore)
+# - Example: AUTHZ_SERVER_HTTP_ADDR=":9090"
+#
+# ==============================================================================
+
+# ==============================================================================
+# SERVER CONFIGURATION
+# ==============================================================================
+# HTTP and gRPC server settings.
+
+server:
+  # --------------------------------------------------------------------------
+  # HTTP Server
+  # --------------------------------------------------------------------------
+  http:
+    # Enable/disable HTTP server
+    enabled: true
+
+    # Listen address in format "host:port" or ":port"
+    # Examples: ":8080", "0.0.0.0:8080", "127.0.0.1:8080"
+    # Env: AUTHZ_SERVER_HTTP_ADDR
+    addr: ":8080"
+
+    # Maximum duration for reading the entire request, including body
+    # Low values protect against slowloris attacks
+    # Env: AUTHZ_SERVER_HTTP_READ_TIMEOUT
+    read_timeout: 10s
+
+    # Maximum duration before timing out writes of the response
+    # Should be longer than read_timeout for large responses
+    # Env: AUTHZ_SERVER_HTTP_WRITE_TIMEOUT
+    write_timeout: 30s
+
+    # Maximum duration to wait for the next request when keep-alives are enabled
+    # Env: AUTHZ_SERVER_HTTP_IDLE_TIMEOUT
+    idle_timeout: 120s
+
+    # Maximum number of bytes the server will read parsing request headers
+    # Prevents memory exhaustion attacks
+    # Env: AUTHZ_SERVER_HTTP_MAX_HEADER_BYTES
+    max_header_bytes: 1048576  # 1MB
+
+    # Graceful shutdown timeout
+    # Time to wait for active connections to finish during shutdown
+    # Env: AUTHZ_SERVER_HTTP_SHUTDOWN_TIMEOUT
+    shutdown_timeout: 30s
+
+    # TLS configuration for HTTPS
+    tls:
+      enabled: false
+      cert_file: "/etc/ssl/certs/server.crt"
+      key_file: "/etc/ssl/private/server.key"
+      # Minimum TLS version (1.2 or 1.3)
+      min_version: "1.2"
+      # Require client certificates (mTLS)
+      client_auth: false
+      client_ca_file: "/etc/ssl/certs/ca.crt"
+
+  # --------------------------------------------------------------------------
+  # gRPC Server (Optional)
+  # --------------------------------------------------------------------------
+  grpc:
+    enabled: false
+    addr: ":9090"
+    # Maximum message size in bytes
+    max_recv_msg_size: 4194304  # 4MB
+    max_send_msg_size: 4194304  # 4MB
+
+# ==============================================================================
+# ENDPOINT CONFIGURATION
+# ==============================================================================
+# Customize API endpoint paths.
+
+endpoints:
+  # Main authorization endpoint
+  authorize: "/api/v1/authorize"
+
+  # Batch authorization for multiple requests
+  authorize_batch: "/api/v1/authorize/batch"
+
+  # JWT token validation endpoint
+  token_validate: "/api/v1/token/validate"
+
+  # OAuth 2.0 Token Exchange (RFC 8693)
+  token_exchange: "/api/v1/token/exchange"
+
+  # Health check endpoints
+  health: "/health"
+  ready: "/ready"
+  live: "/live"
+
+  # Prometheus metrics
+  metrics: "/metrics"
+
+  # Admin endpoints
+  cache_invalidate: "/api/v1/admin/cache/invalidate"
+  policy_reload: "/api/v1/admin/policy/reload"
+
+# ==============================================================================
+# JWT CONFIGURATION
+# ==============================================================================
+# Configuration for JWT token validation.
+
+jwt:
+  # --------------------------------------------------------------------------
+  # Trusted Issuers
+  # --------------------------------------------------------------------------
+  # List of trusted token issuers (Identity Providers).
+  # Each issuer has its own configuration for JWKS, audience, etc.
+  issuers:
+    # Primary Keycloak realm
+    - name: keycloak-production
+      # The expected 'iss' claim value
+      # Used to match incoming tokens to this configuration
+      issuer_url: "https://keycloak.example.com/realms/production"
+
+      # JWKS endpoint URL for public keys
+      # If empty, discovered from issuer_url + "/.well-known/openid-configuration"
+      jwks_url: "https://keycloak.example.com/realms/production/protocol/openid-connect/certs"
+
+      # Expected audiences in the 'aud' claim
+      # At least one must match
+      audience:
+        - "my-api"
+        - "https://api.example.com"
+
+      # Allowed signing algorithms
+      # Common: RS256 (RSA), ES256 (ECDSA), HS256 (HMAC - not recommended)
+      algorithms:
+        - RS256
+        - RS384
+        - RS512
+        - ES256
+        - ES384
+
+      # Required claims that must be present in the token
+      required_claims:
+        - sub    # Subject
+        - exp    # Expiration
+        - iat    # Issued at
+
+    # Staging environment
+    - name: keycloak-staging
+      issuer_url: "https://keycloak-staging.example.com/realms/staging"
+      audience:
+        - "my-api-staging"
+      algorithms:
+        - RS256
+
+    # External partner IdP
+    - name: partner-idp
+      issuer_url: "https://auth.partner.com"
+      jwks_url: "https://auth.partner.com/.well-known/jwks.json"
+      audience:
+        - "partner-api"
+      algorithms:
+        - RS256
+        - ES256
+
+  # --------------------------------------------------------------------------
+  # JWKS Cache Configuration
+  # --------------------------------------------------------------------------
+  # Settings for caching JSON Web Key Sets.
+  jwks_cache:
+    # How often to refresh JWKS in background
+    # Keys are refreshed automatically before expiration
+    refresh_interval: 1h
+
+    # Timeout for JWKS refresh HTTP requests
+    refresh_timeout: 10s
+
+    # Minimum interval between refresh attempts (rate limiting)
+    # Prevents hammering the IdP if keys are not found
+    min_refresh_interval: 5m
+
+    # Retry configuration for failed JWKS fetches
+    retry:
+      max_attempts: 3
+      initial_backoff: 1s
+      max_backoff: 30s
+
+  # --------------------------------------------------------------------------
+  # Token Validation Settings
+  # --------------------------------------------------------------------------
+  validation:
+    # Allowed clock skew for exp/nbf/iat claims
+    # Compensates for clock drift between servers
+    clock_skew: 30s
+
+    # Require 'exp' (expiration) claim
+    require_expiration: true
+
+    # Require 'nbf' (not before) claim
+    require_not_before: false
+
+    # Require 'iat' (issued at) claim
+    require_issued_at: false
+
+    # Maximum allowed token lifetime
+    # Tokens older than this are rejected regardless of exp claim
+    max_lifetime: 24h
+
+# ==============================================================================
+# POLICY ENGINE CONFIGURATION
+# ==============================================================================
+# Configuration for the authorization policy engine.
+
+policy:
+  # Engine type: builtin, opa-sidecar, opa-embedded
+  #
+  # - builtin: Simple YAML-based rules engine (recommended for simple cases)
+  # - opa-sidecar: External OPA server (scalable, shared policies)
+  # - opa-embedded: Embedded OPA engine (powerful, no external dependencies)
+  engine: builtin
+
+  # --------------------------------------------------------------------------
+  # Built-in Engine Configuration
+  # --------------------------------------------------------------------------
+  # YAML-based rules engine with CEL expression support.
+  # See rules.example.yaml for rule format and CEL examples.
+  #
+  # Features:
+  # - YAML-based rules with path matching (glob, templates, regex)
+  # - Role and scope-based access control (RBAC)
+  # - CEL expressions for advanced authorization logic:
+  #   * Owner-based access: resource.params["owner_id"] == token.sub
+  #   * Time-based access: now.getHours() >= 9 && now.getHours() < 18
+  #   * IP-based access: cidrMatch(source.address, "10.0.0.0/8")
+  #   * Complex conditions: "admin" in token.roles || resource.owner == token.sub
+  # - Hot reload of rules without restart
+  #
+  # See: docs/guides/CEL_EXPRESSIONS_GUIDE.md for CEL documentation
+  builtin:
+    # Path to rules YAML file
+    # Supports .yaml and .yml extensions
+    rules_path: "/etc/authz/rules.yaml"
+
+  # --------------------------------------------------------------------------
+  # OPA Sidecar Configuration
+  # --------------------------------------------------------------------------
+  # For engine: opa-sidecar
+  # Connects to an external OPA server running as a sidecar or separate service.
+  opa:
+    # OPA server URL
+    url: "http://localhost:8181"
+
+    # Policy path for authorization decisions
+    # This is the path to your policy in OPA's data namespace
+    # e.g., /v1/data/authz/allow -> package authz, rule allow
+    policy_path: "/v1/data/authz/allow"
+
+    # Request timeout
+    timeout: 10ms
+
+    # Retry configuration
+    retry:
+      max_attempts: 3
+      initial_backoff: 1ms
+      max_backoff: 10ms
+
+    # TLS configuration for OPA connection
+    tls:
+      enabled: false
+      insecure_skip_verify: false
+      ca_cert: "/etc/ssl/certs/opa-ca.crt"
+
+  # --------------------------------------------------------------------------
+  # OPA Embedded Configuration
+  # --------------------------------------------------------------------------
+  # For engine: opa-embedded
+  # Runs OPA as an embedded library within the service.
+  opa_embedded:
+    # Directory containing .rego policy files
+    policy_dir: "/etc/authz/policies"
+
+    # Directory containing JSON data files
+    data_dir: "/etc/authz/data"
+
+    # Decision path within OPA (package/rule)
+    decision_path: "authz/allow"
+
+    # Enable hot reload of policies
+    hot_reload: true
+
+    # Alternative: Load policies from OPA bundle
+    # bundle_path: "/etc/authz/bundle.tar.gz"
+    # bundle_polling_interval: 60s
+
+  # --------------------------------------------------------------------------
+  # Fallback Configuration
+  # --------------------------------------------------------------------------
+  # What to do when the primary policy engine fails.
+  fallback:
+    # Enable fallback engine
+    enabled: true
+
+    # Fallback engine type (usually builtin for simplicity)
+    engine: builtin
+
+    # Default behavior when fallback also fails
+    # - deny: Fail closed (recommended for security)
+    # - allow: Fail open (for availability)
+    behavior: deny
+
+# ==============================================================================
+# PROXY CONFIGURATION
+# ==============================================================================
+# Configuration for reverse proxy mode.
+
+proxy:
+  # Enable proxy mode
+  # - true: Service acts as reverse proxy with authorization
+  # - false: Service only provides authorization decisions (decision_only mode)
+  enabled: true
+
+  # Operating mode:
+  # - decision_only: Only respond with allow/deny decisions
+  # - reverse_proxy: Proxy requests to upstream if authorized
+  mode: "reverse_proxy"
+
+  # --------------------------------------------------------------------------
+  # Default Upstream
+  # --------------------------------------------------------------------------
+  # Used when no specific route matches.
+  upstream:
+    url: "http://backend:8080"
+    timeout: 30s
+
+    # TLS configuration for upstream connection
+    tls:
+      enabled: false
+      insecure_skip_verify: false
+      ca_cert: "/etc/ssl/certs/upstream-ca.crt"
+      client_cert: "/etc/ssl/certs/client.crt"
+      client_key: "/etc/ssl/private/client.key"
+
+  # --------------------------------------------------------------------------
+  # Named Upstreams
+  # --------------------------------------------------------------------------
+  # Define multiple backends for routing.
+  upstreams:
+    user-service:
+      url: "http://user-service:8080"
+      timeout: 15s
+
+    order-service:
+      url: "http://order-service:8080"
+      timeout: 30s
+
+    admin-service:
+      url: "https://admin-service:8443"
+      timeout: 30s
+      tls:
+        enabled: true
+        insecure_skip_verify: false
+        ca_cert: "/etc/ssl/certs/internal-ca.crt"
+
+  # --------------------------------------------------------------------------
+  # Routing Rules
+  # --------------------------------------------------------------------------
+  # Routes are evaluated in order. First match wins.
+  routes:
+    # Route user API to user-service
+    - path_prefix: "/api/v1/users"
+      upstream: "user-service"
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE"]
+      # Strip prefix before forwarding
+      strip_prefix: ""
+      # Rewrite prefix
+      rewrite_prefix: ""
+
+    # Route orders to order-service
+    - path_prefix: "/api/v1/orders"
+      upstream: "order-service"
+
+    # Route admin with path rewriting
+    - path_prefix: "/api/v1/admin"
+      upstream: "admin-service"
+      # /api/v1/admin/users -> /admin/users
+      strip_prefix: "/api/v1/admin"
+      rewrite_prefix: "/admin"
+      # Add custom headers for this route
+      headers:
+        X-Admin-Request: "true"
+        X-Source-Service: "authz-proxy"
+
+  # --------------------------------------------------------------------------
+  # Header Configuration
+  # --------------------------------------------------------------------------
+  headers:
+    # Headers to add to all proxied requests
+    add:
+      X-Forwarded-By: "authz-proxy"
+      X-Proxy-Version: "2.0"
+
+    # Headers to remove before proxying
+    remove:
+      - "X-Internal-Token"
+      - "X-Debug-Header"
+
+    # Inject user information from JWT into headers
+    add_user_info: true
+    user_id_header: "X-User-ID"
+    user_roles_header: "X-User-Roles"
+    user_email_header: "X-User-Email"
+
+    # Preserve original Host header
+    preserve_host: true
+
+  # --------------------------------------------------------------------------
+  # Connection Pool Settings
+  # --------------------------------------------------------------------------
+  max_idle_conns: 100
+  max_idle_conns_per_host: 10
+  idle_conn_timeout: 90s
+  timeout: 30s
+
+  # --------------------------------------------------------------------------
+  # Retry Configuration
+  # --------------------------------------------------------------------------
+  # Automatic retry for failed upstream requests.
+  retry:
+    enabled: true
+    # Maximum number of retry attempts
+    max_attempts: 3
+    # Initial wait time before first retry
+    initial_backoff: 100ms
+    # Maximum wait time between retries
+    max_backoff: 2s
+    # Backoff multiplier (exponential backoff)
+    multiplier: 2.0
+    # HTTP status codes that trigger retry
+    retry_on_status_codes:
+      - 502  # Bad Gateway
+      - 503  # Service Unavailable
+      - 504  # Gateway Timeout
+    # Retry on connection errors
+    retry_on_connection_error: true
+
+# ==============================================================================
+# CACHE CONFIGURATION
+# ==============================================================================
+# Multi-level caching for performance.
+
+cache:
+  # --------------------------------------------------------------------------
+  # L1 Cache (In-Memory)
+  # --------------------------------------------------------------------------
+  # Fast local cache using LRU eviction.
+  l1:
+    enabled: true
+    # Maximum number of entries
+    max_size: 10000
+    # Time-to-live for cached entries
+    ttl: 10s
+    # Shards for concurrent access (power of 2)
+    shards: 16
+
+  # --------------------------------------------------------------------------
+  # L2 Cache (Distributed - Redis)
+  # --------------------------------------------------------------------------
+  # Shared cache across multiple instances.
+  l2:
+    enabled: false
+    backend: redis  # redis, memcached
+
+    # Redis configuration
+    redis:
+      # Single node
+      addresses:
+        - "redis:6379"
+      # Or cluster mode
+      # addresses:
+      #   - "redis-1:6379"
+      #   - "redis-2:6379"
+      #   - "redis-3:6379"
+      password: ""
+      db: 0
+      pool_size: 10
+      min_idle_conns: 5
+      # TLS for Redis
+      tls:
+        enabled: false
+        insecure_skip_verify: false
+
+    # TTL for different cache types
+    ttl:
+      authorization: 60s   # Authorization decisions
+      jwt: 300s           # Validated JWT tokens
+      jwks: 3600s        # JWKS public keys
+
+    # Prefix for all cache keys
+    key_prefix: "authz:"
+
+# ==============================================================================
+# AUDIT CONFIGURATION
+# ==============================================================================
+# Audit logging for compliance and debugging.
+
+audit:
+  enabled: true
+
+  # Event types to audit
+  events:
+    - AUTHZ_DECISION     # Authorization allow/deny decisions
+    - TOKEN_VALIDATION   # JWT validation results
+    - POLICY_RELOAD      # Policy file reloads
+    - CACHE_INVALIDATE   # Cache invalidation events
+    - CONFIG_RELOAD      # Configuration reloads
+
+  # --------------------------------------------------------------------------
+  # Export Configuration
+  # --------------------------------------------------------------------------
+  export:
+    # Stdout exporter (for container logs)
+    stdout:
+      enabled: true
+      format: json  # json, text
+
+    # OpenTelemetry exporter
+    otlp:
+      enabled: false
+      endpoint: "otel-collector:4317"
+      insecure: true
+      headers:
+        api-key: "${OTEL_API_KEY}"
+
+    # File exporter
+    file:
+      enabled: false
+      path: "/var/log/authz/audit.log"
+      max_size_mb: 100
+      max_backups: 5
+      max_age_days: 30
+      compress: true
+
+  # --------------------------------------------------------------------------
+  # Enrichment
+  # --------------------------------------------------------------------------
+  enrichment:
+    # Headers to include in audit events
+    include_headers:
+      - X-Request-ID
+      - X-Correlation-ID
+      - X-Trace-ID
+
+    # Fields to mask in audit logs (for security)
+    mask_fields:
+      - authorization
+      - cookie
+      - x-api-key
+
+# ==============================================================================
+# RESILIENCE CONFIGURATION
+# ==============================================================================
+# Rate limiting and circuit breaker settings.
+
+resilience:
+  # --------------------------------------------------------------------------
+  # Rate Limiting
+  # --------------------------------------------------------------------------
+  rate_limit:
+    enabled: true
+
+    # Default rate limit (requests per second)
+    # Format: "count-period" where period is S (second), M (minute), H (hour)
+    rate: "1000-S"  # 1000 requests per second
+
+    # Storage backend: memory, redis
+    store: memory
+
+    # Redis configuration (when store: redis)
+    redis:
+      address: "redis:6379"
+      db: 2
+
+    # Paths excluded from rate limiting
+    exclude_paths:
+      - "/health"
+      - "/healthz"
+      - "/ready"
+      - "/live"
+      - "/metrics"
+
+    # Per-endpoint rate limits (override default)
+    endpoint_rates:
+      /api/v1/authorize: "5000-S"       # Higher limit for authz
+      /api/v1/token/exchange: "100-S"   # Lower limit for token exchange
+      /api/v1/admin/*: "10-S"           # Very low for admin
+
+    # Rate limit by: ip, token, header
+    key_by: "ip"
+    # Custom header for key extraction
+    key_header: "X-Client-ID"
+
+  # --------------------------------------------------------------------------
+  # Circuit Breaker
+  # --------------------------------------------------------------------------
+  circuit_breaker:
+    enabled: true
+
+    # Default settings
+    default:
+      # Requests allowed when half-open
+      max_requests: 5
+      # Time window for failure counting
+      interval: 30s
+      # Time to wait before trying again
+      timeout: 15s
+      # Failures to trigger open state
+      failure_threshold: 10
+      # Success ratio to close circuit
+      success_threshold: 0.6
+
+    # Per-service circuit breaker overrides
+    services:
+      opa:
+        failure_threshold: 5
+        timeout: 10s
+      upstream:
+        failure_threshold: 15
+        timeout: 30s
+
+# ==============================================================================
+# LOGGING CONFIGURATION
+# ==============================================================================
+
+logging:
+  # Log level: debug, info, warn, error
+  level: info
+
+  # Output format: json, text
+  format: json
+
+  # Output destination: stdout, stderr, file
+  output: stdout
+
+  # Add caller information (file:line)
+  add_caller: true
+
+  # Add stack traces for errors
+  add_stacktrace: false
+
+  # Development mode (human-readable output)
+  development: false
+
+  # Sampling configuration (for high-volume logging)
+  sampling:
+    enabled: false
+    initial: 100      # Log first N messages
+    thereafter: 100   # Then log every Nth message
+
+# ==============================================================================
+# SENSITIVE DATA CONFIGURATION
+# ==============================================================================
+# Configuration for masking sensitive data in logs.
+
+sensitive_data:
+  enabled: true
+
+  # Replacement value for masked data
+  mask_value: "***MASKED***"
+
+  # Field names to mask (case-insensitive)
+  fields:
+    - password
+    - secret
+    - api_key
+    - apikey
+    - access_token
+    - refresh_token
+    - client_secret
+    - private_key
+
+  # Headers to mask
+  headers:
+    - Authorization
+    - X-API-Key
+    - Cookie
+    - Set-Cookie
+
+  # Mask JWT tokens in logs
+  mask_jwt: true
+
+  # Partial masking (show first/last N characters)
+  partial_mask:
+    enabled: true
+    show_first: 4
+    show_last: 4
+
+# ==============================================================================
+# HEALTH CHECK CONFIGURATION
+# ==============================================================================
+
+health:
+  # Interval between health checks
+  check_interval: 10s
+
+  # Timeout for individual health checks
+  timeout: 5s
+
+  # Health checks to perform
+  checks:
+    - name: policy
+      enabled: true
+      critical: true  # Service is unhealthy if this fails
+
+    - name: cache
+      enabled: true
+      critical: false
+
+    - name: upstream
+      enabled: true
+      critical: false
+
+# ==============================================================================
+# EGRESS CONFIGURATION (OPTIONAL)
+# ==============================================================================
+# Configuration for outbound requests to external services.
+
+egress:
+  enabled: false
+
+  # External service targets
+  targets:
+    external-api:
+      url: "https://api.external.com"
+      timeout: 15s
+      auth:
+        type: oauth2_client_credentials
+        token_url: "https://auth.external.com/token"
+        client_id: "${EXTERNAL_CLIENT_ID}"
+        client_secret: "${EXTERNAL_CLIENT_SECRET}"
+        scopes:
+          - read
+          - write
+
+  # Routes for egress proxy
+  routes:
+    - path_prefix: "/external"
+      target: "external-api"
+      strip_prefix: true
+
+# ==============================================================================
+# TOKEN EXCHANGE CONFIGURATION (OPTIONAL)
+# ==============================================================================
+# Configuration for OAuth 2.0 Token Exchange (RFC 8693).
+
+token_exchange:
+  enabled: false
+
+  # Keycloak token exchange endpoint
+  keycloak:
+    url: "https://keycloak.example.com/realms/production/protocol/openid-connect/token"
+    client_id: "${KEYCLOAK_CLIENT_ID}"
+    client_secret: "${KEYCLOAK_CLIENT_SECRET}"
+
+  # Allowed token exchange scenarios
+  allowed_exchanges:
+    - subject_token_type: "urn:ietf:params:oauth:token-type:access_token"
+      requested_token_type: "urn:ietf:params:oauth:token-type:access_token"
+      allowed_audiences:
+        - "downstream-service"
+
+# ==============================================================================
+# METRICS CONFIGURATION
+# ==============================================================================
+# Prometheus metrics configuration.
+
+metrics:
+  # Enable metrics endpoint
+  enabled: true
+
+  # Metrics endpoint path (also configurable via endpoints.metrics)
+  path: "/metrics"
+
+  # Include Go runtime metrics
+  go_collector: true
+
+  # Include process metrics (CPU, memory, file descriptors)
+  process_collector: true
+
+  # Custom labels added to all metrics
+  labels:
+    service: "authz-service"
+    env: "production"
+
+  # Histogram buckets for latency metrics (in seconds)
+  latency_buckets:
+    - 0.001   # 1ms
+    - 0.005   # 5ms
+    - 0.01    # 10ms
+    - 0.025   # 25ms
+    - 0.05    # 50ms
+    - 0.1     # 100ms
+    - 0.25    # 250ms
+    - 0.5     # 500ms
+    - 1.0     # 1s
+    - 2.5     # 2.5s
+    - 5.0     # 5s
+    - 10.0    # 10s
+
+# ==============================================================================
+# TRACING CONFIGURATION (OPTIONAL)
+# ==============================================================================
+# OpenTelemetry tracing configuration.
+
+tracing:
+  enabled: false
+
+  # Exporter type: otlp, jaeger, zipkin
+  exporter: otlp
+
+  # OTLP exporter settings
+  otlp:
+    endpoint: "otel-collector:4317"
+    insecure: true
+    headers:
+      api-key: "${OTEL_API_KEY}"
+
+  # Sampling configuration
+  sampling:
+    # Sampling type: always_on, always_off, trace_id_ratio, parent_based
+    type: "parent_based"
+    # Sampling ratio (0.0 to 1.0) for trace_id_ratio sampler
+    ratio: 0.1
+
+  # Service name for traces
+  service_name: "authz-service"
+
+  # Resource attributes
+  resource_attributes:
+    deployment.environment: "production"
+    service.version: "2.0.0"
+
+# ==============================================================================
+# ENVIRONMENT VARIABLES REFERENCE
+# ==============================================================================
+#
+# All configuration values can be overridden via environment variables.
+# Naming convention: AUTHZ_SECTION_SUBSECTION_FIELD
+#
+# Server Configuration:
+#   AUTHZ_SERVER_HTTP_ENABLED=true
+#   AUTHZ_SERVER_HTTP_ADDR=":8080"
+#   AUTHZ_SERVER_HTTP_READ_TIMEOUT="10s"
+#   AUTHZ_SERVER_HTTP_WRITE_TIMEOUT="30s"
+#
+# JWT Configuration:
+#   AUTHZ_JWT_VALIDATION_CLOCK_SKEW="60s"
+#   AUTHZ_JWT_JWKS_CACHE_REFRESH_INTERVAL="1h"
+#
+# Policy Configuration:
+#   AUTHZ_POLICY_ENGINE="builtin"
+#   AUTHZ_POLICY_BUILTIN_RULES_PATH="/etc/authz/rules.yaml"
+#   AUTHZ_POLICY_OPA_URL="http://localhost:8181"
+#   AUTHZ_POLICY_FALLBACK_BEHAVIOR="deny"
+#
+# Proxy Configuration:
+#   AUTHZ_PROXY_ENABLED=true
+#   AUTHZ_PROXY_MODE="reverse_proxy"
+#   AUTHZ_PROXY_UPSTREAM_URL="http://backend:8080"
+#   AUTHZ_PROXY_TIMEOUT="30s"
+#
+# Cache Configuration:
+#   AUTHZ_CACHE_L1_ENABLED=true
+#   AUTHZ_CACHE_L1_MAX_SIZE=10000
+#   AUTHZ_CACHE_L1_TTL="10s"
+#   AUTHZ_CACHE_L2_ENABLED=false
+#   AUTHZ_CACHE_L2_REDIS_ADDRESSES="redis:6379"
+#
+# Logging Configuration:
+#   AUTHZ_LOGGING_LEVEL="info"
+#   AUTHZ_LOGGING_FORMAT="json"
+#
+# Resilience Configuration:
+#   AUTHZ_RESILIENCE_RATE_LIMIT_ENABLED=true
+#   AUTHZ_RESILIENCE_RATE_LIMIT_RATE="1000-S"
+#   AUTHZ_RESILIENCE_CIRCUIT_BREAKER_ENABLED=true
+#
+# Secrets (always use environment variables!):
+#   AUTHZ_CACHE_L2_REDIS_PASSWORD="secret"
+#   AUTHZ_TOKEN_EXCHANGE_KEYCLOAK_CLIENT_SECRET="secret"
+#   AUTHZ_EGRESS_TARGETS_EXTERNAL_API_AUTH_CLIENT_SECRET="secret"
+#
+# ==============================================================================
+# QUICK START EXAMPLES
+# ==============================================================================
+#
+# 1. Decision API Mode (minimal):
+#    policy:
+#      engine: builtin
+#      builtin:
+#        rules_path: "/etc/authz/rules.yaml"
+#    proxy:
+#      enabled: false
+#      mode: decision_only
+#
+# 2. Reverse Proxy Mode:
+#    proxy:
+#      enabled: true
+#      mode: reverse_proxy
+#      upstream:
+#        url: "http://backend:8080"
+#
+# 3. With CEL expressions in rules.yaml:
+#    rules:
+#      - name: owner-access
+#        conditions:
+#          paths: ["/api/v1/documents/*"]
+#          expression: 'resource.params["owner_id"] == token.sub'
+#        effect: allow
+#
+# See docs/guides/CEL_EXPRESSIONS_GUIDE.md for CEL documentation
+# See configs/examples/rules.example.yaml for rule examples
+#
+# ==============================================================================
