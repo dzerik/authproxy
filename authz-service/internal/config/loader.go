@@ -120,10 +120,11 @@ func (l *Loader) InitSource(ctx context.Context) error {
 		l.source = source
 
 	case "remote":
-		return fmt.Errorf("remote config source not yet implemented")
-
-	case "hybrid":
-		return fmt.Errorf("hybrid config source not yet implemented")
+		source, err := NewRemoteConfigSource(settings.Remote, l.log)
+		if err != nil {
+			return fmt.Errorf("failed to create remote config source: %w", err)
+		}
+		l.source = source
 
 	default:
 		return fmt.Errorf("unknown config source type: %s", settings.Type)
@@ -338,7 +339,11 @@ func (l *Loader) ToConfig() *Config {
 		cfg.TLSClientCert = svc.TLSClientCert
 		cfg.RequestBody = svc.RequestBody
 
-		// Convert new proxy listeners config to legacy proxy config
+		// Store multi-listener configs for new multi-port architecture
+		cfg.ProxyListeners = svc.Proxy
+		cfg.EgressListeners = svc.Egress
+
+		// Convert new proxy listeners config to legacy proxy config (for backward compatibility)
 		if svc.Proxy.Enabled && len(svc.Proxy.Listeners) > 0 {
 			firstListener := svc.Proxy.Listeners[0]
 			cfg.Proxy = ProxyConfig{
@@ -356,7 +361,7 @@ func (l *Loader) ToConfig() *Config {
 			}
 		}
 
-		// Convert new egress listeners config to legacy egress config
+		// Convert new egress listeners config to legacy egress config (for backward compatibility)
 		if svc.Egress.Enabled && len(svc.Egress.Listeners) > 0 {
 			firstListener := svc.Egress.Listeners[0]
 			cfg.Egress = EgressConfig{

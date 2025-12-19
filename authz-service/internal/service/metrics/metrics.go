@@ -29,6 +29,14 @@ type Metrics struct {
 	HTTPRequestsTotal   *prometheus.CounterVec
 	HTTPRequestDuration *prometheus.HistogramVec
 
+	// Listener metrics (per-listener)
+	ListenerRequestsTotal      *prometheus.CounterVec
+	ListenerRequestDuration    *prometheus.HistogramVec
+	ListenerConnectionsActive  *prometheus.GaugeVec
+	ListenerBytesReceived      *prometheus.CounterVec
+	ListenerBytesSent          *prometheus.CounterVec
+	ListenerErrorsTotal        *prometheus.CounterVec
+
 	// SLI/SLO metrics
 	SLOLatencyViolationsTotal   *prometheus.CounterVec   // Counts requests exceeding latency SLO
 	SLOAvailabilityErrorsTotal  *prometheus.CounterVec   // Counts errors affecting availability SLO
@@ -164,6 +172,63 @@ func NewMetrics() *Metrics {
 				Buckets:   prometheus.DefBuckets,
 			},
 			[]string{"method", "path"},
+		),
+
+		// Listener metrics (per-listener)
+		ListenerRequestsTotal: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "authz",
+				Subsystem: "listener",
+				Name:      "requests_total",
+				Help:      "Total number of requests per listener",
+			},
+			[]string{"listener", "type", "method", "status"},
+		),
+		ListenerRequestDuration: promauto.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: "authz",
+				Subsystem: "listener",
+				Name:      "request_duration_seconds",
+				Help:      "Request duration per listener in seconds",
+				Buckets:   []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10},
+			},
+			[]string{"listener", "type"},
+		),
+		ListenerConnectionsActive: promauto.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "authz",
+				Subsystem: "listener",
+				Name:      "connections_active",
+				Help:      "Current number of active connections per listener",
+			},
+			[]string{"listener", "type"},
+		),
+		ListenerBytesReceived: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "authz",
+				Subsystem: "listener",
+				Name:      "bytes_received_total",
+				Help:      "Total bytes received per listener",
+			},
+			[]string{"listener", "type"},
+		),
+		ListenerBytesSent: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "authz",
+				Subsystem: "listener",
+				Name:      "bytes_sent_total",
+				Help:      "Total bytes sent per listener",
+			},
+			[]string{"listener", "type"},
+		),
+		ListenerErrorsTotal: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "authz",
+				Subsystem: "listener",
+				Name:      "errors_total",
+				Help:      "Total number of errors per listener",
+			},
+			[]string{"listener", "type", "error_type"},
 		),
 
 		// SLI/SLO metrics
@@ -305,4 +370,39 @@ func (m *Metrics) IncRequestsInFlight() {
 // DecRequestsInFlight decrements the in-flight request counter.
 func (m *Metrics) DecRequestsInFlight() {
 	m.RequestsInFlight.Dec()
+}
+
+// RecordListenerRequest records a request for a specific listener.
+func (m *Metrics) RecordListenerRequest(listener, listenerType, method, status string) {
+	m.ListenerRequestsTotal.WithLabelValues(listener, listenerType, method, status).Inc()
+}
+
+// RecordListenerDuration records request duration for a specific listener.
+func (m *Metrics) RecordListenerDuration(listener, listenerType string, duration float64) {
+	m.ListenerRequestDuration.WithLabelValues(listener, listenerType).Observe(duration)
+}
+
+// IncListenerConnections increments active connections for a listener.
+func (m *Metrics) IncListenerConnections(listener, listenerType string) {
+	m.ListenerConnectionsActive.WithLabelValues(listener, listenerType).Inc()
+}
+
+// DecListenerConnections decrements active connections for a listener.
+func (m *Metrics) DecListenerConnections(listener, listenerType string) {
+	m.ListenerConnectionsActive.WithLabelValues(listener, listenerType).Dec()
+}
+
+// AddListenerBytesReceived adds to the bytes received counter for a listener.
+func (m *Metrics) AddListenerBytesReceived(listener, listenerType string, bytes float64) {
+	m.ListenerBytesReceived.WithLabelValues(listener, listenerType).Add(bytes)
+}
+
+// AddListenerBytesSent adds to the bytes sent counter for a listener.
+func (m *Metrics) AddListenerBytesSent(listener, listenerType string, bytes float64) {
+	m.ListenerBytesSent.WithLabelValues(listener, listenerType).Add(bytes)
+}
+
+// RecordListenerError records an error for a specific listener.
+func (m *Metrics) RecordListenerError(listener, listenerType, errorType string) {
+	m.ListenerErrorsTotal.WithLabelValues(listener, listenerType, errorType).Inc()
 }

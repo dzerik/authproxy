@@ -4,12 +4,15 @@ package app
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/your-org/authz-service/internal/config"
 	"github.com/your-org/authz-service/internal/service/audit"
 	"github.com/your-org/authz-service/internal/service/cache"
+	"github.com/your-org/authz-service/internal/service/egress"
 	"github.com/your-org/authz-service/internal/service/jwt"
+	"github.com/your-org/authz-service/internal/service/metrics"
 	"github.com/your-org/authz-service/internal/service/policy"
 	httpTransport "github.com/your-org/authz-service/internal/transport/http"
 	"github.com/your-org/authz-service/pkg/logger"
@@ -30,9 +33,12 @@ type App struct {
 	cfg    *config.Config
 	loader *config.Loader // New config loader for hot-reload support
 
-	// Servers
+	// Static servers (managed directly)
 	httpServer       *httpTransport.Server
 	managementServer *httpTransport.ManagementServer
+
+	// Dynamic listeners (managed via ListenerManager)
+	listenerManager *httpTransport.ListenerManager
 
 	// Services
 	jwtService    *jwt.Service
@@ -236,9 +242,197 @@ func (a *App) Initialize(ctx context.Context) error {
 		)
 	}
 
+	// Initialize listener manager for dynamic listeners (proxy, egress)
+	a.listenerManager = httpTransport.NewListenerManager(
+		httpTransport.WithShutdownTimeout(30*time.Second),
+		httpTransport.WithListenerLogger(logger.L().Named("listeners")),
+	)
+	logger.Info("listener manager initialized")
+
+	// Connect listener manager to management server for admin API
+	if a.managementServer != nil {
+		a.managementServer.SetListenerManager(a.listenerManager)
+	}
+
+	// Initialize proxy listeners from services configuration
+	if err := a.initProxyListeners(ctx); err != nil {
+		return fmt.Errorf("failed to initialize proxy listeners: %w", err)
+	}
+
+	// Initialize egress listeners from services configuration
+	if err := a.initEgressListeners(ctx); err != nil {
+		return fmt.Errorf("failed to initialize egress listeners: %w", err)
+	}
+
 	logger.Info("application initialized",
 		logger.String("version", a.buildInfo.Version),
 		logger.String("commit", a.buildInfo.GitCommit),
+	)
+
+	return nil
+}
+
+// initProxyListeners initializes proxy listeners from the services configuration.
+// Each listener is managed by the ListenerManager and can be dynamically updated.
+func (a *App) initProxyListeners(ctx context.Context) error {
+	// Check if proxy mode is enabled and there are listeners configured
+	if !a.cfg.ProxyListeners.Enabled {
+		logger.Debug("proxy listeners disabled, skipping initialization")
+		return nil
+	}
+
+	if len(a.cfg.ProxyListeners.Listeners) == 0 {
+		logger.Debug("no proxy listeners configured")
+		return nil
+	}
+
+	logger.Info("initializing proxy listeners",
+		logger.Int("count", len(a.cfg.ProxyListeners.Listeners)),
+	)
+
+	for _, listenerCfg := range a.cfg.ProxyListeners.Listeners {
+		if err := a.addProxyListener(ctx, listenerCfg); err != nil {
+			return fmt.Errorf("failed to add proxy listener %s: %w", listenerCfg.Name, err)
+		}
+	}
+
+	return nil
+}
+
+// addProxyListener adds a single proxy listener to the ListenerManager.
+func (a *App) addProxyListener(ctx context.Context, listenerCfg config.ProxyListenerConfig) error {
+	// Apply defaults
+	if listenerCfg.Bind == "" {
+		listenerCfg.Bind = "0.0.0.0"
+	}
+	if listenerCfg.Timeout == 0 {
+		listenerCfg.Timeout = a.cfg.ProxyListeners.Defaults.Timeout
+	}
+
+	// Create reverse proxy handler for this listener
+	proxy, err := httpTransport.NewReverseProxyFromListener(
+		listenerCfg,
+		a.cfg.Env,
+		a.cfg.TLSClientCert,
+		a.cfg.RequestBody,
+		a.jwtService,
+		a.policyService,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create reverse proxy: %w", err)
+	}
+
+	// Determine address
+	address := fmt.Sprintf("%s:%d", listenerCfg.Bind, listenerCfg.Port)
+
+	// Wrap handler with metrics middleware
+	handler := metrics.WrapWithListenerMetrics(proxy, listenerCfg.Name, "proxy")
+
+	// Add listener to manager
+	err = a.listenerManager.AddListener(ctx, httpTransport.ListenerConfig{
+		Name:         listenerCfg.Name,
+		Type:         httpTransport.ListenerTypeProxy,
+		Address:      address,
+		Handler:      handler,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: listenerCfg.Timeout,
+		IdleTimeout:  120 * time.Second,
+		Metadata: map[string]string{
+			"mode":         listenerCfg.Mode,
+			"require_auth": fmt.Sprintf("%t", listenerCfg.RequireAuth),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to add listener to manager: %w", err)
+	}
+
+	logger.Info("proxy listener added",
+		logger.String("name", listenerCfg.Name),
+		logger.String("address", address),
+		logger.String("mode", listenerCfg.Mode),
+	)
+
+	return nil
+}
+
+// initEgressListeners initializes egress listeners from the services configuration.
+// Each egress listener handles outgoing requests to external APIs with credential injection.
+func (a *App) initEgressListeners(ctx context.Context) error {
+	// Check if egress mode is enabled and there are listeners configured
+	if !a.cfg.EgressListeners.Enabled {
+		logger.Debug("egress listeners disabled, skipping initialization")
+		return nil
+	}
+
+	if len(a.cfg.EgressListeners.Listeners) == 0 {
+		logger.Debug("no egress listeners configured")
+		return nil
+	}
+
+	logger.Info("initializing egress listeners",
+		logger.Int("count", len(a.cfg.EgressListeners.Listeners)),
+	)
+
+	for _, listenerCfg := range a.cfg.EgressListeners.Listeners {
+		if err := a.addEgressListener(ctx, listenerCfg); err != nil {
+			return fmt.Errorf("failed to add egress listener %s: %w", listenerCfg.Name, err)
+		}
+	}
+
+	return nil
+}
+
+// addEgressListener adds a single egress listener to the ListenerManager.
+func (a *App) addEgressListener(ctx context.Context, listenerCfg config.EgressListenerConfig) error {
+	// Apply defaults
+	if listenerCfg.Bind == "" {
+		listenerCfg.Bind = "0.0.0.0"
+	}
+
+	// Create egress service for this listener
+	egressSvc, err := egress.NewServiceFromListener(
+		listenerCfg,
+		a.cfg.EgressListeners.Defaults,
+		a.cfg.EgressListeners.TokenStore,
+		logger.L(),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create egress service: %w", err)
+	}
+
+	// Start the egress service
+	if err := egressSvc.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start egress service: %w", err)
+	}
+
+	// Determine address
+	address := fmt.Sprintf("%s:%d", listenerCfg.Bind, listenerCfg.Port)
+
+	// Wrap handler with metrics middleware
+	handler := metrics.WrapWithListenerMetrics(http.HandlerFunc(egressSvc.ProxyRequest), listenerCfg.Name, "egress")
+
+	// Add listener to manager
+	err = a.listenerManager.AddListener(ctx, httpTransport.ListenerConfig{
+		Name:         listenerCfg.Name,
+		Type:         httpTransport.ListenerTypeEgress,
+		Address:      address,
+		Handler:      handler,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
+		Metadata: map[string]string{
+			"targets": fmt.Sprintf("%d", len(listenerCfg.Targets)),
+			"routes":  fmt.Sprintf("%d", len(listenerCfg.Routes)),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to add listener to manager: %w", err)
+	}
+
+	logger.Info("egress listener added",
+		logger.String("name", listenerCfg.Name),
+		logger.String("address", address),
+		logger.Int("targets", len(listenerCfg.Targets)),
 	)
 
 	return nil
@@ -274,7 +468,14 @@ func (a *App) Start() error {
 func (a *App) Shutdown(ctx context.Context) error {
 	logger.Info("shutting down application")
 
-	// Shutdown management server first (to stop health probes)
+	// Shutdown dynamic listeners first (drain active connections)
+	if a.listenerManager != nil {
+		if err := a.listenerManager.Shutdown(ctx); err != nil {
+			logger.Error("failed to shutdown listener manager", logger.Err(err))
+		}
+	}
+
+	// Shutdown management server (to stop health probes)
 	if a.managementServer != nil {
 		if err := a.managementServer.Shutdown(ctx); err != nil {
 			logger.Error("failed to shutdown management server", logger.Err(err))
@@ -463,6 +664,11 @@ func (a *App) GetListeners() []httpTransport.ListenerInfo {
 			Address: a.cfg.Management.ReadyAddr,
 			Status:  "running",
 		})
+	}
+
+	// Dynamic listeners from ListenerManager (proxy, egress)
+	if a.listenerManager != nil {
+		listeners = append(listeners, a.listenerManager.GetListeners()...)
 	}
 
 	return listeners

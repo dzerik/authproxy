@@ -130,6 +130,30 @@ func NewReverseProxy(
 	return rp, nil
 }
 
+// NewReverseProxyFromListener creates a reverse proxy from a listener configuration.
+// This is used for multi-listener proxy architecture where each listener has its own config.
+func NewReverseProxyFromListener(
+	listenerCfg config.ProxyListenerConfig,
+	envCfg config.EnvConfig,
+	tlsCfg config.TLSClientCertConfig,
+	bodyCfg config.RequestBodyConfig,
+	jwtService *jwt.Service,
+	policyService *policy.Service,
+) (*ReverseProxy, error) {
+	// Convert ProxyListenerConfig to ProxyConfig
+	proxyCfg := config.ProxyConfig{
+		Enabled:   true,
+		Mode:      listenerCfg.Mode,
+		Upstreams: listenerCfg.Upstreams,
+		Routes:    listenerCfg.Routes,
+		Headers:   listenerCfg.Headers,
+		Timeout:   listenerCfg.Timeout,
+		Retry:     listenerCfg.Retry,
+	}
+
+	return NewReverseProxy(proxyCfg, envCfg, tlsCfg, bodyCfg, jwtService, policyService)
+}
+
 // createProxy creates an httputil.ReverseProxy for an upstream.
 func (rp *ReverseProxy) createProxy(upstream config.UpstreamConfig) (*httputil.ReverseProxy, error) {
 	targetURL, err := url.Parse(upstream.URL)

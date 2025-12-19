@@ -51,11 +51,12 @@ type ManagementServer struct {
 	healthServer *http.Server // :15020 - aggregated health, metrics, pprof
 	readyServer  *http.Server // :15021 - lightweight readiness probe
 
-	cfg       config.ManagementServerConfig
-	loader    *config.Loader
-	app       AppInfo
-	log       logger.Logger
-	buildInfo BuildInfo
+	cfg             config.ManagementServerConfig
+	loader          *config.Loader
+	app             AppInfo
+	listenerManager *ListenerManager
+	log             logger.Logger
+	buildInfo       BuildInfo
 
 	// Runtime state
 	draining     atomic.Bool
@@ -89,6 +90,11 @@ func NewManagementServer(
 	m.setupReadyServer()
 
 	return m
+}
+
+// SetListenerManager sets the listener manager for dynamic listener management.
+func (m *ManagementServer) SetListenerManager(lm *ListenerManager) {
+	m.listenerManager = lm
 }
 
 // setupAdminServer configures the admin server on :15000.

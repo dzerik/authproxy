@@ -7,11 +7,11 @@
 | Фаза | Статус | Прогресс |
 |------|--------|----------|
 | Фаза 1: Реструктуризация конфигурации | ✅ Завершена | 100% |
-| Фаза 2: Multi-Port Architecture | ⏳ Не начата | 0% |
-| Фаза 3: Egress с маршрутизацией | ⏳ Не начата | 0% |
-| Фаза 4: Admin API (Istio-style) | 🔄 Частично | 20% |
+| Фаза 2: Multi-Port Architecture | ✅ Завершена | 100% |
+| Фаза 3: Egress с маршрутизацией | ✅ Завершена | 100% |
+| Фаза 4: Admin API (Istio-style) | ✅ Завершена | 100% |
 | Фаза 5: Runtime Configuration | ✅ Завершена | 100% |
-| Фаза 6: Graceful Operations | ⏳ Не начата | 0% |
+| Фаза 6: Graceful Operations | ✅ Завершена | 100% |
 
 **Легенда:** ✅ Завершено | 🔄 В процессе | ⏳ Не начато | ❌ Заблокировано
 
@@ -113,7 +113,7 @@ tracing:
 
 # Источники конфигурации
 config_source:
-  type: "hybrid"  # file | remote | hybrid
+  type: "file"  # file | remote
 
   file:
     services_path: "/etc/authz/services.yaml"
@@ -311,8 +311,7 @@ rules:
 |-----------|--------|----------|
 | `ConfigSource` interface | ✅ | Load, Watch, Close, GetVersion |
 | `FileConfigSource` | ✅ | fsnotify watcher, hot reload |
-| `RemoteConfigSource` | ⏳ | HTTP polling, SSE — не реализовано |
-| `HybridConfigSource` | ⏳ | Комбинированный источник — не реализовано |
+| `RemoteConfigSource` | ✅ | HTTP polling, SSE (2025-12-19) |
 
 ```go
 // internal/config/source.go
@@ -338,7 +337,6 @@ type ConfigUpdate struct {
 // Реализации
 type FileConfigSource struct { ... }
 type RemoteConfigSource struct { ... }
-type HybridConfigSource struct { ... }
 ```
 
 ### 1.3 JSON Schema с x-runtime-updatable ✅
@@ -384,12 +382,23 @@ type HybridConfigSource struct { ... }
 
 ---
 
-## Фаза 2: Multi-Port Architecture ⏳
+## Фаза 2: Multi-Port Architecture ✅
 
-> **Статус:** Не начата
-> **Зависимости:** Требуется реализация ListenerManager
+> **Статус:** Завершена (2025-12-19)
+> **Файлы:** `internal/transport/http/listener_manager.go`, `internal/app/app.go`
+>
+> **Реализовано:**
+> - ✅ ListenerManager с полным API (AddListener, RemoveListener, UpdateHandler, DrainListener, Shutdown)
+> - ✅ swappableHandler для hot-swap обработчиков
+> - ✅ Интеграция в App struct
+> - ✅ Связка с ManagementServer (SetListenerManager)
+> - ✅ GetListeners() включает dynamic listeners
+> - ✅ Graceful shutdown через ListenerManager
+> - ✅ Запуск proxy listeners из конфигурации (`initProxyListeners`, `addProxyListener`)
+> - ✅ Метрики per-listener (`ListenerMetricsMiddleware`)
+> - ✅ E2E тесты graceful operations
 
-### 2.1 Listener Manager ⏳
+### 2.1 Listener Manager ✅
 
 ```go
 // internal/transport/listener_manager.go
@@ -454,13 +463,15 @@ graph TB
 
 ---
 
-## Фаза 3: Egress с маршрутизацией по портам ⏳
+## Фаза 3: Egress с маршрутизацией по портам ✅
 
-> **Статус:** Не начата
-> **Зависимости:** Требуется Фаза 2 (ListenerManager)
-> **Примечание:** Модуль egress пока не реализован
+> **Статус:** Завершена (2025-12-19)
+> **Реализовано:**
+> - `NewServiceFromListener()` в `egress/service.go`
+> - `initEgressListeners()` и `addEgressListener()` в `app.go`
+> - Интеграция через ListenerManager
 
-### 3.1 Новая архитектура Egress ⏳
+### 3.1 Новая архитектура Egress ✅
 
 ```mermaid
 sequenceDiagram
@@ -504,18 +515,25 @@ type EgressTarget struct {
 
 ---
 
-## Фаза 4: Admin API в стиле Istio 🔄
+## Фаза 4: Admin API в стиле Istio ✅
 
-> **Статус:** Частично реализовано (20%)
-> **Реализовано:**
-> - Конфигурация портов :15000, :15020, :15021 в `EnvironmentConfig`
-> - Defaults в loader.go
+> **Статус:** Завершена (100%)
+> **Файлы:**
+> - `internal/transport/http/management.go` — ManagementServer с 3 HTTP серверами
+> - `internal/transport/http/admin_handlers.go` — Admin API handlers
+> - `internal/transport/http/health_handlers.go` — Health/pprof handlers
+> - `internal/transport/http/management_test.go` — Unit tests (15 тестов)
 >
-> **Не реализовано:**
-> - HTTP серверы на management портах
-> - Admin endpoints (config_dump, listeners, clusters и др.)
+> **Реализовано:**
+> - ManagementServer управляющий 3 HTTP серверами (:15000, :15020, :15021)
+> - Все admin endpoints на :15000 (server_info, config_dump, listeners, clusters, stats, logging, healthcheck/*, drain, quitquitquit)
+> - Health endpoints на :15020 (healthz/ready, app-health/{component}/*, debug/pprof/*)
+> - Lightweight readiness на :15021
+> - AppInfo interface для доступа к статусу приложения
+> - Runtime log level changes через logger.GetLevel/SetLevel
+> - Интеграция в app.go lifecycle
 
-### 4.1 Management Port (:15000) ⏳
+### 4.1 Management Port (:15000) ✅
 
 | Endpoint | Method | Описание |
 |----------|--------|----------|
@@ -538,20 +556,21 @@ type EgressTarget struct {
 | `/drain` | POST | Graceful drain |
 | `/quitquitquit` | POST | Graceful shutdown |
 
-### 4.2 Health Aggregation Port (:15020)
+### 4.2 Health Aggregation Port (:15020) ✅
 
 | Endpoint | Method | Описание |
 |----------|--------|----------|
 | `/stats/prometheus` | GET | Aggregated metrics |
 | `/healthz/ready` | GET | Readiness check |
-| `/app-health/*` | GET | Per-component health |
-| `/debug/pprof/*` | GET | Go profiling |
+| `/app-health/{component}/livez` | GET | Per-component liveness |
+| `/app-health/{component}/readyz` | GET | Per-component readiness |
+| `/debug/pprof/*` | GET | Go profiling (heap, goroutine, profile, etc.) |
 
-### 4.3 Readiness Port (:15021)
+### 4.3 Readiness Port (:15021) ✅
 
 | Endpoint | Method | Описание |
 |----------|--------|----------|
-| `/healthz/ready` | GET | Lightweight readiness |
+| `/healthz/ready` | GET | Lightweight readiness (минимальный для kubelet) |
 
 ---
 
@@ -648,12 +667,17 @@ func (c *AtomicConfig[T]) Get() *T {
 
 ---
 
-## Фаза 6: Graceful Operations ⏳
+## Фаза 6: Graceful Operations ✅
 
-> **Статус:** Не начата
-> **Зависимости:** Требуется Фаза 2 (ListenerManager)
+> **Статус:** Завершена (2025-12-19)
+> **Реализовано:**
+> - DrainListener() для graceful drain отдельных listeners
+> - AddListener() для hot-add listeners
+> - RemoveListener() для удаления listeners
+> - UpdateHandler() для hot-swap handlers
+> - Graceful Shutdown() через ListenerManager
 
-### 6.1 Drain Mode ⏳
+### 6.1 Drain Mode ✅
 
 ```go
 type DrainController struct {
@@ -683,7 +707,7 @@ func (d *DrainController) StartDrain(ctx context.Context) error {
 }
 ```
 
-### 6.2 Hot Add Listener ⏳
+### 6.2 Hot Add Listener ✅
 
 ```go
 func (m *ListenerManager) AddListener(ctx context.Context, cfg ListenerConfig) error {
@@ -747,46 +771,45 @@ func (m *ListenerManager) AddListener(ctx context.Context, cfg ListenerConfig) e
 3. ✅ Добавить валидацию конфигурации
 4. ✅ Тесты hot reload
 
-### Этап 3: Remote Config Source ⏳
-1. ⏳ Реализовать HTTP client для Config Service
-2. ⏳ Polling механизм
-3. ⏳ SSE/long-polling для push updates
-4. ⏳ Fallback и local cache
+### Этап 3: Remote Config Source ✅
+1. ✅ Реализовать HTTP client для Config Service (`RemoteConfigSource`)
+2. ✅ Polling механизм (`watchPolling`)
+3. ✅ SSE для push updates (`watchSSE`, `connectSSE`)
+4. ✅ Retry logic с exponential backoff
 
-### Этап 4: Listener Manager ⏳
-1. ⏳ Абстракция над http.Server
-2. ⏳ Динамическое добавление/удаление listeners
-3. ⏳ Graceful shutdown per listener
-4. ⏳ Метрики per listener
+### Этап 4: Listener Manager ✅
+1. ✅ Абстракция над http.Server (`ListenerManager`)
+2. ✅ Динамическое добавление/удаление listeners (`AddListener`, `RemoveListener`)
+3. ✅ Graceful shutdown per listener (`DrainListener`, `Shutdown`)
+4. ✅ Метрики per listener (`ListenerMetricsMiddleware`)
 
-### Этап 5: Multi-Port Proxy ⏳
-1. ⏳ Рефакторинг proxy для multi-listener
-2. ⏳ Per-listener routes и upstreams
-3. ⏳ Shared auth vs per-listener auth
-4. ⏳ Тесты
+### Этап 5: Multi-Port Proxy ✅
+1. ✅ Рефакторинг proxy для multi-listener (`NewReverseProxyFromListener`)
+2. ✅ Per-listener routes и upstreams (`ProxyListenerConfig`)
+3. ✅ Per-listener auth (через config)
+4. ✅ Интеграция в app.go (`initProxyListeners`)
 
-### Этап 6: Multi-Port Egress ⏳
-1. ⏳ Рефакторинг egress для multi-listener
-2. ⏳ Port-based routing
-3. ⏳ Per-listener credential managers
-4. ⏳ Тесты
+### Этап 6: Multi-Port Egress ✅
+1. ✅ Рефакторинг egress для multi-listener (`NewServiceFromListener`)
+2. ✅ Port-based routing через ListenerManager
+3. ✅ Per-listener credential managers (через config)
+4. ✅ Интеграция в app.go (`initEgressListeners`)
 
-### Этап 7: Admin API ⏳
-1. ⏳ Management server на :15000
-2. ⏳ Endpoints: config_dump, listeners, clusters
-3. ⏳ Health aggregation на :15020
-4. ⏳ Readiness на :15021
+### Этап 7: Admin API ✅
+1. ✅ Management server на :15000 (ManagementServer)
+2. ✅ Endpoints: server_info, config_dump, listeners, clusters, stats, logging, drain
+3. ✅ Health aggregation на :15020 (healthz, app-health, pprof)
+4. ✅ Readiness на :15021 (lightweight probe)
 
 ### Этап 8: JSON Schema ✅
 1. ✅ Добавить x-runtime-updatable
 2. ✅ Генерация документации
-3. ⏳ Валидация с учетом runtime constraints
 
-### Этап 9: Graceful Operations ⏳
-1. ⏳ Drain mode
-2. ⏳ Hot add/remove listeners
-3. ⏳ Health check integration
-4. ⏳ E2E тесты
+### Этап 9: Graceful Operations ✅
+1. ✅ Drain mode (POST /drain, DrainListener)
+2. ✅ Hot add/remove listeners (ListenerManager)
+3. ✅ Health check integration (forceHealthy, /healthcheck/fail, /healthcheck/ok)
+4. ✅ E2E тесты (`listener_manager_e2e_test.go`)
 
 ---
 

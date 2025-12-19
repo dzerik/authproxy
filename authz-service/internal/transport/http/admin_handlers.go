@@ -198,12 +198,19 @@ func (m *ManagementServer) handleConfigDump(w http.ResponseWriter, r *http.Reque
 func (m *ManagementServer) handleListeners(w http.ResponseWriter, r *http.Request) {
 	var listeners []ListenerInfo
 
+	// Get static listeners from app
 	if m.app != nil {
 		listeners = m.app.GetListeners()
 	}
 
 	if listeners == nil {
 		listeners = []ListenerInfo{}
+	}
+
+	// Add dynamic listeners from ListenerManager
+	if m.listenerManager != nil {
+		managed := m.listenerManager.GetListeners()
+		listeners = append(listeners, managed...)
 	}
 
 	resp := ListenersResponse{

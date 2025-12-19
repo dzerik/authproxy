@@ -13,10 +13,14 @@ import (
 type Config struct {
 	// Server configuration for HTTP and gRPC endpoints
 	Server ServerConfig `mapstructure:"server" jsonschema:"description=Server configuration for HTTP and gRPC endpoints."`
-	// Proxy configuration for reverse proxy mode
+	// Proxy configuration for reverse proxy mode (legacy, single listener)
 	Proxy ProxyConfig `mapstructure:"proxy" jsonschema:"description=Reverse proxy configuration. When enabled\\, authz-service forwards authorized requests to upstream services."`
-	// Egress configuration for outbound proxy mode
+	// ProxyListeners configuration for multi-listener proxy mode
+	ProxyListeners ProxyListenersConfig `mapstructure:"-" jsonschema:"-"`
+	// Egress configuration for outbound proxy mode (legacy, single listener)
 	Egress EgressConfig `mapstructure:"egress" jsonschema:"description=Egress proxy configuration. When enabled\\, adds authentication to outbound requests to external services."`
+	// EgressListeners configuration for multi-listener egress mode
+	EgressListeners EgressListenersConfig `mapstructure:"-" jsonschema:"-"`
 	// Endpoints configuration for API paths
 	Endpoints EndpointsConfig `mapstructure:"endpoints" jsonschema:"description=Configurable API endpoint paths. Allows customizing URL paths for all service endpoints."`
 	// JWT validation configuration

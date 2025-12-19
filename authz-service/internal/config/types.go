@@ -64,7 +64,7 @@ type LoggingConfig struct {
 // ConfigSourceSettings defines configuration source settings.
 type ConfigSourceSettings struct {
 	// Type is the config source type
-	Type string `mapstructure:"type" jsonschema:"description=Configuration source type.,enum=file,enum=remote,enum=hybrid,default=file"`
+	Type string `mapstructure:"type" jsonschema:"description=Configuration source type.,enum=file,enum=remote,default=file"`
 	// File holds file-based config source settings
 	File FileSourceSettings `mapstructure:"file" jsonschema:"description=File-based configuration source settings."`
 	// Remote holds remote config service settings

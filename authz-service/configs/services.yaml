@@ -185,8 +185,8 @@ tls_client_cert:
       header: "X-Forwarded-Client-Cert"
     headers:
       enabled: false
-  trusted_spiffe_domains: []
-  trusted_proxy_cidrs: []
+  trusted_spiffe_domains: [ ]
+  trusted_proxy_cidrs: [ ]
   require_verified: false
 
 # Request body access configuration
@@ -200,7 +200,7 @@ request_body:
     - POST
     - PUT
     - PATCH
-  paths: []
+  paths: [ ]
   schema:
     enabled: false
     schema_dir: "/etc/authz/schemas"
@@ -228,7 +228,7 @@ proxy:
       routes:
         - path_prefix: "/api/users"
           upstream: "user-service"
-          methods: [GET, POST, PUT, DELETE]
+          methods: [ GET, POST, PUT, DELETE ]
         - path_prefix: "/api/admin"
           upstream: "admin-service"
           strip_prefix: "/api/admin"
@@ -249,7 +249,7 @@ proxy:
         max_attempts: 3
         initial_backoff: 100ms
         max_backoff: 1s
-        retry_on: [502, 503, 504]
+        retry_on: [ 502, 503, 504 ]
       require_auth: true
 
   defaults:
@@ -267,7 +267,36 @@ proxy:
 # Egress listeners configuration (multi-port support)
 egress:
   enabled: false
-  listeners: []
+  listeners:
+    - name: external-apis
+      port: 8080
+      retry:
+        max_attempts: 3
+        initial_backoff: 100ms
+        max_backoff: 1s
+      targets:
+        github:
+          url: "https://api.github.com"
+          auth:
+            type: api_key
+            token: "${GITHUB_TOKEN}"
+        gitlab:
+          url: "https://gitlab.com/api/v4"
+          auth:
+            type: bearer
+            header: "PRIVATE-TOKEN"
+            token: "${GITLAB_TOKEN}"
+      timeout: 15s
+      routes:
+        - path_prefix: "/github"
+          target: github
+          strip_prefix: "/github"
+        - path_prefix: "/gitlab"
+          target: gitlab
+          strip_prefix: "/gitlab"
+
+
+
   #  # External payment APIs listener
   #  - name: external-payments
   #    port: 15002

@@ -63,6 +63,26 @@ func NewService(cfg config.EgressConfig, log logger.Logger) (*Service, error) {
 	}, nil
 }
 
+// NewServiceFromListener creates an egress service from a listener configuration.
+// This is used for multi-listener egress architecture where each listener has its own config.
+func NewServiceFromListener(
+	listenerCfg config.EgressListenerConfig,
+	defaults config.EgressDefaultsConfig,
+	tokenStoreCfg config.EgressTokenStoreConfig,
+	log logger.Logger,
+) (*Service, error) {
+	// Convert EgressListenerConfig to EgressConfig
+	egressCfg := config.EgressConfig{
+		Enabled:    true,
+		Targets:    listenerCfg.Targets,
+		Routes:     listenerCfg.Routes,
+		Defaults:   defaults,
+		TokenStore: tokenStoreCfg,
+	}
+
+	return NewService(egressCfg, log)
+}
+
 // Start starts the egress service.
 func (s *Service) Start(ctx context.Context) error {
 	s.log.Info("Egress proxy service started",
