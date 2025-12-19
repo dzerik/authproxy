@@ -11,11 +11,11 @@
 | Критерий | Оценка | Статус |
 |----------|--------|--------|
 | **Производительность** | 8/10 | ✅ Хорошо (P1 выполнен) |
-| **Безопасность** | 8/10 | ✅ Хорошо |
-| **Observability** | 6/10 | ⚠️ Средне |
+| **Безопасность** | 9/10 | ✅ Отлично (TLS, timing-safe) |
+| **Observability** | 8/10 | ✅ Хорошо (OTel tracing, SLI/SLO) |
 | **Надежность** | 8/10 | ✅ Хорошо (все CB интегрированы) |
-| **Production Readiness** | 6/10 | ⚠️ Средне (P0 остался) |
-| **ОБЩАЯ ОЦЕНКА** | **7.2/10** | ⚠️ **P0 БЛОКЕРЫ ОСТАЮТСЯ** |
+| **Production Readiness** | 7/10 | ⚠️ Средне (тесты остались) |
+| **ОБЩАЯ ОЦЕНКА** | **8.0/10** | ⚠️ **Тесты P0 остаются** |
 
 ---
 
@@ -155,15 +155,15 @@ Headers: []string{
 
 | Проблема | Критичность | Файл | Рекомендация | Статус |
 |----------|-------------|------|--------------|--------|
-| `InsecureSkipVerify` доступен в config | ⚠️ Средняя | `config.go:86` | Логировать warning при использовании | ⏳ Pending |
+| `InsecureSkipVerify` доступен в config | ⚠️ Средняя | `config.go:86` | Логировать warning при использовании | ✅ **Готово (warning в opa_sidecar.go)** |
 | Секреты в config файле | ⚠️ Средняя | `config.go:188,211,214` | Использовать env vars или secrets manager | ✅ **Документировано (help --help)** |
-| OPA sidecar HTTP без TLS | ⚠️ Средняя | `opa_sidecar.go:52` | Добавить TLS support | ⏳ Pending |
+| OPA sidecar HTTP без TLS | ⚠️ Средняя | `opa_sidecar.go:52` | Добавить TLS support | ✅ **Готово (OPATLSConfig)** |
 | Нет отдельного rate limit для JWT | ⚠️ Низкая | - | Добавить per-endpoint limits | ✅ **Исправлено (endpoint_rates)** |
-| Нет timing-safe comparison | ⚠️ Низкая | - | Использовать `subtle.ConstantTimeCompare` | ⏳ Pending |
+| Нет timing-safe comparison | ⚠️ Низкая | - | Использовать `subtle.ConstantTimeCompare` | ✅ **Готово (pkg/security/compare.go)** |
 
 ---
 
-## 3. Observability (6/10)
+## 3. Observability (8/10) ✅
 
 ### 3.1 Реализованные метрики
 
@@ -222,12 +222,12 @@ type Metrics struct {
 
 ### 3.4 Отсутствующие компоненты
 
-| Компонент | Влияние | Приоритет |
-|-----------|---------|-----------|
-| OpenTelemetry Tracing | Невозможно debug distributed requests | P0 |
-| Correlation ID propagation | Сложность трассировки между сервисами | P1 |
-| SLI/SLO метрики | Нет алертинга на бизнес-показатели | P1 |
-| RED metrics dashboard | Нет готового мониторинга | P2 |
+| Компонент | Влияние | Приоритет | Статус |
+|-----------|---------|-----------|--------|
+| OpenTelemetry Tracing | Невозможно debug distributed requests | P0 | ✅ **Готово (pkg/tracing)** |
+| Correlation ID propagation | Сложность трассировки между сервисами | P1 | ✅ **Готово (pkg/logger/middleware.go)** |
+| SLI/SLO метрики | Нет алертинга на бизнес-показатели | P1 | ✅ **Готово (metrics.go)** |
+| RED metrics dashboard | Нет готового мониторинга | P2 | ⏳ Pending |
 
 ---
 
@@ -397,7 +397,7 @@ if err != nil {
 | github.com/golang-jwt/jwt/v5 | v5.3.0 | v5.3.0 | ✅ |
 | github.com/google/cel-go | v0.26.1 | v0.26.1 | ✅ |
 | github.com/lestrrat-go/jwx/v2 | v2.1.6 | v2.1.6 | ✅ |
-| github.com/open-policy-agent/opa | v1.11.1 | v1.12.0 | ⚠️ Minor update |
+| github.com/open-policy-agent/opa | v1.12.0 | v1.12.0 | ✅ |
 | github.com/prometheus/client_golang | v1.23.2 | v1.23.2 | ✅ |
 | github.com/redis/go-redis/v9 | v9.17.2 | v9.17.2 | ✅ |
 | github.com/sony/gobreaker/v2 | v2.3.0 | v2.3.0 | ✅ |
@@ -430,7 +430,7 @@ if err != nil {
 | 5 | Исправить падающие integration тесты | `tests/integration/*_test.go` | 1 день | ⏳ Pending |
 | 6 | Интегрировать circuit breaker в OPA sidecar | `internal/service/policy/opa_sidecar.go` | 1 день | ✅ **Готово** |
 | 7 | Интегрировать circuit breaker в JWKS | `internal/service/jwt/jwks.go` | 1 день | ✅ **Готово** |
-| 8 | Добавить OpenTelemetry tracing | Новые файлы | 2-3 дня | ⏳ Pending |
+| 8 | Добавить OpenTelemetry tracing | Новые файлы | 2-3 дня | ✅ **Готово (pkg/tracing)** |
 
 **Общий effort P0:** ~2-3 недели
 
@@ -457,10 +457,10 @@ if err != nil {
 |---|--------|--------|--------|
 | 1 | Pre-compile CEL expressions при старте | 0.5 дня | ✅ **Уже реализовано** |
 | 2 | Добавить cache warm-up | 0.5 дня | ✅ **Готово (PrecompilePatterns)** |
-| 3 | Добавить SLI/SLO метрики | 1 день | ⏳ Pending |
-| 4 | Обновить OPA v1.11.1 → v1.12.0 | 0.5 дня | ⏳ Pending |
-| 5 | Добавить correlation ID header propagation | 0.5 дня | ⏳ Pending |
-| 6 | Добавить TLS support для OPA sidecar | 1 день | ⏳ Pending |
+| 3 | Добавить SLI/SLO метрики | 1 день | ✅ **Готово** |
+| 4 | Обновить OPA v1.11.1 → v1.12.0 | 0.5 дня | ✅ **Готово** |
+| 5 | Добавить correlation ID header propagation | 0.5 дня | ✅ **Готово** |
+| 6 | Добавить TLS support для OPA sidecar | 1 день | ✅ **Готово** |
 | 7 | Добавить load tests | 2-3 дня | ⏳ Pending |
 
 **Общий effort P2:** ~1 неделя (осталось)
@@ -501,15 +501,22 @@ gantt
 - Актуальные зависимости
 - Готовая инфраструктура для K8s deployment
 
-**Критическими проблемами:**
-- Недостаточное тестовое покрытие критических компонентов (24-47%)
+**Критическими проблемами (осталось):**
+- Недостаточное тестовое покрытие критических компонентов (39-62%, нужно 80%+)
 - Падающие integration тесты
-- Неполная интеграция resilience patterns
-- Отсутствие distributed tracing
 
-**Вердикт:** ❌ **НЕ ГОТОВ к production deployment**
+**Выполнено:**
+- ✅ OpenTelemetry distributed tracing (P0)
+- ✅ Circuit breaker интеграция (OPA, JWKS)
+- ✅ SLI/SLO метрики
+- ✅ Correlation ID propagation
+- ✅ TLS/mTLS для OPA sidecar
+- ✅ Security improvements (timing-safe comparison)
+- ✅ OPA v1.12.0
 
-**Требуемые действия:** Выполнить задачи P0 (2-3 недели) для достижения минимального уровня production readiness.
+**Вердикт:** ⚠️ **ПОЧТИ ГОТОВ к production deployment**
+
+**Требуемые действия:** Увеличить тестовое покрытие до 80%+ и исправить падающие integration тесты.
 
 ---
 
