@@ -3,10 +3,13 @@ package policy
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/your-org/authz-service/internal/config"
@@ -54,28 +57,91 @@ type opaMetrics struct {
 }
 
 // NewOPASidecarEngine creates a new OPA sidecar engine.
-func NewOPASidecarEngine(cfg config.OPAConfig) *OPASidecarEngine {
+func NewOPASidecarEngine(cfg config.OPAConfig) (*OPASidecarEngine, error) {
+	client, err := createOPAHTTPClient(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OPA HTTP client: %w", err)
+	}
 	return &OPASidecarEngine{
-		client: &http.Client{
-			Timeout: cfg.Timeout,
-		},
+		client:     client,
 		url:        cfg.URL,
 		policyPath: cfg.PolicyPath,
 		retry:      cfg.Retry,
+	}, nil
+}
+
+// createOPAHTTPClient creates an HTTP client with optional TLS configuration.
+func createOPAHTTPClient(cfg config.OPAConfig) (*http.Client, error) {
+	client := &http.Client{
+		Timeout: cfg.Timeout,
 	}
+
+	if !cfg.TLS.Enabled {
+		return client, nil
+	}
+
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+
+	// Load CA certificate if provided
+	if cfg.TLS.CACert != "" {
+		caCert, err := os.ReadFile(cfg.TLS.CACert)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA certificate: %w", err)
+		}
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to parse CA certificate")
+		}
+		tlsConfig.RootCAs = caCertPool
+	}
+
+	// Load client certificate for mTLS if provided
+	if cfg.TLS.ClientCert != "" && cfg.TLS.ClientKey != "" {
+		cert, err := tls.LoadX509KeyPair(cfg.TLS.ClientCert, cfg.TLS.ClientKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client certificate: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	// Set server name for SNI if provided
+	if cfg.TLS.ServerName != "" {
+		tlsConfig.ServerName = cfg.TLS.ServerName
+	}
+
+	// Allow insecure skip verify (for testing only)
+	if cfg.TLS.InsecureSkipVerify {
+		logger.Warn("OPA TLS: InsecureSkipVerify is enabled - this is insecure and should only be used for testing")
+		tlsConfig.InsecureSkipVerify = true
+	}
+
+	client.Transport = &http.Transport{
+		TLSClientConfig: tlsConfig,
+	}
+
+	logger.Info("OPA TLS enabled",
+		logger.Bool("mtls", cfg.TLS.ClientCert != ""),
+		logger.Bool("insecure_skip_verify", cfg.TLS.InsecureSkipVerify),
+	)
+
+	return client, nil
 }
 
 // NewOPASidecarEngineWithCB creates a new OPA sidecar engine with circuit breaker.
-func NewOPASidecarEngineWithCB(cfg config.OPAConfig, cbManager *circuitbreaker.Manager) *OPASidecarEngine {
+func NewOPASidecarEngineWithCB(cfg config.OPAConfig, cbManager *circuitbreaker.Manager) (*OPASidecarEngine, error) {
+	client, err := createOPAHTTPClient(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OPA HTTP client: %w", err)
+	}
 	return &OPASidecarEngine{
-		client: &http.Client{
-			Timeout: cfg.Timeout,
-		},
+		client:     client,
 		url:        cfg.URL,
 		policyPath: cfg.PolicyPath,
 		retry:      cfg.Retry,
 		cbManager:  cbManager,
-	}
+	}, nil
 }
 
 // SetCircuitBreaker sets the circuit breaker manager for the engine.

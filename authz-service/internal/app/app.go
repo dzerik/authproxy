@@ -4,6 +4,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/your-org/authz-service/internal/config"
 	"github.com/your-org/authz-service/internal/service/audit"
@@ -14,6 +15,7 @@ import (
 	"github.com/your-org/authz-service/pkg/logger"
 	"github.com/your-org/authz-service/pkg/resilience/circuitbreaker"
 	"github.com/your-org/authz-service/pkg/resilience/ratelimit"
+	"github.com/your-org/authz-service/pkg/tracing"
 )
 
 // BuildInfo holds application build information.
@@ -37,6 +39,9 @@ type App struct {
 	// Resilience components
 	rateLimiter    *ratelimit.Limiter
 	circuitBreaker *circuitbreaker.Manager
+
+	// Observability
+	tracingProvider *tracing.Provider
 
 	// Build info
 	buildInfo BuildInfo
@@ -77,6 +82,45 @@ func (a *App) Initialize(ctx context.Context) error {
 
 	// Log security warnings for InsecureSkipVerify settings
 	a.logSecurityWarnings()
+
+	// Initialize tracing if enabled
+	if a.cfg.Tracing.Enabled {
+		tracingCfg := tracing.Config{
+			Enabled:        a.cfg.Tracing.Enabled,
+			Endpoint:       a.cfg.Tracing.Endpoint,
+			Insecure:       a.cfg.Tracing.Insecure,
+			ServiceName:    a.cfg.Tracing.ServiceName,
+			ServiceVersion: a.cfg.Tracing.ServiceVersion,
+			Environment:    a.cfg.Tracing.Environment,
+			SampleRate:     a.cfg.Tracing.SampleRate,
+		}
+
+		// Parse durations
+		if a.cfg.Tracing.BatchTimeout != "" {
+			if d, parseErr := time.ParseDuration(a.cfg.Tracing.BatchTimeout); parseErr == nil {
+				tracingCfg.BatchTimeout = d
+			}
+		}
+		if a.cfg.Tracing.ExportTimeout != "" {
+			if d, parseErr := time.ParseDuration(a.cfg.Tracing.ExportTimeout); parseErr == nil {
+				tracingCfg.ExportTimeout = d
+			}
+		}
+
+		// Use build info for service version if not configured
+		if tracingCfg.ServiceVersion == "" && a.buildInfo.Version != "" {
+			tracingCfg.ServiceVersion = a.buildInfo.Version
+		}
+
+		a.tracingProvider, err = tracing.NewProvider(ctx, tracingCfg)
+		if err != nil {
+			return fmt.Errorf("failed to initialize tracing: %w", err)
+		}
+		logger.Info("tracing initialized",
+			logger.String("endpoint", a.cfg.Tracing.Endpoint),
+			logger.Float64("sample_rate", a.cfg.Tracing.SampleRate),
+		)
+	}
 
 	// Initialize rate limiter if enabled
 	if a.cfg.Resilience.RateLimit.Enabled {
@@ -145,6 +189,9 @@ func (a *App) Initialize(ctx context.Context) error {
 		serverOpts := []httpTransport.ServerOption{}
 		if a.rateLimiter != nil {
 			serverOpts = append(serverOpts, httpTransport.WithRateLimiter(a.rateLimiter))
+		}
+		if a.tracingProvider != nil {
+			serverOpts = append(serverOpts, httpTransport.WithTracingProvider(a.tracingProvider))
 		}
 
 		a.httpServer, err = httpTransport.NewServer(
@@ -218,6 +265,13 @@ func (a *App) Shutdown(ctx context.Context) error {
 	if a.auditService != nil {
 		if err := a.auditService.Stop(); err != nil {
 			logger.Error("failed to stop audit service", logger.Err(err))
+		}
+	}
+
+	// Shutdown tracing provider (last to capture all spans)
+	if a.tracingProvider != nil {
+		if err := a.tracingProvider.Shutdown(ctx); err != nil {
+			logger.Error("failed to shutdown tracing provider", logger.Err(err))
 		}
 	}
 

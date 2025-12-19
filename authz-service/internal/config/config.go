@@ -44,6 +44,8 @@ type Config struct {
 	TLSClientCert TLSClientCertConfig `mapstructure:"tls_client_cert" jsonschema:"description=Client certificate extraction configuration for mTLS and SPIFFE identity. Available in CEL expressions as 'tls' variable."`
 	// Request body access configuration for authorization rules
 	RequestBody RequestBodyConfig `mapstructure:"request_body" jsonschema:"description=Request body access configuration. WARNING: Enabling this feature has security and performance implications. Available in CEL expressions as 'body' variable."`
+	// Tracing configuration for OpenTelemetry distributed tracing
+	Tracing TracingConfig `mapstructure:"tracing" jsonschema:"description=OpenTelemetry distributed tracing configuration. Enables request tracing across services."`
 }
 
 // ProxyConfig holds reverse proxy configuration for forwarding authorized requests.
@@ -377,6 +379,17 @@ type OPAConfig struct {
 	PolicyPath string        `mapstructure:"policy_path" jsonschema:"description=OPA policy decision path.,default=/v1/data/authz/allow"`
 	Timeout    time.Duration `mapstructure:"timeout" jsonschema:"description=Request timeout for OPA queries.,default=10ms"`
 	Retry      RetryConfig   `mapstructure:"retry" jsonschema:"description=Retry configuration for OPA requests."`
+	TLS        OPATLSConfig  `mapstructure:"tls" jsonschema:"description=TLS configuration for OPA connection."`
+}
+
+// OPATLSConfig holds TLS settings for OPA connection.
+type OPATLSConfig struct {
+	Enabled            bool   `mapstructure:"enabled" jsonschema:"description=Enable TLS for OPA connection.,default=false"`
+	CACert             string `mapstructure:"ca_cert" jsonschema:"description=Path to CA certificate file for OPA server verification."`
+	ClientCert         string `mapstructure:"client_cert" jsonschema:"description=Path to client certificate file for mTLS."`
+	ClientKey          string `mapstructure:"client_key" jsonschema:"description=Path to client key file for mTLS."`
+	InsecureSkipVerify bool   `mapstructure:"insecure_skip_verify" jsonschema:"description=Skip TLS certificate verification (INSECURE - use only for testing).,default=false"`
+	ServerName         string `mapstructure:"server_name" jsonschema:"description=Expected server name in OPA certificate for SNI verification."`
 }
 
 // RetryConfig holds retry settings.
@@ -745,6 +758,34 @@ type RequestBodySchemaConfig struct {
 	AllowAdditionalProperties bool `mapstructure:"allow_additional_properties" jsonschema:"description=Allow properties not defined in schema. Maps to JSON Schema additionalProperties.,default=true"`
 }
 
+// =============================================================================
+// Tracing Configuration (OpenTelemetry)
+// =============================================================================
+
+// TracingConfig holds OpenTelemetry distributed tracing configuration.
+type TracingConfig struct {
+	// Enabled enables distributed tracing
+	Enabled bool `mapstructure:"enabled" jsonschema:"description=Enable OpenTelemetry distributed tracing.,default=false"`
+	// Endpoint is the OTLP collector endpoint (e.g., localhost:4317)
+	Endpoint string `mapstructure:"endpoint" jsonschema:"description=OTLP gRPC collector endpoint (e.g. Jaeger\\, Tempo\\, Zipkin with OTLP).,example=localhost:4317,example=tempo:4317"`
+	// Insecure disables TLS for collector connection
+	Insecure bool `mapstructure:"insecure" jsonschema:"description=Use insecure (non-TLS) connection to collector. Set to false in production.,default=true"`
+	// ServiceName is the service name in traces
+	ServiceName string `mapstructure:"service_name" jsonschema:"description=Service name for traces.,default=authz-service"`
+	// ServiceVersion is the service version in traces
+	ServiceVersion string `mapstructure:"service_version" jsonschema:"description=Service version for traces. If empty\\, uses build version."`
+	// Environment is the deployment environment
+	Environment string `mapstructure:"environment" jsonschema:"description=Deployment environment (e.g. production\\, staging).,default=development"`
+	// SampleRate is the trace sampling rate (0.0-1.0)
+	SampleRate float64 `mapstructure:"sample_rate" jsonschema:"description=Trace sampling rate (0.0=none\\, 1.0=all). Use lower values in production for high-traffic services.,default=1.0,minimum=0.0,maximum=1.0"`
+	// BatchTimeout is the maximum time before exporting a batch
+	BatchTimeout string `mapstructure:"batch_timeout" jsonschema:"description=Maximum time before exporting a trace batch.,default=5s"`
+	// ExportTimeout is the timeout for export operations
+	ExportTimeout string `mapstructure:"export_timeout" jsonschema:"description=Timeout for trace export operations.,default=30s"`
+	// PropagateHeaders propagates trace context to upstream services
+	PropagateHeaders bool `mapstructure:"propagate_headers" jsonschema:"description=Propagate W3C trace context headers to upstream services.,default=true"`
+}
+
 // Load loads configuration from file and environment.
 func Load(configPath string) (*Config, error) {
 	v := viper.New()
@@ -851,6 +892,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("policy.opa.retry.max_attempts", 3)
 	v.SetDefault("policy.opa.retry.initial_backoff", "1ms")
 	v.SetDefault("policy.opa.retry.max_backoff", "10ms")
+	v.SetDefault("policy.opa.tls.enabled", false)
+	v.SetDefault("policy.opa.tls.insecure_skip_verify", false)
 	v.SetDefault("policy.opa_embedded.policy_dir", "/etc/authz/policies")
 	v.SetDefault("policy.opa_embedded.data_dir", "/etc/authz/data")
 	v.SetDefault("policy.opa_embedded.decision_path", "authz.allow")
@@ -969,4 +1012,21 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("request_body.schema.schema_dir", "/etc/authz/schemas")
 	v.SetDefault("request_body.schema.strict_validation", false)
 	v.SetDefault("request_body.schema.allow_additional_properties", true)
+
+	// Tracing defaults
+	setTracingDefaults(v)
+}
+
+// setTracingDefaults sets tracing-related defaults (called from setDefaults)
+func setTracingDefaults(v *viper.Viper) {
+	v.SetDefault("tracing.enabled", false)
+	v.SetDefault("tracing.endpoint", "localhost:4317")
+	v.SetDefault("tracing.insecure", true)
+	v.SetDefault("tracing.service_name", "authz-service")
+	v.SetDefault("tracing.service_version", "")
+	v.SetDefault("tracing.environment", "development")
+	v.SetDefault("tracing.sample_rate", 1.0)
+	v.SetDefault("tracing.batch_timeout", "5s")
+	v.SetDefault("tracing.export_timeout", "30s")
+	v.SetDefault("tracing.propagate_headers", true)
 }

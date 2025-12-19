@@ -83,11 +83,17 @@ func NewService(cfg config.PolicyConfig, opts ...ServiceOption) (*Service, error
 		s.engine = engine
 	case "opa-sidecar":
 		// Use circuit breaker if configured
+		var opaEngine *OPASidecarEngine
+		var opaErr error
 		if s.cbManager != nil {
-			s.engine = NewOPASidecarEngineWithCB(cfg.OPA, s.cbManager)
+			opaEngine, opaErr = NewOPASidecarEngineWithCB(cfg.OPA, s.cbManager)
 		} else {
-			s.engine = NewOPASidecarEngine(cfg.OPA)
+			opaEngine, opaErr = NewOPASidecarEngine(cfg.OPA)
 		}
+		if opaErr != nil {
+			return nil, errors.Wrap(opaErr, "failed to create OPA sidecar engine")
+		}
+		s.engine = opaEngine
 	case "opa-embedded":
 		s.engine = NewOPAEmbeddedEngine(cfg.OPAEmbedded)
 	default:

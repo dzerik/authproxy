@@ -14,6 +14,12 @@ var defaultLogger *zap.Logger
 // ctxKey is the context key for logger.
 type ctxKey struct{}
 
+// correlationIDKey is the context key for correlation ID.
+type correlationIDKey struct{}
+
+// CorrelationIDHeader is the standard header name for correlation ID.
+const CorrelationIDHeader = "X-Correlation-ID"
+
 // Config holds logger configuration.
 type Config struct {
 	Level      string `mapstructure:"level" jsonschema:"description=Log level. Controls which messages are logged.,enum=debug,enum=info,enum=warn,enum=error,default=info"`
@@ -108,6 +114,30 @@ func WithContext(ctx context.Context) *zap.Logger {
 // ToContext adds a logger to context.
 func ToContext(ctx context.Context, l *zap.Logger) context.Context {
 	return context.WithValue(ctx, ctxKey{}, l)
+}
+
+// WithCorrelationID adds a correlation ID to the context.
+func WithCorrelationID(ctx context.Context, correlationID string) context.Context {
+	return context.WithValue(ctx, correlationIDKey{}, correlationID)
+}
+
+// CorrelationIDFromContext retrieves the correlation ID from context.
+func CorrelationIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if id, ok := ctx.Value(correlationIDKey{}).(string); ok {
+		return id
+	}
+	return ""
+}
+
+// WithCorrelationIDLogger creates a context with both correlation ID and a logger
+// that includes the correlation ID field.
+func WithCorrelationIDLogger(ctx context.Context, correlationID string) context.Context {
+	ctx = WithCorrelationID(ctx, correlationID)
+	l := L().With(zap.String("correlation_id", correlationID))
+	return ToContext(ctx, l)
 }
 
 // With creates a child logger with the given fields.

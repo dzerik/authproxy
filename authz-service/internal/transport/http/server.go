@@ -15,19 +15,21 @@ import (
 	"github.com/your-org/authz-service/internal/service/policy"
 	"github.com/your-org/authz-service/pkg/logger"
 	"github.com/your-org/authz-service/pkg/resilience/ratelimit"
+	"github.com/your-org/authz-service/pkg/tracing"
 )
 
 // Server represents the HTTP server.
 type Server struct {
-	httpServer    *http.Server
-	handler       *Handler
-	reverseProxy  *ReverseProxy
-	egressService *egress.Service
-	rateLimiter   *ratelimit.Limiter
-	cfg           config.HTTPServerConfig
-	endpoints     config.EndpointsConfig
-	proxyEnabled  bool
-	egressEnabled bool
+	httpServer      *http.Server
+	handler         *Handler
+	reverseProxy    *ReverseProxy
+	egressService   *egress.Service
+	rateLimiter     *ratelimit.Limiter
+	tracingProvider *tracing.Provider
+	cfg             config.HTTPServerConfig
+	endpoints       config.EndpointsConfig
+	proxyEnabled    bool
+	egressEnabled   bool
 }
 
 // ServerOption is a functional option for configuring the Server.
@@ -37,6 +39,13 @@ type ServerOption func(*Server)
 func WithRateLimiter(limiter *ratelimit.Limiter) ServerOption {
 	return func(s *Server) {
 		s.rateLimiter = limiter
+	}
+}
+
+// WithTracingProvider sets the tracing provider for the server.
+func WithTracingProvider(provider *tracing.Provider) ServerOption {
+	return func(s *Server) {
+		s.tracingProvider = provider
 	}
 }
 
@@ -98,6 +107,13 @@ func NewServer(
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
 	router.Use(middleware.Recoverer)
+	router.Use(logger.CorrelationIDMiddleware) // Add correlation ID to context and response
+
+	// Tracing middleware (early in chain for full request visibility)
+	if server.tracingProvider != nil && server.tracingProvider.Enabled() {
+		router.Use(tracing.Middleware(server.tracingProvider))
+		logger.Info("tracing middleware enabled")
+	}
 
 	// Rate limiter middleware (early in the chain to reject requests fast)
 	if server.rateLimiter != nil {
