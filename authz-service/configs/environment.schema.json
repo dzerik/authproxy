@@ -1,0 +1,612 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/your-org/authz-service/schemas/environment.schema.json",
+  "$ref": "#/$defs/environment_config",
+  "$defs": {
+    "config_source_settings": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "file",
+            "remote",
+            "hybrid"
+          ],
+          "description": "Configuration source type.",
+          "default": "file"
+        },
+        "file": {
+          "$ref": "#/$defs/file_source_settings",
+          "description": "File-based configuration source settings."
+        },
+        "remote": {
+          "$ref": "#/$defs/remote_source_settings",
+          "description": "Remote configuration service settings."
+        },
+        "fallback": {
+          "$ref": "#/$defs/fallback_source_settings",
+          "description": "Fallback settings when remote config source is unavailable."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "env_config": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Environment name (e.g. production, staging, development). Available in CEL as env.name.",
+          "default": "development"
+        },
+        "region": {
+          "type": "string",
+          "description": "Deployment region (e.g. eu-west-1, us-east-1). Available in CEL as env.region."
+        },
+        "cluster": {
+          "type": "string",
+          "description": "Cluster identifier (e.g. k8s-prod-01). Available in CEL as env.cluster."
+        },
+        "version": {
+          "type": "string",
+          "description": "Service version (e.g. 2.1.0). Available in CEL as env.version."
+        },
+        "features": {
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "type": "object",
+          "description": "Feature flags for gradual rollouts. Available in CEL as env.features['flag_name']."
+        },
+        "custom": {
+          "type": "object",
+          "description": "Custom environment attributes. Available in CEL as env.custom['key']."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "environment_config": {
+      "properties": {
+        "env": {
+          "$ref": "#/$defs/env_config",
+          "description": "Environment information for deployment context.",
+          "x-runtime-updatable": false
+        },
+        "server": {
+          "$ref": "#/$defs/server_config",
+          "description": "Server configuration for HTTP and gRPC endpoints.",
+          "x-runtime-updatable": false
+        },
+        "management": {
+          "$ref": "#/$defs/management_server_config",
+          "description": "Management server configuration for admin/debug endpoints (Istio-style).",
+          "x-runtime-updatable": false
+        },
+        "logging": {
+          "$ref": "#/$defs/logging_config",
+          "description": "Application logging configuration.",
+          "x-runtime-updatable": false
+        },
+        "tracing": {
+          "$ref": "#/$defs/tracing_config",
+          "description": "OpenTelemetry distributed tracing configuration.",
+          "x-runtime-updatable": false
+        },
+        "config_source": {
+          "$ref": "#/$defs/config_source_settings",
+          "description": "Configuration source settings for services and rules.",
+          "x-runtime-updatable": false
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "fallback_source_settings": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable fallback to cached configuration when remote is unavailable.",
+          "default": true
+        },
+        "cache_path": {
+          "type": "string",
+          "description": "Path to store cached configurations.",
+          "default": "/var/cache/authz/"
+        },
+        "max_age": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Maximum age of cached configuration to use as fallback.",
+          "default": "1h",
+          "examples": [
+            "10s",
+            "5m",
+            "1h",
+            "30s"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "file_source_settings": {
+      "properties": {
+        "services_path": {
+          "type": "string",
+          "description": "Path to services configuration file.",
+          "default": "/etc/authz/services.yaml"
+        },
+        "rules_path": {
+          "type": "string",
+          "description": "Path to authorization rules file.",
+          "default": "/etc/authz/rules.yaml"
+        },
+        "watch_enabled": {
+          "type": "boolean",
+          "description": "Enable file watching for automatic reload on changes.",
+          "default": true
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "grpc_server_config": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable gRPC server.",
+          "default": false
+        },
+        "addr": {
+          "type": "string",
+          "description": "gRPC server listen address.",
+          "default": ":9090"
+        },
+        "max_recv_msg_size": {
+          "type": "integer",
+          "description": "Maximum size of received messages in bytes.",
+          "default": 4194304
+        },
+        "max_send_msg_size": {
+          "type": "integer",
+          "description": "Maximum size of sent messages in bytes.",
+          "default": 4194304
+        },
+        "keepalive": {
+          "$ref": "#/$defs/keepalive_config",
+          "description": "gRPC keepalive configuration."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "http_server_config": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable HTTP server.",
+          "default": true
+        },
+        "addr": {
+          "type": "string",
+          "description": "HTTP server listen address.",
+          "default": ":8080",
+          "examples": [
+            ":8080",
+            "0.0.0.0:8080"
+          ]
+        },
+        "read_timeout": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Maximum duration for reading entire request.",
+          "default": "10s",
+          "examples": [
+            "10s",
+            "5m",
+            "1h",
+            "30s"
+          ]
+        },
+        "write_timeout": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Maximum duration for writing response.",
+          "default": "10s",
+          "examples": [
+            "10s",
+            "5m",
+            "1h",
+            "30s"
+          ]
+        },
+        "idle_timeout": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Maximum duration for idle connections.",
+          "default": "120s",
+          "examples": [
+            "10s",
+            "5m",
+            "1h",
+            "30s"
+          ]
+        },
+        "shutdown_timeout": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Maximum duration for graceful shutdown.",
+          "default": "30s",
+          "examples": [
+            "10s",
+            "5m",
+            "1h",
+            "30s"
+          ]
+        },
+        "max_header_bytes": {
+          "type": "integer",
+          "description": "Maximum size of request headers in bytes.",
+          "default": 1048576
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "keepalive_config": {
+      "properties": {
+        "time": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Interval for keepalive pings.",
+          "default": "30s",
+          "examples": [
+            "10s",
+            "5m",
+            "1h",
+            "30s"
+          ]
+        },
+        "timeout": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Timeout for keepalive ping response.",
+          "default": "10s",
+          "examples": [
+            "10s",
+            "5m",
+            "1h",
+            "30s"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "logging_config": {
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "description": "Log level.",
+          "default": "info",
+          "x-runtime-updatable": false
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "json",
+            "text"
+          ],
+          "description": "Log output format.",
+          "default": "json",
+          "x-runtime-updatable": false
+        },
+        "output": {
+          "type": "string",
+          "enum": [
+            "stdout",
+            "stderr"
+          ],
+          "description": "Log output destination.",
+          "default": "stdout",
+          "x-runtime-updatable": false
+        },
+        "add_caller": {
+          "type": "boolean",
+          "description": "Add caller information to log entries.",
+          "default": true,
+          "x-runtime-updatable": false
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "management_server_config": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable management server for admin endpoints.",
+          "default": true,
+          "x-runtime-updatable": false
+        },
+        "admin_addr": {
+          "type": "string",
+          "description": "Admin interface listen address (config_dump, stats, logging).",
+          "default": ":15000",
+          "x-runtime-updatable": false
+        },
+        "health_addr": {
+          "type": "string",
+          "description": "Aggregated health and metrics listen address.",
+          "default": ":15020",
+          "x-runtime-updatable": false
+        },
+        "ready_addr": {
+          "type": "string",
+          "description": "Dedicated readiness probe listen address.",
+          "default": ":15021",
+          "x-runtime-updatable": false
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "polling_settings": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable polling for configuration updates.",
+          "default": true
+        },
+        "interval": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Polling interval for configuration updates.",
+          "default": "30s",
+          "examples": [
+            "10s",
+            "5m",
+            "1h",
+            "30s"
+          ]
+        },
+        "timeout": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Timeout for polling requests.",
+          "default": "10s",
+          "examples": [
+            "10s",
+            "5m",
+            "1h",
+            "30s"
+          ]
+        },
+        "retry": {
+          "$ref": "#/$defs/retry_settings",
+          "description": "Retry settings for failed polling requests."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "push_settings": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable push notifications for real-time updates.",
+          "default": false
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "sse",
+            "websocket",
+            "grpc-stream"
+          ],
+          "description": "Push notification type.",
+          "default": "sse"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "remote_auth_settings": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "none",
+            "mtls",
+            "token",
+            "oidc"
+          ],
+          "description": "Authentication type for config service.",
+          "default": "none"
+        },
+        "client_cert": {
+          "type": "string",
+          "description": "Path to client certificate for mTLS authentication."
+        },
+        "client_key": {
+          "type": "string",
+          "description": "Path to client key for mTLS authentication."
+        },
+        "ca_cert": {
+          "type": "string",
+          "description": "Path to CA certificate for server verification."
+        },
+        "token": {
+          "type": "string",
+          "description": "Bearer token for authentication. Consider using environment variable."
+        },
+        "token_file": {
+          "type": "string",
+          "description": "Path to file containing bearer token."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "remote_path_settings": {
+      "properties": {
+        "services": {
+          "type": "string",
+          "description": "API path for services configuration.",
+          "default": "/api/v1/configs/authz/services"
+        },
+        "rules": {
+          "type": "string",
+          "description": "API path for authorization rules.",
+          "default": "/api/v1/configs/authz/rules"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "remote_source_settings": {
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "description": "Remote configuration service endpoint URL."
+        },
+        "auth": {
+          "$ref": "#/$defs/remote_auth_settings",
+          "description": "Authentication settings for remote config service."
+        },
+        "paths": {
+          "$ref": "#/$defs/remote_path_settings",
+          "description": "API paths for configuration resources."
+        },
+        "polling": {
+          "$ref": "#/$defs/polling_settings",
+          "description": "Polling configuration for config updates."
+        },
+        "push": {
+          "$ref": "#/$defs/push_settings",
+          "description": "Push notification settings for real-time config updates."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "retry_settings": {
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "description": "Maximum retry attempts.",
+          "default": 3
+        },
+        "backoff": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Initial backoff duration.",
+          "default": "1s",
+          "examples": [
+            "10s",
+            "5m",
+            "1h",
+            "30s"
+          ]
+        },
+        "max_backoff": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Maximum backoff duration.",
+          "default": "30s",
+          "examples": [
+            "10s",
+            "5m",
+            "1h",
+            "30s"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "server_config": {
+      "properties": {
+        "http": {
+          "$ref": "#/$defs/http_server_config",
+          "description": "HTTP server configuration."
+        },
+        "grpc": {
+          "$ref": "#/$defs/grpc_server_config",
+          "description": "gRPC server configuration."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "tracing_config": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable OpenTelemetry distributed tracing.",
+          "default": false
+        },
+        "endpoint": {
+          "type": "string",
+          "description": "OTLP gRPC collector endpoint (e.g. Jaeger, Tempo, Zipkin with OTLP).",
+          "examples": [
+            "localhost:4317",
+            "tempo:4317"
+          ]
+        },
+        "insecure": {
+          "type": "boolean",
+          "description": "Use insecure (non-TLS) connection to collector. Set to false in production.",
+          "default": true
+        },
+        "service_name": {
+          "type": "string",
+          "description": "Service name for traces.",
+          "default": "authz-service"
+        },
+        "service_version": {
+          "type": "string",
+          "description": "Service version for traces. If empty, uses build version."
+        },
+        "environment": {
+          "type": "string",
+          "description": "Deployment environment (e.g. production, staging).",
+          "default": "development"
+        },
+        "sample_rate": {
+          "type": "number",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "description": "Trace sampling rate (0.0=none, 1.0=all). Use lower values in production for high-traffic services.",
+          "default": 1.0
+        },
+        "batch_timeout": {
+          "type": "string",
+          "description": "Maximum time before exporting a trace batch.",
+          "default": "5s"
+        },
+        "export_timeout": {
+          "type": "string",
+          "description": "Timeout for trace export operations.",
+          "default": "30s"
+        },
+        "propagate_headers": {
+          "type": "boolean",
+          "description": "Propagate W3C trace context headers to upstream services.",
+          "default": true
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  "title": "Authz Service Environment Configuration",
+  "description": "Static environment configuration that requires service restart to change.\n\nThis configuration includes server settings, logging, tracing, and config source settings.\nAll properties are marked as x-runtime-updatable: false.",
+  "x-runtime-updatable": false
+}

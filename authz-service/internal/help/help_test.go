@@ -308,10 +308,14 @@ func TestGenerator_schemaGenerationSection(t *testing.T) {
 
 	result := gen.schemaGenerationSection()
 
-	assert.Contains(t, result, "myapp --schema config")
+	// Check for new schema types
+	assert.Contains(t, result, "myapp --schema environment")
+	assert.Contains(t, result, "myapp --schema services")
 	assert.Contains(t, result, "myapp --schema rules")
 	assert.Contains(t, result, "--schema-output")
 	assert.Contains(t, result, "yaml-language-server")
+	// Check for x-runtime-updatable mention
+	assert.Contains(t, result, "x-runtime-updatable")
 }
 
 func TestGenerator_examplesSection(t *testing.T) {
@@ -332,10 +336,16 @@ func TestGenerator_filesSection(t *testing.T) {
 
 	result := gen.filesSection()
 
-	assert.Contains(t, result, "/etc/authz/config.yaml")
+	// Check for new configuration files
+	assert.Contains(t, result, "/etc/authz/environment.yaml")
+	assert.Contains(t, result, "/etc/authz/services.yaml")
 	assert.Contains(t, result, "/etc/authz/rules.yaml")
 	assert.Contains(t, result, "/etc/authz/policies/")
 	assert.Contains(t, result, "/etc/authz/data/")
+	// Check for management ports
+	assert.Contains(t, result, ":15000")
+	assert.Contains(t, result, ":15020")
+	assert.Contains(t, result, ":15021")
 }
 
 func TestGenerator_secretsSection(t *testing.T) {

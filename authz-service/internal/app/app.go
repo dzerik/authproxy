@@ -27,7 +27,8 @@ type BuildInfo struct {
 
 // App represents the application with all its services and dependencies.
 type App struct {
-	cfg *config.Config
+	cfg    *config.Config
+	loader *config.Loader // New config loader for hot-reload support
 
 	// Services
 	httpServer    *httpTransport.Server
@@ -54,6 +55,13 @@ type Option func(*App)
 func WithBuildInfo(info BuildInfo) Option {
 	return func(a *App) {
 		a.buildInfo = info
+	}
+}
+
+// WithLoader sets the configuration loader for hot-reload support.
+func WithLoader(loader *config.Loader) Option {
+	return func(a *App) {
+		a.loader = loader
 	}
 }
 

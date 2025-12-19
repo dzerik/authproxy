@@ -47,16 +47,17 @@ func main() {
 		DocsURL:     docsURL,
 	}, envVarPrefix)
 
-	// Extract env vars from config structure for help generation
-	helpGenerator.ExtractEnvVars(config.Config{})
+	// Extract env vars from environment config structure for help generation
+	// Environment variables only affect EnvironmentConfig (static configuration)
+	helpGenerator.ExtractEnvVars(config.EnvironmentConfig{})
 
 	// Define flags
-	configPath := flag.String("config", "", "Path to configuration file (YAML)")
+	configPath := flag.String("config", "", "Path to environment.yaml configuration file")
 	showVersion := flag.Bool("version", false, "Show version information")
 	showHelp := flag.Bool("help", false, "Show detailed help")
 	showHelpShort := flag.Bool("h", false, "Show detailed help")
 	showHelpEnv := flag.Bool("help-env", false, "Show all environment variables")
-	generateSchema := flag.String("schema", "", "Generate JSON Schema (config, rules)")
+	generateSchema := flag.String("schema", "", "Generate JSON Schema (environment, services, rules)")
 	schemaOutput := flag.String("schema-output", "", "Output file for schema (default: stdout)")
 	validateConfig := flag.Bool("validate", false, "Validate configuration and exit")
 	dryRun := flag.Bool("dry-run", false, "Validate configuration, test connections, and exit")
@@ -93,11 +94,19 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Load configuration
-	cfg, err := config.Load(*configPath)
+	// Load configuration using new Loader
+	ctx := context.Background()
+	loader, err := config.LoadAll(ctx, *configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to load configuration: %v\n", err)
 		fmt.Fprintf(os.Stderr, "\nUse --help for configuration options\n")
+		os.Exit(1)
+	}
+
+	// Get legacy Config for backward compatibility
+	cfg := loader.ToConfig()
+	if cfg == nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to create configuration\n")
 		os.Exit(1)
 	}
 
@@ -145,7 +154,7 @@ func main() {
 		GitCommit: GitCommit,
 	}
 
-	application, err := app.New(cfg, app.WithBuildInfo(buildInfo))
+	application, err := app.New(cfg, app.WithBuildInfo(buildInfo), app.WithLoader(loader))
 	if err != nil {
 		logger.Fatal("failed to create application", logger.Err(err))
 	}

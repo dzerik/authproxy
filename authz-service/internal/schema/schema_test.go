@@ -15,10 +15,10 @@ func TestNewGenerator(t *testing.T) {
 	require.NotNil(t, gen.reflector)
 }
 
-func TestGenerator_Generate_ConfigSchema(t *testing.T) {
+func TestGenerator_Generate_EnvironmentSchema(t *testing.T) {
 	gen := NewGenerator()
 
-	data, err := gen.Generate(SchemaTypeConfig)
+	data, err := gen.Generate(SchemaTypeEnvironment)
 
 	require.NoError(t, err)
 	require.NotEmpty(t, data)
@@ -31,12 +31,36 @@ func TestGenerator_Generate_ConfigSchema(t *testing.T) {
 	// Check required schema fields
 	assert.Contains(t, schema, "$schema")
 	assert.Contains(t, schema, "title")
-	assert.Equal(t, "Authz Service Configuration", schema["title"])
+	assert.Equal(t, "Authz Service Environment Configuration", schema["title"])
 
-	// Check description contains env var info
-	desc, ok := schema["description"].(string)
-	require.True(t, ok)
-	assert.Contains(t, desc, "AUTHZ_")
+	// Check for x-runtime-updatable marker
+	extras, ok := schema["x-runtime-updatable"]
+	require.True(t, ok, "should have x-runtime-updatable at root")
+	assert.Equal(t, false, extras, "environment config should not be runtime updatable")
+}
+
+func TestGenerator_Generate_ServicesSchema(t *testing.T) {
+	gen := NewGenerator()
+
+	data, err := gen.Generate(SchemaTypeServices)
+
+	require.NoError(t, err)
+	require.NotEmpty(t, data)
+
+	// Verify it's valid JSON
+	var schema map[string]interface{}
+	err = json.Unmarshal(data, &schema)
+	require.NoError(t, err)
+
+	// Check required schema fields
+	assert.Contains(t, schema, "$schema")
+	assert.Contains(t, schema, "title")
+	assert.Equal(t, "Authz Service Services Configuration", schema["title"])
+
+	// Check for x-runtime-updatable marker
+	extras, ok := schema["x-runtime-updatable"]
+	require.True(t, ok, "should have x-runtime-updatable at root")
+	assert.Equal(t, true, extras, "services config should be runtime updatable")
 }
 
 func TestGenerator_Generate_RulesSchema(t *testing.T) {
@@ -58,12 +82,17 @@ func TestGenerator_Generate_RulesSchema(t *testing.T) {
 
 	// Check for examples
 	assert.Contains(t, schema, "examples")
+
+	// Check for x-runtime-updatable marker
+	extras, ok := schema["x-runtime-updatable"]
+	require.True(t, ok, "should have x-runtime-updatable at root")
+	assert.Equal(t, true, extras, "rules config should be runtime updatable")
 }
 
 func TestGenerator_Generate_DefaultType(t *testing.T) {
 	gen := NewGenerator()
 
-	// Empty schema type should default to config
+	// Empty schema type should default to environment
 	data, err := gen.Generate("")
 
 	require.NoError(t, err)
@@ -73,8 +102,8 @@ func TestGenerator_Generate_DefaultType(t *testing.T) {
 	err = json.Unmarshal(data, &schema)
 	require.NoError(t, err)
 
-	// Should be config schema
-	assert.Equal(t, "Authz Service Configuration", schema["title"])
+	// Should be environment schema
+	assert.Equal(t, "Authz Service Environment Configuration", schema["title"])
 }
 
 func TestToSnakeCase(t *testing.T) {
@@ -122,15 +151,19 @@ func TestParseSchemaType(t *testing.T) {
 		expected    SchemaType
 		expectValid bool
 	}{
-		{"config", SchemaTypeConfig, true},
-		{"CONFIG", SchemaTypeConfig, true},
-		{"Config", SchemaTypeConfig, true},
+		{"environment", SchemaTypeEnvironment, true},
+		{"ENVIRONMENT", SchemaTypeEnvironment, true},
+		{"Environment", SchemaTypeEnvironment, true},
+		{"services", SchemaTypeServices, true},
+		{"SERVICES", SchemaTypeServices, true},
+		{"Services", SchemaTypeServices, true},
 		{"rules", SchemaTypeRules, true},
 		{"RULES", SchemaTypeRules, true},
 		{"Rules", SchemaTypeRules, true},
 		{"invalid", "", false},
 		{"", "", false},
 		{"unknown", "", false},
+		{"config", "", false}, // old type, no longer valid
 	}
 
 	for _, tt := range tests {
@@ -147,19 +180,10 @@ func TestParseSchemaType(t *testing.T) {
 func TestGetAvailableSchemas(t *testing.T) {
 	schemas := GetAvailableSchemas()
 
-	require.Len(t, schemas, 2)
-	assert.Contains(t, schemas, SchemaTypeConfig)
+	require.Len(t, schemas, 3)
+	assert.Contains(t, schemas, SchemaTypeEnvironment)
+	assert.Contains(t, schemas, SchemaTypeServices)
 	assert.Contains(t, schemas, SchemaTypeRules)
-}
-
-func TestConfigTypeNames(t *testing.T) {
-	names := configTypeNames()
-
-	require.NotEmpty(t, names)
-	assert.Contains(t, names, "Config")
-	assert.Contains(t, names, "ServerConfig")
-	assert.Contains(t, names, "HTTPServerConfig")
-	assert.Contains(t, names, "JWTConfig")
 }
 
 func TestRulesTypeNames(t *testing.T) {
@@ -175,16 +199,16 @@ func TestGenerator_PostProcessJSON(t *testing.T) {
 	gen := NewGenerator()
 
 	input := `{"$ref": "#/$defs/ServerConfig", "ServerConfig": {}}`
-	result := gen.postProcessJSON(input, SchemaTypeConfig)
+	result := gen.postProcessJSON(input, SchemaTypeEnvironment)
 
 	assert.Contains(t, result, "server_config")
 	assert.NotContains(t, result, "ServerConfig")
 }
 
-func TestGenerator_ConfigSchema_HasSnakeCaseProperties(t *testing.T) {
+func TestGenerator_EnvironmentSchema_HasSnakeCaseProperties(t *testing.T) {
 	gen := NewGenerator()
 
-	data, err := gen.Generate(SchemaTypeConfig)
+	data, err := gen.Generate(SchemaTypeEnvironment)
 	require.NoError(t, err)
 
 	jsonStr := string(data)
@@ -198,6 +222,20 @@ func TestGenerator_ConfigSchema_HasSnakeCaseProperties(t *testing.T) {
 	// (Note: $defs keys are converted to snake_case in postProcessJSON)
 	assert.NotContains(t, jsonStr, `"Server":`)
 	assert.NotContains(t, jsonStr, `"Http":`)
+}
+
+func TestGenerator_ServicesSchema_HasSnakeCaseProperties(t *testing.T) {
+	gen := NewGenerator()
+
+	data, err := gen.Generate(SchemaTypeServices)
+	require.NoError(t, err)
+
+	jsonStr := string(data)
+
+	// Should have snake_case properties
+	assert.Contains(t, jsonStr, `"jwt"`)
+	assert.Contains(t, jsonStr, `"policy"`)
+	assert.Contains(t, jsonStr, `"cache"`)
 }
 
 func TestGenerator_RulesSchema_HasExamples(t *testing.T) {
@@ -223,7 +261,7 @@ func TestGenerator_RulesSchema_HasExamples(t *testing.T) {
 func TestGenerator_DurationPattern(t *testing.T) {
 	gen := NewGenerator()
 
-	data, err := gen.Generate(SchemaTypeConfig)
+	data, err := gen.Generate(SchemaTypeEnvironment)
 	require.NoError(t, err)
 
 	jsonStr := string(data)
@@ -235,16 +273,26 @@ func TestGenerator_DurationPattern(t *testing.T) {
 }
 
 func TestSchemaType_Constants(t *testing.T) {
-	assert.Equal(t, SchemaType("config"), SchemaTypeConfig)
+	assert.Equal(t, SchemaType("environment"), SchemaTypeEnvironment)
+	assert.Equal(t, SchemaType("services"), SchemaTypeServices)
 	assert.Equal(t, SchemaType("rules"), SchemaTypeRules)
 }
 
-func BenchmarkGenerator_Generate_Config(b *testing.B) {
+func BenchmarkGenerator_Generate_Environment(b *testing.B) {
 	gen := NewGenerator()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		gen.Generate(SchemaTypeConfig)
+		gen.Generate(SchemaTypeEnvironment)
+	}
+}
+
+func BenchmarkGenerator_Generate_Services(b *testing.B) {
+	gen := NewGenerator()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		gen.Generate(SchemaTypeServices)
 	}
 }
 
@@ -272,7 +320,7 @@ func BenchmarkToSnakeCase(b *testing.B) {
 }
 
 func BenchmarkParseSchemaType(b *testing.B) {
-	inputs := []string{"config", "rules", "CONFIG", "invalid"}
+	inputs := []string{"environment", "services", "rules", "invalid"}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -283,7 +331,7 @@ func BenchmarkParseSchemaType(b *testing.B) {
 func TestGenerator_HasValidReferences(t *testing.T) {
 	gen := NewGenerator()
 
-	data, err := gen.Generate(SchemaTypeConfig)
+	data, err := gen.Generate(SchemaTypeEnvironment)
 	require.NoError(t, err)
 
 	jsonStr := string(data)
@@ -293,4 +341,23 @@ func TestGenerator_HasValidReferences(t *testing.T) {
 
 	// References should point to $defs (valid JSON schema structure)
 	assert.Regexp(t, `"\$ref":\s*"#/\$defs/`, jsonStr)
+}
+
+func TestGenerator_RuntimeUpdatable_InSchema(t *testing.T) {
+	gen := NewGenerator()
+
+	// Check environment schema has x-runtime-updatable=false
+	envData, err := gen.Generate(SchemaTypeEnvironment)
+	require.NoError(t, err)
+	assert.Contains(t, string(envData), "x-runtime-updatable")
+
+	// Check services schema has x-runtime-updatable=true
+	svcData, err := gen.Generate(SchemaTypeServices)
+	require.NoError(t, err)
+	assert.Contains(t, string(svcData), "x-runtime-updatable")
+
+	// Check rules schema has x-runtime-updatable=true
+	rulesData, err := gen.Generate(SchemaTypeRules)
+	require.NoError(t, err)
+	assert.Contains(t, string(rulesData), "x-runtime-updatable")
 }

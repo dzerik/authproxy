@@ -17,8 +17,9 @@ import (
 type SchemaType string
 
 const (
-	SchemaTypeConfig SchemaType = "config"
-	SchemaTypeRules  SchemaType = "rules"
+	SchemaTypeRules       SchemaType = "rules"
+	SchemaTypeEnvironment SchemaType = "environment"
+	SchemaTypeServices    SchemaType = "services"
 )
 
 // Generator generates JSON schemas for authz-service configuration files.
@@ -55,12 +56,14 @@ func (g *Generator) Generate(schemaType SchemaType) ([]byte, error) {
 	var schema *jsonschema.Schema
 
 	switch schemaType {
-	case SchemaTypeConfig:
-		schema = g.generateConfigSchema()
 	case SchemaTypeRules:
 		schema = g.generateRulesSchema()
+	case SchemaTypeEnvironment:
+		schema = g.generateEnvironmentSchema()
+	case SchemaTypeServices:
+		schema = g.generateServicesSchema()
 	default:
-		schema = g.generateConfigSchema()
+		schema = g.generateEnvironmentSchema()
 	}
 
 	// Marshal with indentation
@@ -75,23 +78,6 @@ func (g *Generator) Generate(schemaType SchemaType) ([]byte, error) {
 	return []byte(output), nil
 }
 
-// generateConfigSchema generates schema for config.yaml.
-func (g *Generator) generateConfigSchema() *jsonschema.Schema {
-	schema := g.reflector.Reflect(&config.Config{})
-	g.processSchema(schema)
-
-	schema.Title = "Authz Service Configuration"
-	schema.Description = "Configuration schema for the authorization service.\n\n" +
-		"Configuration can be provided via:\n" +
-		"- YAML file (--config flag)\n" +
-		"- Environment variables (AUTHZ_ prefix)\n\n" +
-		"Environment variable naming: AUTHZ_<SECTION>_<KEY>\n" +
-		"Example: AUTHZ_SERVER_HTTP_ADDR=:8080"
-	schema.ID = "https://github.com/your-org/authz-service/schemas/config.schema.json"
-
-	return schema
-}
-
 // generateRulesSchema generates schema for rules.yaml.
 func (g *Generator) generateRulesSchema() *jsonschema.Schema {
 	schema := g.reflector.Reflect(&policy.RuleSet{})
@@ -100,8 +86,15 @@ func (g *Generator) generateRulesSchema() *jsonschema.Schema {
 	schema.Title = "Authz Service Rules"
 	schema.Description = "Policy rules schema for the builtin authorization engine.\n\n" +
 		"Rules are evaluated in priority order (higher priority first).\n" +
-		"First matching rule determines the authorization decision."
+		"First matching rule determines the authorization decision.\n" +
+		"This configuration is runtime-updatable (x-runtime-updatable: true)."
 	schema.ID = "https://github.com/your-org/authz-service/schemas/rules.schema.json"
+
+	// Add x-runtime-updatable to root
+	if schema.Extras == nil {
+		schema.Extras = make(map[string]interface{})
+	}
+	schema.Extras["x-runtime-updatable"] = true
 
 	// Add examples
 	schema.Examples = []interface{}{
@@ -137,6 +130,46 @@ func (g *Generator) generateRulesSchema() *jsonschema.Schema {
 			},
 		},
 	}
+
+	return schema
+}
+
+// generateEnvironmentSchema generates schema for environment.yaml.
+func (g *Generator) generateEnvironmentSchema() *jsonschema.Schema {
+	schema := g.reflector.Reflect(&config.EnvironmentConfig{})
+	g.processSchema(schema)
+
+	schema.Title = "Authz Service Environment Configuration"
+	schema.Description = "Static environment configuration that requires service restart to change.\n\n" +
+		"This configuration includes server settings, logging, tracing, and config source settings.\n" +
+		"All properties are marked as x-runtime-updatable: false."
+	schema.ID = "https://github.com/your-org/authz-service/schemas/environment.schema.json"
+
+	// Add x-runtime-updatable to root
+	if schema.Extras == nil {
+		schema.Extras = make(map[string]interface{})
+	}
+	schema.Extras["x-runtime-updatable"] = false
+
+	return schema
+}
+
+// generateServicesSchema generates schema for services.yaml.
+func (g *Generator) generateServicesSchema() *jsonschema.Schema {
+	schema := g.reflector.Reflect(&config.ServicesConfig{})
+	g.processSchema(schema)
+
+	schema.Title = "Authz Service Services Configuration"
+	schema.Description = "Dynamic services configuration that can be updated at runtime without restart.\n\n" +
+		"This configuration includes JWT, policy, cache, proxy, egress, and other service settings.\n" +
+		"Properties marked with x-runtime-updatable: true can be changed without restart."
+	schema.ID = "https://github.com/your-org/authz-service/schemas/services.schema.json"
+
+	// Add x-runtime-updatable to root
+	if schema.Extras == nil {
+		schema.Extras = make(map[string]interface{})
+	}
+	schema.Extras["x-runtime-updatable"] = true
 
 	return schema
 }
@@ -189,10 +222,12 @@ func (g *Generator) postProcessJSON(jsonStr string, schemaType SchemaType) strin
 	var typeNames []string
 
 	switch schemaType {
-	case SchemaTypeConfig:
-		typeNames = configTypeNames()
 	case SchemaTypeRules:
 		typeNames = rulesTypeNames()
+	case SchemaTypeEnvironment:
+		typeNames = environmentTypeNames()
+	case SchemaTypeServices:
+		typeNames = servicesTypeNames()
 	}
 
 	result := jsonStr
@@ -214,28 +249,43 @@ func (g *Generator) postProcessJSON(jsonStr string, schemaType SchemaType) strin
 	return result
 }
 
-func configTypeNames() []string {
-	return []string{
-		"Config", "ServerConfig", "ProxyConfig", "EgressConfig", "JWTConfig",
-		"PolicyConfig", "CacheConfig", "AuditConfig", "HealthConfig",
-		"TokenExchangeConfig", "EndpointsConfig", "HTTPServerConfig",
-		"GRPCServerConfig", "UpstreamConfig", "UpstreamTLSConfig",
-		"UpstreamHealthConfig", "RouteConfig", "IssuerConfig", "OPAConfig",
-		"OPAEmbeddedConfig", "BuiltinPolicyConfig", "RedisCacheConfig",
-		"L1CacheConfig", "L2CacheConfig", "EgressTargetConfig",
-		"EgressAuthConfig", "EgressTLSConfig", "EgressRouteConfig",
-		"EgressRetryConfig", "EgressDefaultsConfig", "EgressTokenStoreConfig",
-		"EgressRedisConfig", "ProxyHeadersConfig", "ProxyRetryConfig",
-		"JWKSCacheConfig", "ValidationConfig", "RetryConfig",
-		"FallbackConfig", "CacheTTLConfig", "ExportConfig", "EnrichConfig",
-		"OTLPExportConfig", "StdoutExportConfig", "CheckConfig",
-		"KeepaliveConfig",
-	}
-}
-
 func rulesTypeNames() []string {
 	return []string{
 		"RuleSet", "Rule", "Conditions", "Constraints",
+	}
+}
+
+func environmentTypeNames() []string {
+	return []string{
+		"EnvironmentConfig", "EnvConfig", "ServerConfig", "HTTPServerConfig",
+		"GRPCServerConfig", "KeepaliveConfig", "ManagementServerConfig",
+		"LoggingConfig", "TracingConfig", "ConfigSourceSettings",
+		"FileSourceSettings", "RemoteSourceSettings", "RemoteAuthSettings",
+		"RemotePathSettings", "PollingSettings", "RetrySettings",
+		"PushSettings", "FallbackSourceSettings",
+	}
+}
+
+func servicesTypeNames() []string {
+	return []string{
+		"ServicesConfig", "JWTConfig", "IssuerConfig", "JWKSCacheConfig",
+		"ValidationConfig", "TokenExchangeConfig", "PolicyConfig",
+		"OPAConfig", "OPAEmbeddedConfig", "BuiltinPolicyConfig",
+		"FallbackConfig", "RetryConfig", "CacheConfig", "L1CacheConfig",
+		"L2CacheConfig", "RedisCacheConfig", "CacheTTLConfig",
+		"AuditConfig", "ExportConfig", "OTLPExportConfig", "StdoutExportConfig",
+		"EnrichConfig", "HealthConfig", "CheckConfig", "ResilienceConfig",
+		"RateLimitConfig", "RateLimitHeadersConfig", "CircuitBreakerConfig",
+		"CircuitBreakerSettings", "SensitiveDataConfig", "PartialMaskConfig",
+		"TLSClientCertConfig", "TLSCertSourcesConfig", "XFCCConfig",
+		"CertHeadersConfig", "RequestBodyConfig", "RequestBodySchemaConfig",
+		"ProxyListenersConfig", "ProxyListenerConfig", "ProxyDefaultsConfig",
+		"UpstreamConfig", "UpstreamTLSConfig", "UpstreamHealthConfig",
+		"RouteConfig", "ProxyHeadersConfig", "ProxyRetryConfig",
+		"EgressListenersConfig", "EgressListenerConfig", "EgressDefaultsConfig",
+		"EgressTargetConfig", "EgressAuthConfig", "EgressTLSConfig",
+		"EgressRetryConfig", "EgressRouteConfig", "EgressTokenStoreConfig",
+		"EgressRedisConfig", "LegacyEgressEndpoint",
 	}
 }
 
@@ -299,16 +349,22 @@ func toSnakeCase(s string) string {
 
 // GetAvailableSchemas returns list of available schema types.
 func GetAvailableSchemas() []SchemaType {
-	return []SchemaType{SchemaTypeConfig, SchemaTypeRules}
+	return []SchemaType{
+		SchemaTypeEnvironment,
+		SchemaTypeServices,
+		SchemaTypeRules,
+	}
 }
 
 // ParseSchemaType parses a string to SchemaType.
 func ParseSchemaType(s string) (SchemaType, bool) {
 	switch strings.ToLower(s) {
-	case "config":
-		return SchemaTypeConfig, true
 	case "rules":
 		return SchemaTypeRules, true
+	case "environment":
+		return SchemaTypeEnvironment, true
+	case "services":
+		return SchemaTypeServices, true
 	default:
 		return "", false
 	}

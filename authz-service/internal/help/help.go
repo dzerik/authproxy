@@ -242,11 +242,11 @@ func (g *Generator) separator() string {
 
 // optionsSection generates the options section.
 func (g *Generator) optionsSection() string {
-	return `    --config <path>       Path to YAML configuration file
+	return `    --config <path>       Path to environment.yaml configuration file
     --version             Show version information
     --help, -h            Show this help message
     --help-env            Show all environment variables with descriptions
-    --schema <type>       Generate JSON Schema (config, rules)
+    --schema <type>       Generate JSON Schema (environment, services, rules)
     --schema-output <file> Output file for schema (default: stdout)
     --validate            Validate configuration and exit
     --dry-run             Validate config, test connections, and exit
@@ -255,13 +255,34 @@ func (g *Generator) optionsSection() string {
 
 // configMethodsSection generates the configuration methods section.
 func (g *Generator) configMethodsSection() string {
-	return fmt.Sprintf(`    Configuration can be provided through multiple sources (in order of priority):
+	return fmt.Sprintf(`    Configuration is split into 3 files:
+
+    CONFIGURATION STRUCTURE
+    -----------------------
+    1. environment.yaml   - Static configuration (requires restart)
+       - Server ports, addresses, timeouts
+       - Logging format and level
+       - Tracing endpoint
+       - Config source settings
+
+    2. services.yaml      - Dynamic configuration (runtime updatable)
+       - JWT issuers and validation
+       - Policy engine settings
+       - Cache configuration
+       - Resilience (rate limiting, circuit breaker)
+       - Proxy and egress listeners
+
+    3. rules.yaml         - Authorization rules (runtime updatable)
+       - Policy rules with conditions
+       - RBAC/ABAC definitions
+
+    CONFIGURATION SOURCES (in order of priority):
 
     1. COMMAND LINE FLAGS
        Highest priority. Override all other configuration.
 
        Example:
-         %s --config /etc/authz/config.yaml
+         %s --config /etc/authz/environment.yaml
 
     2. ENVIRONMENT VARIABLES
        Middle priority. Override config file values.
@@ -270,20 +291,26 @@ func (g *Generator) configMethodsSection() string {
 
        Examples:
          %s_SERVER_HTTP_ADDR=:8080
-         %s_SERVER_HTTP_READ_TIMEOUT=30s
-         %s_JWT_ISSUERS_0_ISSUER_URL=https://keycloak.example.com/realms/app
-         %s_POLICY_ENGINE=opa_embedded
-         %s_CACHE_L1_ENABLED=true
+         %s_MANAGEMENT_ADMIN_ADDR=:15000
          %s_LOGGING_LEVEL=debug
+         %s_CONFIG_SOURCE_FILE_SERVICES_PATH=/etc/authz/services.yaml
 
-    3. CONFIGURATION FILE (YAML)
+    3. CONFIGURATION FILES (YAML)
        Lowest priority. Base configuration.
 
-       Default paths searched:
-         ./config.yaml
-         ./configs/config.yaml
-         /etc/authz/config.yaml
-`, g.appInfo.Name, g.envVarPrefix, g.envVarPrefix, g.envVarPrefix, g.envVarPrefix, g.envVarPrefix, g.envVarPrefix, g.envVarPrefix)
+       Default paths:
+         environment.yaml: ./configs/environment.yaml, /etc/authz/environment.yaml
+         services.yaml:    Defined in environment.yaml (config_source.file.services_path)
+         rules.yaml:       Defined in environment.yaml (config_source.file.rules_path)
+
+    RUNTIME CONFIGURATION UPDATES
+    -----------------------------
+    Services and rules can be updated at runtime without restart:
+    - File-based: Enable file watching (config_source.file.watch_enabled)
+    - Remote: Configure remote config source (config_source.type=remote)
+
+    Fields marked with x-runtime-updatable=true in JSON Schema can be changed dynamically.
+`, g.appInfo.Name, g.envVarPrefix, g.envVarPrefix, g.envVarPrefix, g.envVarPrefix, g.envVarPrefix)
 }
 
 // operationModesSection generates the operation modes section.
@@ -339,54 +366,81 @@ func (g *Generator) policyEnginesSection() string {
 func (g *Generator) schemaGenerationSection() string {
 	return fmt.Sprintf(`    Generate JSON schemas for IDE autocomplete and validation:
 
-    # Generate config schema
-    %s --schema config > config.schema.json
+    # Generate environment schema (static configuration)
+    %s --schema environment > environment.schema.json
 
-    # Generate rules schema
+    # Generate services schema (dynamic configuration)
+    %s --schema services > services.schema.json
+
+    # Generate rules schema (authorization rules)
     %s --schema rules > rules.schema.json
 
     # Write to specific file
-    %s --schema config --schema-output /etc/authz/config.schema.json
+    %s --schema environment --schema-output /etc/authz/environment.schema.json
 
     Use in YAML files (VS Code, JetBrains):
-    # yaml-language-server: $schema=./config.schema.json
-`, g.appInfo.Name, g.appInfo.Name, g.appInfo.Name)
+    # yaml-language-server: $schema=./environment.schema.json
+
+    Schema includes x-runtime-updatable field indicating which settings
+    can be changed without restart.
+`, g.appInfo.Name, g.appInfo.Name, g.appInfo.Name, g.appInfo.Name)
 }
 
 // examplesSection generates the examples section.
 func (g *Generator) examplesSection() string {
-	return fmt.Sprintf(`    # Start with config file
-    %s --config /etc/authz/config.yaml
+	return fmt.Sprintf(`    # Start with environment config file
+    %s --config /etc/authz/environment.yaml
 
     # Validate configuration
-    %s --config config.yaml --validate
+    %s --config environment.yaml --validate
 
     # Dry run (validate + test connections)
-    %s --config config.yaml --dry-run
+    %s --config environment.yaml --dry-run
 
     # Override with environment variables
     %s_SERVER_HTTP_ADDR=:9090 \
     %s_LOGGING_LEVEL=debug \
-    %s --config config.yaml
+    %s_MANAGEMENT_ADMIN_ADDR=:15000 \
+    %s --config environment.yaml
 
-    # Generate schemas
-    %s --schema config > config.schema.json
+    # Generate all schemas
+    %s --schema environment > environment.schema.json
+    %s --schema services > services.schema.json
     %s --schema rules > rules.schema.json
 
     # Docker with environment variables
     docker run -e %s_SERVER_HTTP_ADDR=:8080 \
-               -e %s_JWT_ISSUERS_0_JWKS_URL=https://auth.example.com/.well-known/jwks.json \
+               -e %s_MANAGEMENT_ENABLED=true \
+               -e %s_CONFIG_SOURCE_FILE_SERVICES_PATH=/config/services.yaml \
+               -v /path/to/configs:/config \
                %s:latest
-`, g.appInfo.Name, g.appInfo.Name, g.appInfo.Name, g.envVarPrefix, g.envVarPrefix, g.appInfo.Name,
-		g.appInfo.Name, g.appInfo.Name, g.envVarPrefix, g.envVarPrefix, g.appInfo.Name)
+
+    # Kubernetes ConfigMap setup
+    # Mount environment.yaml to /etc/authz/environment.yaml
+    # Mount services.yaml to /etc/authz/services.yaml (or configure path)
+    # Mount rules.yaml to /etc/authz/rules.yaml
+`, g.appInfo.Name, g.appInfo.Name, g.appInfo.Name, g.envVarPrefix, g.envVarPrefix, g.envVarPrefix, g.appInfo.Name,
+		g.appInfo.Name, g.appInfo.Name, g.appInfo.Name, g.envVarPrefix, g.envVarPrefix, g.envVarPrefix, g.appInfo.Name)
 }
 
 // filesSection generates the files section.
 func (g *Generator) filesSection() string {
-	return `    /etc/authz/config.yaml    Default configuration file
-    /etc/authz/rules.yaml     Default policy rules file (builtin engine)
-    /etc/authz/policies/      OPA policy directory (opa_embedded engine)
-    /etc/authz/data/          OPA data directory
+	return `    CONFIGURATION FILES
+    /etc/authz/environment.yaml   Static configuration (requires restart)
+    /etc/authz/services.yaml      Dynamic service configuration (runtime updatable)
+    /etc/authz/rules.yaml         Authorization rules (runtime updatable)
+
+    POLICY FILES
+    /etc/authz/policies/          OPA policy directory (opa_embedded engine)
+    /etc/authz/data/              OPA data directory
+
+    CACHE & FALLBACK
+    /var/cache/authz/             Fallback configuration cache directory
+
+    MANAGEMENT PORTS (Istio-style)
+    :15000                        Admin interface (config dump, stats, logging)
+    :15020                        Aggregated health and metrics
+    :15021                        Dedicated readiness probe
 `
 }
 

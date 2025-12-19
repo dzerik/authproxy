@@ -1,0 +1,331 @@
+# Services Configuration (Dynamic - runtime updatable)
+# This file contains service settings that can be updated without restart.
+
+version: "1.0.0"
+
+# JWT validation configuration
+jwt:
+  issuers:
+    - name: keycloak
+      issuer_url: "http://localhost:8180/realms/master"
+      # jwks_url: ""  # If empty, will be discovered from issuer_url
+      audience:
+        - "account"
+      algorithms:
+        - RS256
+        - RS384
+        - RS512
+  jwks_cache:
+    refresh_interval: 1h
+    refresh_timeout: 10s
+    min_refresh_interval: 5m
+  validation:
+    clock_skew: 30s
+    require_expiration: true
+    require_not_before: false
+
+# Token exchange configuration (RFC 8693)
+token_exchange:
+  enabled: false
+  token_url: ""
+  client_id: ""
+  client_secret: ""
+  timeout: 10s
+
+# Policy engine configuration
+policy:
+  engine: builtin  # builtin, opa_sidecar, opa_embedded
+
+  opa:
+    url: "http://localhost:8181"
+    policy_path: "/v1/data/authz/allow"
+    timeout: 10ms
+    retry:
+      max_attempts: 3
+      initial_backoff: 1ms
+      max_backoff: 10ms
+
+  opa_embedded:
+    policy_dir: "/etc/authz/policies"
+    data_dir: "/etc/authz/data"
+    decision_path: "authz.allow"
+    hot_reload: true
+
+  builtin:
+    rules_path: "/etc/authz/rules.yaml"
+
+  fallback:
+    enabled: true
+    engine: builtin
+    behavior: deny
+
+# Cache configuration
+cache:
+  l1:
+    enabled: true
+    max_size: 10000
+    ttl: 10s
+  l2:
+    enabled: false
+    backend: redis
+    redis:
+      addresses:
+        - "localhost:6379"
+      password: ""
+      db: 0
+      pool_size: 10
+      read_timeout: 3s
+      write_timeout: 3s
+    ttl:
+      authorization: 60s
+      jwt: 300s
+      jwks: 3600s
+    key_prefix: "authz:"
+
+# Audit logging configuration
+audit:
+  enabled: true
+  events:
+    - AUTHZ_DECISION
+    - TOKEN_VALIDATION
+    - POLICY_RELOAD
+    - CACHE_INVALIDATE
+  export:
+    stdout:
+      enabled: true
+      format: json
+    otlp:
+      enabled: false
+      endpoint: "localhost:4317"
+      insecure: true
+  enrichment:
+    include_headers:
+      - X-Request-ID
+      - X-Correlation-ID
+    mask_fields:
+      - authorization
+      - cookie
+
+# Health check configuration
+health:
+  check_interval: 10s
+  timeout: 5s
+  checks:
+    - name: policy
+      enabled: true
+      critical: true
+    - name: upstream
+      enabled: true
+      critical: false
+
+# Resilience configuration
+resilience:
+  rate_limit:
+    enabled: true
+    rate: "100-S"
+    store: memory
+    trust_forwarded_for: true
+    exclude_paths:
+      - "/health"
+      - "/ready"
+      - "/live"
+      - "/metrics"
+    by_endpoint: false
+    endpoint_rates:
+      "/v1/token": "50-S"
+      "/v1/authorize": "100-S"
+      "/admin": "10-S"
+    headers:
+      enabled: true
+      limit_header: "X-RateLimit-Limit"
+      remaining_header: "X-RateLimit-Remaining"
+      reset_header: "X-RateLimit-Reset"
+    fail_close: true
+
+  circuit_breaker:
+    enabled: true
+    default:
+      max_requests: 3
+      interval: 60s
+      timeout: 30s
+      failure_threshold: 5
+      success_threshold: 2
+      on_state_change: true
+
+# Sensitive data masking
+sensitive_data:
+  enabled: true
+  mask_value: "***MASKED***"
+  fields:
+    - password
+    - secret
+    - token
+    - api_key
+    - client_secret
+    - access_token
+    - refresh_token
+    - private_key
+  headers:
+    - Authorization
+    - X-API-Key
+    - Cookie
+  mask_jwt: true
+  partial_mask:
+    enabled: false
+    show_first: 4
+    show_last: 4
+    min_length: 12
+
+# TLS client certificate configuration
+tls_client_cert:
+  enabled: false
+  sources:
+    xfcc:
+      enabled: true
+      header: "X-Forwarded-Client-Cert"
+    headers:
+      enabled: false
+  trusted_spiffe_domains: []
+  trusted_proxy_cidrs: []
+  require_verified: false
+
+# Request body access configuration
+request_body:
+  enabled: false
+  max_size: 65536  # 64KB
+  allowed_content_types:
+    - "application/json"
+  require_content_type: true
+  methods:
+    - POST
+    - PUT
+    - PATCH
+  paths: []
+  schema:
+    enabled: false
+    schema_dir: "/etc/authz/schemas"
+    strict_validation: false
+    allow_additional_properties: true
+
+# Proxy listeners configuration (multi-port support)
+proxy:
+  enabled: true
+  listeners:
+    # Main API gateway listener
+    - name: api-gateway
+      port: 8080  # Uses main server port from environment
+      mode: reverse_proxy
+      upstreams:
+        api-service:
+          url: "http://localhost:3000"
+          timeout: 30s
+        user-service:
+          url: "http://user-service:8080"
+          timeout: 15s
+        admin-service:
+          url: "http://admin-service:8080"
+          timeout: 30s
+      routes:
+        - path_prefix: "/api/users"
+          upstream: "user-service"
+          methods: [GET, POST, PUT, DELETE]
+        - path_prefix: "/api/admin"
+          upstream: "admin-service"
+          strip_prefix: "/api/admin"
+          rewrite_prefix: "/admin"
+        - path_prefix: "/api"
+          upstream: "api-service"
+      headers:
+        add:
+          X-Forwarded-By: "authz-proxy"
+        remove:
+          - "X-Internal-Token"
+        add_user_info: true
+        user_id_header: "X-User-ID"
+        user_roles_header: "X-User-Roles"
+      timeout: 30s
+      retry:
+        enabled: true
+        max_attempts: 3
+        initial_backoff: 100ms
+        max_backoff: 1s
+        retry_on: [502, 503, 504]
+      require_auth: true
+
+  defaults:
+    timeout: 30s
+    idle_conn_timeout: 90s
+    max_idle_conns: 100
+    headers:
+      add_user_info: true
+      user_id_header: "X-User-ID"
+      user_roles_header: "X-User-Roles"
+    retry:
+      enabled: true
+      max_attempts: 3
+
+# Egress listeners configuration (multi-port support)
+egress:
+  enabled: false
+  listeners: []
+  #  # External payment APIs listener
+  #  - name: external-payments
+  #    port: 15002
+  #    bind: "0.0.0.0"
+  #    targets:
+  #      sberbank:
+  #        url: "https://api.sberbank.ru"
+  #        auth:
+  #          type: oauth2_client_credentials
+  #          token_url: "https://auth.sberbank.ru/token"
+  #          client_id: "${SBER_CLIENT_ID}"
+  #          client_secret: "${SBER_CLIENT_SECRET}"
+  #      tinkoff:
+  #        url: "https://api.tinkoff.ru"
+  #        auth:
+  #          type: api_key
+  #          header: "X-API-Key"
+  #          key: "${TINKOFF_API_KEY}"
+  #    routes:
+  #      - path_prefix: "/sber"
+  #        target: sberbank
+  #        strip_prefix: "/sber"
+  #      - path_prefix: "/tinkoff"
+  #        target: tinkoff
+  #        strip_prefix: "/tinkoff"
+  #    default_target: sberbank
+  #
+  #  # Internal services listener
+  #  - name: internal-services
+  #    port: 15003
+  #    bind: "127.0.0.1"
+  #    targets:
+  #      user-service:
+  #        url: "http://user-service.svc:8080"
+  #      order-service:
+  #        url: "http://order-service.svc:8080"
+  #    routes:
+  #      - path_prefix: "/users"
+  #        target: user-service
+  #      - path_prefix: "/orders"
+  #        target: order-service
+
+  defaults:
+    timeout: 30s
+    retry:
+      max_attempts: 3
+      initial_backoff: 100ms
+      max_backoff: 2s
+
+  token_store:
+    type: memory
+    redis:
+      address: ""
+      password: ""
+      db: 0
+      key_prefix: "egress:tokens:"
+
+  # Legacy egress endpoint on main port (backward compatibility)
+  legacy_endpoint:
+    enabled: true
+    path: "/egress"

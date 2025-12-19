@@ -261,7 +261,7 @@
     }
   },
   "title": "Authz Service Rules",
-  "description": "Policy rules schema for the builtin authorization engine.\n\nRules are evaluated in priority order (higher priority first).\nFirst matching rule determines the authorization decision.",
+  "description": "Policy rules schema for the builtin authorization engine.\n\nRules are evaluated in priority order (higher priority first).\nFirst matching rule determines the authorization decision.\nThis configuration is runtime-updatable (x-runtime-updatable: true).",
   "examples": [
     {
       "default_deny": true,
@@ -309,5 +309,6 @@
       ],
       "version": "1.0"
     }
-  ]
+  ],
+  "x-runtime-updatable": true
 }

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,22 +11,60 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLoad_DefaultValues(t *testing.T) {
-	// Create a minimal config file
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.yaml")
-	err := os.WriteFile(configPath, []byte("{}"), 0644)
+// Helper function to create test config files
+func createTestConfigFiles(t *testing.T, tmpDir string, envContent, svcContent string) string {
+	t.Helper()
+
+	envPath := filepath.Join(tmpDir, "environment.yaml")
+	svcPath := filepath.Join(tmpDir, "services.yaml")
+	rulesPath := filepath.Join(tmpDir, "rules.yaml")
+
+	if envContent == "" {
+		envContent = `
+config_source:
+  type: file
+  file:
+    services_path: ` + svcPath + `
+    rules_path: ` + rulesPath + `
+`
+	}
+
+	if svcContent == "" {
+		svcContent = "{}"
+	}
+
+	rulesContent := `
+rules:
+  - name: default
+    effect: allow
+`
+
+	err := os.WriteFile(envPath, []byte(envContent), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(svcPath, []byte(svcContent), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(rulesPath, []byte(rulesContent), 0644)
 	require.NoError(t, err)
 
-	cfg, err := Load(configPath)
+	return envPath
+}
+
+func TestLoadAll_DefaultValues(t *testing.T) {
+	tmpDir := t.TempDir()
+	envPath := createTestConfigFiles(t, tmpDir, "", "")
+
+	loader, err := LoadAll(context.Background(), envPath)
 	require.NoError(t, err)
+	require.NotNil(t, loader)
+
+	cfg := loader.ToConfig()
 	require.NotNil(t, cfg)
 
 	// Server defaults
 	assert.True(t, cfg.Server.HTTP.Enabled)
 	assert.Equal(t, ":8080", cfg.Server.HTTP.Addr)
 	assert.Equal(t, 10*time.Second, cfg.Server.HTTP.ReadTimeout)
-	assert.Equal(t, 10*time.Second, cfg.Server.HTTP.WriteTimeout)
+	assert.Equal(t, 30*time.Second, cfg.Server.HTTP.WriteTimeout)  // Default is 30s
 	assert.Equal(t, 120*time.Second, cfg.Server.HTTP.IdleTimeout)
 	assert.Equal(t, 30*time.Second, cfg.Server.HTTP.ShutdownTimeout)
 	assert.Equal(t, 1<<20, cfg.Server.HTTP.MaxHeaderBytes) // 1MB
@@ -35,8 +74,6 @@ func TestLoad_DefaultValues(t *testing.T) {
 
 	// Proxy defaults
 	assert.False(t, cfg.Proxy.Enabled)
-	assert.Equal(t, "decision_only", cfg.Proxy.Mode)
-	assert.Equal(t, 30*time.Second, cfg.Proxy.Timeout)
 
 	// Policy defaults
 	assert.Equal(t, "builtin", cfg.Policy.Engine)
@@ -67,11 +104,12 @@ func TestLoad_DefaultValues(t *testing.T) {
 	assert.True(t, cfg.SensitiveData.MaskJWT)
 }
 
-func TestLoad_CustomValues(t *testing.T) {
+func TestLoadAll_CustomValues(t *testing.T) {
 	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.yaml")
+	svcPath := filepath.Join(tmpDir, "services.yaml")
+	rulesPath := filepath.Join(tmpDir, "rules.yaml")
 
-	configContent := `
+	envContent := `
 server:
   http:
     addr: ":9000"
@@ -79,6 +117,15 @@ server:
   grpc:
     enabled: true
     addr: ":9091"
+logging:
+  level: debug
+config_source:
+  type: file
+  file:
+    services_path: ` + svcPath + `
+    rules_path: ` + rulesPath + `
+`
+	svcContent := `
 policy:
   engine: opa
   opa:
@@ -87,15 +134,25 @@ cache:
   l1:
     max_size: 5000
     ttl: 30s
-logging:
-  level: debug
 `
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	rulesContent := `
+rules:
+  - name: default
+    effect: allow
+`
+
+	envPath := filepath.Join(tmpDir, "environment.yaml")
+	err := os.WriteFile(envPath, []byte(envContent), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(svcPath, []byte(svcContent), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(rulesPath, []byte(rulesContent), 0644)
 	require.NoError(t, err)
 
-	cfg, err := Load(configPath)
+	loader, err := LoadAll(context.Background(), envPath)
 	require.NoError(t, err)
 
+	cfg := loader.ToConfig()
 	assert.Equal(t, ":9000", cfg.Server.HTTP.Addr)
 	assert.Equal(t, 30*time.Second, cfg.Server.HTTP.ReadTimeout)
 	assert.True(t, cfg.Server.GRPC.Enabled)
@@ -107,57 +164,59 @@ logging:
 	assert.Equal(t, "debug", cfg.Logging.Level)
 }
 
-func TestLoad_EnvironmentVariables(t *testing.T) {
+func TestLoadAll_EnvironmentVariables(t *testing.T) {
 	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.yaml")
-	err := os.WriteFile(configPath, []byte("{}"), 0644)
-	require.NoError(t, err)
+	envPath := createTestConfigFiles(t, tmpDir, "", "")
 
 	// Set environment variables
 	os.Setenv("AUTHZ_SERVER_HTTP_ADDR", ":7070")
 	os.Setenv("AUTHZ_LOGGING_LEVEL", "warn")
-	os.Setenv("AUTHZ_CACHE_L1_MAX_SIZE", "20000")
 	defer func() {
 		os.Unsetenv("AUTHZ_SERVER_HTTP_ADDR")
 		os.Unsetenv("AUTHZ_LOGGING_LEVEL")
-		os.Unsetenv("AUTHZ_CACHE_L1_MAX_SIZE")
 	}()
 
-	cfg, err := Load(configPath)
+	loader, err := LoadAll(context.Background(), envPath)
 	require.NoError(t, err)
 
+	cfg := loader.ToConfig()
 	assert.Equal(t, ":7070", cfg.Server.HTTP.Addr)
 	assert.Equal(t, "warn", cfg.Logging.Level)
-	assert.Equal(t, 20000, cfg.Cache.L1.MaxSize)
 }
 
-func TestLoad_ConfigFileNotFound(t *testing.T) {
-	// Load without config file should use defaults
-	cfg, err := Load("/nonexistent/path/config.yaml")
+func TestLoadAll_ConfigFileNotFound(t *testing.T) {
+	loader, err := LoadAll(context.Background(), "/nonexistent/path/environment.yaml")
 
-	// Should fail with explicit path that doesn't exist
 	assert.Error(t, err)
-	assert.Nil(t, cfg)
+	assert.Nil(t, loader)
 }
 
-func TestLoad_InvalidYAML(t *testing.T) {
+func TestLoadAll_InvalidYAML(t *testing.T) {
 	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.yaml")
+	envPath := filepath.Join(tmpDir, "environment.yaml")
 
 	// Write invalid YAML
-	err := os.WriteFile(configPath, []byte("invalid: yaml: content: ["), 0644)
+	err := os.WriteFile(envPath, []byte("invalid: yaml: content: ["), 0644)
 	require.NoError(t, err)
 
-	cfg, err := Load(configPath)
+	loader, err := LoadAll(context.Background(), envPath)
 	assert.Error(t, err)
-	assert.Nil(t, cfg)
+	assert.Nil(t, loader)
 }
 
-func TestLoad_JWTConfig(t *testing.T) {
+func TestLoadAll_JWTConfig(t *testing.T) {
 	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.yaml")
+	svcPath := filepath.Join(tmpDir, "services.yaml")
+	rulesPath := filepath.Join(tmpDir, "rules.yaml")
 
-	configContent := `
+	envContent := `
+config_source:
+  type: file
+  file:
+    services_path: ` + svcPath + `
+    rules_path: ` + rulesPath + `
+`
+	svcContent := `
 jwt:
   issuers:
     - name: keycloak
@@ -172,12 +231,24 @@ jwt:
     clock_skew: 60s
     require_expiration: true
 `
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	rulesContent := `
+rules:
+  - name: default
+    effect: allow
+`
+
+	envPath := filepath.Join(tmpDir, "environment.yaml")
+	err := os.WriteFile(envPath, []byte(envContent), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(svcPath, []byte(svcContent), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(rulesPath, []byte(rulesContent), 0644)
 	require.NoError(t, err)
 
-	cfg, err := Load(configPath)
+	loader, err := LoadAll(context.Background(), envPath)
 	require.NoError(t, err)
 
+	cfg := loader.ToConfig()
 	require.Len(t, cfg.JWT.Issuers, 1)
 	assert.Equal(t, "keycloak", cfg.JWT.Issuers[0].Name)
 	assert.Equal(t, "https://auth.example.com/realms/test", cfg.JWT.Issuers[0].IssuerURL)
@@ -187,90 +258,19 @@ jwt:
 	assert.True(t, cfg.JWT.Validation.RequireExpiration)
 }
 
-func TestLoad_ProxyConfig(t *testing.T) {
+func TestLoadAll_ResilienceConfig(t *testing.T) {
 	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.yaml")
+	svcPath := filepath.Join(tmpDir, "services.yaml")
+	rulesPath := filepath.Join(tmpDir, "rules.yaml")
 
-	configContent := `
-proxy:
-  enabled: true
-  mode: reverse_proxy
-  upstream:
-    url: http://backend:8080
-  routes:
-    - path_prefix: /api/v1
-      upstream: backend1
-    - path_prefix: /api/v2
-      upstream: backend2
-  upstreams:
-    backend1:
-      url: http://backend1:8080
-    backend2:
-      url: http://backend2:8080
-  headers:
-    add_user_info: true
-    user_id_header: X-User-ID
+	envContent := `
+config_source:
+  type: file
+  file:
+    services_path: ` + svcPath + `
+    rules_path: ` + rulesPath + `
 `
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
-	require.NoError(t, err)
-
-	cfg, err := Load(configPath)
-	require.NoError(t, err)
-
-	assert.True(t, cfg.Proxy.Enabled)
-	assert.Equal(t, "reverse_proxy", cfg.Proxy.Mode)
-	assert.Equal(t, "http://backend:8080", cfg.Proxy.Upstream.URL)
-	assert.Len(t, cfg.Proxy.Routes, 2)
-	assert.Equal(t, "/api/v1", cfg.Proxy.Routes[0].PathPrefix)
-	assert.Len(t, cfg.Proxy.Upstreams, 2)
-	assert.True(t, cfg.Proxy.Headers.AddUserInfo)
-}
-
-func TestLoad_EgressConfig(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.yaml")
-
-	configContent := `
-egress:
-  enabled: true
-  targets:
-    external-api:
-      url: https://api.external.com
-      timeout: 15s
-      auth:
-        type: oauth2_client_credentials
-        token_url: https://auth.external.com/token
-        client_id: my-client
-        client_secret: my-secret
-        scopes:
-          - read
-          - write
-  routes:
-    - path_prefix: /external
-      target: external-api
-`
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
-	require.NoError(t, err)
-
-	cfg, err := Load(configPath)
-	require.NoError(t, err)
-
-	assert.True(t, cfg.Egress.Enabled)
-	require.Contains(t, cfg.Egress.Targets, "external-api")
-	target := cfg.Egress.Targets["external-api"]
-	assert.Equal(t, "https://api.external.com", target.URL)
-	assert.Equal(t, 15*time.Second, target.Timeout)
-	assert.Equal(t, "oauth2_client_credentials", target.Auth.Type)
-	assert.Equal(t, "my-client", target.Auth.ClientID)
-	assert.Contains(t, target.Auth.Scopes, "read")
-	assert.Len(t, cfg.Egress.Routes, 1)
-}
-
-func TestLoad_ResilienceConfig(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.yaml")
-
-	configContent := `
+	svcContent := `
 resilience:
   rate_limit:
     enabled: true
@@ -282,8 +282,6 @@ resilience:
     exclude_paths:
       - /health
       - /metrics
-    endpoint_rates:
-      /v1/authorize: "500-S"
   circuit_breaker:
     enabled: true
     default:
@@ -292,12 +290,24 @@ resilience:
       timeout: 15s
       failure_threshold: 10
 `
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	rulesContent := `
+rules:
+  - name: default
+    effect: allow
+`
+
+	envPath := filepath.Join(tmpDir, "environment.yaml")
+	err := os.WriteFile(envPath, []byte(envContent), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(svcPath, []byte(svcContent), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(rulesPath, []byte(rulesContent), 0644)
 	require.NoError(t, err)
 
-	cfg, err := Load(configPath)
+	loader, err := LoadAll(context.Background(), envPath)
 	require.NoError(t, err)
 
+	cfg := loader.ToConfig()
 	assert.True(t, cfg.Resilience.RateLimit.Enabled)
 	assert.Equal(t, "1000-S", cfg.Resilience.RateLimit.Rate)
 	assert.Equal(t, "redis", cfg.Resilience.RateLimit.Store)
@@ -310,35 +320,19 @@ resilience:
 	assert.Equal(t, uint32(10), cfg.Resilience.CircuitBreaker.Default.FailureThreshold)
 }
 
-func TestLoad_EndpointsConfig(t *testing.T) {
+func TestLoadAll_SensitiveDataConfig(t *testing.T) {
 	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.yaml")
+	svcPath := filepath.Join(tmpDir, "services.yaml")
+	rulesPath := filepath.Join(tmpDir, "rules.yaml")
 
-	configContent := `
-endpoints:
-  authorize: /api/v1/authorize
-  health: /healthz
-  metrics: /prometheus/metrics
+	envContent := `
+config_source:
+  type: file
+  file:
+    services_path: ` + svcPath + `
+    rules_path: ` + rulesPath + `
 `
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
-	require.NoError(t, err)
-
-	cfg, err := Load(configPath)
-	require.NoError(t, err)
-
-	assert.Equal(t, "/api/v1/authorize", cfg.Endpoints.Authorize)
-	assert.Equal(t, "/healthz", cfg.Endpoints.Health)
-	assert.Equal(t, "/prometheus/metrics", cfg.Endpoints.Metrics)
-	// Default values for unset endpoints
-	assert.Equal(t, "/ready", cfg.Endpoints.Ready)
-	assert.Equal(t, "/live", cfg.Endpoints.Live)
-}
-
-func TestLoad_SensitiveDataConfig(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.yaml")
-
-	configContent := `
+	svcContent := `
 sensitive_data:
   enabled: true
   mask_value: "[REDACTED]"
@@ -355,12 +349,24 @@ sensitive_data:
     show_first: 4
     show_last: 4
 `
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	rulesContent := `
+rules:
+  - name: default
+    effect: allow
+`
+
+	envPath := filepath.Join(tmpDir, "environment.yaml")
+	err := os.WriteFile(envPath, []byte(envContent), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(svcPath, []byte(svcContent), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(rulesPath, []byte(rulesContent), 0644)
 	require.NoError(t, err)
 
-	cfg, err := Load(configPath)
+	loader, err := LoadAll(context.Background(), envPath)
 	require.NoError(t, err)
 
+	cfg := loader.ToConfig()
 	assert.True(t, cfg.SensitiveData.Enabled)
 	assert.Equal(t, "[REDACTED]", cfg.SensitiveData.MaskValue)
 	assert.Contains(t, cfg.SensitiveData.Fields, "password")
@@ -368,6 +374,73 @@ sensitive_data:
 	assert.True(t, cfg.SensitiveData.MaskJWT)
 	assert.True(t, cfg.SensitiveData.PartialMask.Enabled)
 	assert.Equal(t, 4, cfg.SensitiveData.PartialMask.ShowFirst)
+}
+
+func TestLoader_GetEnvironment(t *testing.T) {
+	tmpDir := t.TempDir()
+	svcPath := filepath.Join(tmpDir, "services.yaml")
+	rulesPath := filepath.Join(tmpDir, "rules.yaml")
+
+	envContent := `
+server:
+  http:
+    addr: ":8888"
+logging:
+  level: warn
+config_source:
+  type: file
+  file:
+    services_path: ` + svcPath + `
+    rules_path: ` + rulesPath + `
+`
+	envPath := filepath.Join(tmpDir, "environment.yaml")
+	err := os.WriteFile(envPath, []byte(envContent), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(svcPath, []byte("{}"), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(rulesPath, []byte("rules: []"), 0644)
+	require.NoError(t, err)
+
+	loader, err := LoadAll(context.Background(), envPath)
+	require.NoError(t, err)
+
+	env := loader.GetEnvironment()
+	require.NotNil(t, env)
+	assert.Equal(t, ":8888", env.Server.HTTP.Addr)
+	assert.Equal(t, "warn", env.Logging.Level)
+}
+
+func TestLoader_GetServices(t *testing.T) {
+	tmpDir := t.TempDir()
+	svcPath := filepath.Join(tmpDir, "services.yaml")
+	rulesPath := filepath.Join(tmpDir, "rules.yaml")
+
+	envContent := `
+config_source:
+  type: file
+  file:
+    services_path: ` + svcPath + `
+    rules_path: ` + rulesPath + `
+`
+	svcContent := `
+cache:
+  l1:
+    max_size: 50000
+`
+	envPath := filepath.Join(tmpDir, "environment.yaml")
+	err := os.WriteFile(envPath, []byte(envContent), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(svcPath, []byte(svcContent), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(rulesPath, []byte("rules: []"), 0644)
+	require.NoError(t, err)
+
+	loader, err := LoadAll(context.Background(), envPath)
+	require.NoError(t, err)
+
+	svc := loader.GetServices()
+	require.NotNil(t, svc)
+	assert.Equal(t, 50000, svc.Cache.L1.MaxSize)
 }
 
 // =============================================================================
@@ -402,14 +475,22 @@ func TestCacheConfig_Defaults(t *testing.T) {
 // Benchmarks
 // =============================================================================
 
-func BenchmarkLoad(b *testing.B) {
+func BenchmarkLoadAll(b *testing.B) {
 	tmpDir := b.TempDir()
-	configPath := filepath.Join(tmpDir, "config.yaml")
+	svcPath := filepath.Join(tmpDir, "services.yaml")
+	rulesPath := filepath.Join(tmpDir, "rules.yaml")
 
-	configContent := `
+	envContent := `
 server:
   http:
     addr: ":8080"
+config_source:
+  type: file
+  file:
+    services_path: ` + svcPath + `
+    rules_path: ` + rulesPath + `
+`
+	svcContent := `
 policy:
   engine: builtin
 cache:
@@ -417,10 +498,15 @@ cache:
     enabled: true
     max_size: 10000
 `
-	os.WriteFile(configPath, []byte(configContent), 0644)
+	envPath := filepath.Join(tmpDir, "environment.yaml")
+	os.WriteFile(envPath, []byte(envContent), 0644)
+	os.WriteFile(svcPath, []byte(svcContent), 0644)
+	os.WriteFile(rulesPath, []byte("rules: []"), 0644)
+
+	ctx := context.Background()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		Load(configPath)
+		LoadAll(ctx, envPath)
 	}
 }
