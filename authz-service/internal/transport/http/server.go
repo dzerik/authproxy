@@ -85,7 +85,13 @@ func NewServer(
 
 	// Create reverse proxy if enabled
 	if server.proxyEnabled {
-		proxy, err := NewReverseProxy(cfg.Proxy, cfg.Env, cfg.TLSClientCert, cfg.RequestBody, jwtService, policyService)
+		// Use default error response config for legacy single-proxy mode
+		errCfg := config.ErrorResponseConfig{
+			Format:           config.ErrorFormatJSON,
+			IncludeRequestID: true,
+			IncludeReason:    true,
+		}
+		proxy, err := NewReverseProxy(cfg.Proxy, cfg.Env, cfg.TLSClientCert, cfg.RequestBody, errCfg, jwtService, policyService)
 		if err != nil {
 			return nil, err
 		}
@@ -94,7 +100,13 @@ func NewServer(
 
 	// Create egress proxy service if enabled
 	if server.egressEnabled {
-		egressSvc, err := egress.NewService(cfg.Egress, logger.L())
+		// Use default error response config for legacy egress mode
+		egressErrCfg := config.ErrorResponseConfig{
+			Format:           config.ErrorFormatJSON,
+			IncludeRequestID: true,
+			IncludeReason:    true,
+		}
+		egressSvc, err := egress.NewService(cfg.Egress, egressErrCfg, logger.L())
 		if err != nil {
 			return nil, err
 		}

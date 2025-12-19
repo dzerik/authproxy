@@ -153,6 +153,50 @@ type ProxyRetryConfig struct {
 }
 
 // =============================================================================
+// Error Response Configuration
+// =============================================================================
+
+// ErrorResponseFormat defines the format of error responses.
+type ErrorResponseFormat string
+
+const (
+	// ErrorFormatJSON returns errors as JSON objects
+	ErrorFormatJSON ErrorResponseFormat = "json"
+	// ErrorFormatText returns errors as plain text
+	ErrorFormatText ErrorResponseFormat = "text"
+	// ErrorFormatHTML returns errors as HTML pages
+	ErrorFormatHTML ErrorResponseFormat = "html"
+	// ErrorFormatRFC7807 returns errors as RFC 7807 Problem Details
+	ErrorFormatRFC7807 ErrorResponseFormat = "rfc7807"
+	// ErrorFormatEnvoy returns errors in Envoy RBAC format
+	ErrorFormatEnvoy ErrorResponseFormat = "envoy"
+	// ErrorFormatCustom uses custom templates
+	ErrorFormatCustom ErrorResponseFormat = "custom"
+)
+
+// ErrorResponseConfig holds error response format configuration.
+type ErrorResponseConfig struct {
+	// Format is the error response format
+	Format ErrorResponseFormat `mapstructure:"format" jsonschema:"description=Error response format.,enum=json,enum=text,enum=html,enum=rfc7807,enum=envoy,enum=custom,default=json"`
+	// IncludeRequestID includes request ID in error response
+	IncludeRequestID bool `mapstructure:"include_request_id" jsonschema:"description=Include X-Request-ID in error response body.,default=true"`
+	// IncludeTimestamp includes timestamp in error response
+	IncludeTimestamp bool `mapstructure:"include_timestamp" jsonschema:"description=Include timestamp in error response body.,default=false"`
+	// IncludePath includes request path in error response
+	IncludePath bool `mapstructure:"include_path" jsonschema:"description=Include request path in error response body. May expose internal routing.,default=false"`
+	// IncludeReason includes denial reason in error response
+	IncludeReason bool `mapstructure:"include_reason" jsonschema:"description=Include authorization denial reason in error response.,default=true"`
+	// Headers are additional headers to include in error responses
+	Headers map[string]string `mapstructure:"headers" jsonschema:"description=Additional headers to include in error responses. Example: {'X-Content-Type-Options': 'nosniff'}."`
+	// CustomTemplates are Go text/template strings for each status code (format=custom only)
+	CustomTemplates map[string]string `mapstructure:"custom_templates" jsonschema:"description=Custom Go text/template for each HTTP status code. Keys: '401'\\, '403'\\, '500'\\, 'default'. Variables: {{.StatusCode}}\\, {{.Status}}\\, {{.Message}}\\, {{.Reason}}\\, {{.RequestID}}\\, {{.Path}}\\, {{.Method}}\\, {{.Timestamp}}."`
+	// DefaultTemplate is the fallback template when status code not in CustomTemplates
+	DefaultTemplate string `mapstructure:"default_template" jsonschema:"description=Default template used when status code not found in custom_templates."`
+	// ContentType overrides the Content-Type header (for custom format)
+	ContentType string `mapstructure:"content_type" jsonschema:"description=Override Content-Type header for custom format. Example: 'application/json; charset=utf-8'."`
+}
+
+// =============================================================================
 // Egress Proxy Configuration
 // =============================================================================
 
@@ -258,8 +302,9 @@ type EgressRouteConfig struct {
 
 // EgressDefaultsConfig holds default settings for egress targets.
 type EgressDefaultsConfig struct {
-	Timeout time.Duration     `mapstructure:"timeout" jsonschema:"description=Default request timeout for all targets.,default=30s"`
-	Retry   EgressRetryConfig `mapstructure:"retry" jsonschema:"description=Default retry configuration for all targets."`
+	Timeout       time.Duration       `mapstructure:"timeout" jsonschema:"description=Default request timeout for all targets.,default=30s"`
+	Retry         EgressRetryConfig   `mapstructure:"retry" jsonschema:"description=Default retry configuration for all targets."`
+	ErrorResponse ErrorResponseConfig `mapstructure:"error_response" jsonschema:"description=Default error response format settings."`
 }
 
 // EgressTokenStoreConfig holds token store configuration.
@@ -313,6 +358,22 @@ type HTTPServerConfig struct {
 	IdleTimeout     time.Duration `mapstructure:"idle_timeout" jsonschema:"description=Maximum duration for idle connections.,default=120s"`
 	ShutdownTimeout time.Duration `mapstructure:"shutdown_timeout" jsonschema:"description=Maximum duration for graceful shutdown.,default=30s"`
 	MaxHeaderBytes  int           `mapstructure:"max_header_bytes" jsonschema:"description=Maximum size of request headers in bytes.,default=1048576"`
+	// RequestTracking configures request ID and correlation ID headers
+	RequestTracking RequestTrackingConfig `mapstructure:"request_tracking" jsonschema:"description=Request tracking headers configuration for tracing and logging."`
+}
+
+// RequestTrackingConfig holds request ID and correlation header configuration.
+type RequestTrackingConfig struct {
+	// RequestIDHeader is the header name for request ID
+	RequestIDHeader string `mapstructure:"request_id_header" jsonschema:"description=Header name for request ID.,default=X-Request-ID"`
+	// CorrelationIDHeader is the header name for correlation ID
+	CorrelationIDHeader string `mapstructure:"correlation_id_header" jsonschema:"description=Header name for correlation ID.,default=X-Correlation-ID"`
+	// ForwardedAuthHeader is the header name for forwarded authorization (from proxies)
+	ForwardedAuthHeader string `mapstructure:"forwarded_auth_header" jsonschema:"description=Header name for forwarded authorization from reverse proxies.,default=X-Forwarded-Authorization"`
+	// GenerateIfMissing generates a new request ID if not present in request
+	GenerateIfMissing bool `mapstructure:"generate_if_missing" jsonschema:"description=Generate a new request ID if not present in incoming request.,default=true"`
+	// PropagateToUpstream propagates request/correlation IDs to upstream services
+	PropagateToUpstream bool `mapstructure:"propagate_to_upstream" jsonschema:"description=Propagate request and correlation IDs to upstream services in proxy mode.,default=true"`
 }
 
 // GRPCServerConfig holds gRPC server settings.
@@ -376,6 +437,18 @@ type PolicyConfig struct {
 	OPAEmbedded OPAEmbeddedConfig   `mapstructure:"opa_embedded" jsonschema:"description=Embedded OPA configuration (when engine=opa_embedded)."`
 	Builtin     BuiltinPolicyConfig `mapstructure:"builtin" jsonschema:"description=Builtin YAML rules engine configuration (when engine=builtin)."`
 	Fallback    FallbackConfig      `mapstructure:"fallback" jsonschema:"description=Fallback policy configuration when primary engine fails."`
+	// Cache holds policy evaluation cache sizes
+	Cache PolicyCacheConfig `mapstructure:"cache" jsonschema:"description=Policy evaluation cache sizes for CEL expressions and matchers."`
+}
+
+// PolicyCacheConfig holds policy evaluation cache configuration.
+type PolicyCacheConfig struct {
+	// CELCacheSize is the maximum number of cached CEL programs
+	CELCacheSize int `mapstructure:"cel_cache_size" jsonschema:"description=Maximum number of compiled CEL programs to cache.,default=500,minimum=100"`
+	// PathMatcherCacheSize is the maximum number of cached path patterns
+	PathMatcherCacheSize int `mapstructure:"path_matcher_cache_size" jsonschema:"description=Maximum number of compiled path patterns to cache.,default=1000,minimum=100"`
+	// CIDRMatcherCacheSize is the maximum number of cached CIDR patterns
+	CIDRMatcherCacheSize int `mapstructure:"cidr_matcher_cache_size" jsonschema:"description=Maximum number of parsed CIDR patterns to cache.,default=500,minimum=100"`
 }
 
 // OPAConfig holds OPA HTTP client configuration.
@@ -510,6 +583,8 @@ type HealthConfig struct {
 	CheckInterval time.Duration `mapstructure:"check_interval" jsonschema:"description=Interval between health checks.,default=10s"`
 	Timeout       time.Duration `mapstructure:"timeout" jsonschema:"description=Timeout for individual health checks.,default=5s"`
 	Checks        []CheckConfig `mapstructure:"checks" jsonschema:"description=Individual health check configurations."`
+	// SLO holds Service Level Objective configuration
+	SLO SLOConfig `mapstructure:"slo" jsonschema:"description=Service Level Objective configuration for metrics and alerting."`
 }
 
 // CheckConfig holds individual health check configuration.
@@ -517,6 +592,24 @@ type CheckConfig struct {
 	Name     string `mapstructure:"name" jsonschema:"description=Health check name (e.g. 'redis'\\, 'opa')."`
 	Enabled  bool   `mapstructure:"enabled" jsonschema:"description=Enable this health check.,default=true"`
 	Critical bool   `mapstructure:"critical" jsonschema:"description=If true\\, failure marks service as unhealthy.,default=false"`
+}
+
+// =============================================================================
+// SLO Configuration (Service Level Objectives)
+// =============================================================================
+
+// SLOConfig holds Service Level Objective configuration for metrics.
+type SLOConfig struct {
+	// Enabled enables SLO metrics tracking
+	Enabled bool `mapstructure:"enabled" jsonschema:"description=Enable SLO metrics tracking.,default=true"`
+	// LatencyP99Threshold is the P99 latency threshold in milliseconds
+	LatencyP99Threshold int `mapstructure:"latency_p99_threshold_ms" jsonschema:"description=P99 latency threshold in milliseconds for SLO tracking.,default=100,minimum=10"`
+	// LatencyP999Threshold is the P99.9 latency threshold in milliseconds
+	LatencyP999Threshold int `mapstructure:"latency_p999_threshold_ms" jsonschema:"description=P99.9 latency threshold in milliseconds for SLO tracking.,default=500,minimum=50"`
+	// AvailabilityTarget is the target availability percentage (e.g., 99.9)
+	AvailabilityTarget float64 `mapstructure:"availability_target" jsonschema:"description=Target availability percentage for SLO tracking.,default=99.9,minimum=90,maximum=100"`
+	// ErrorRateThreshold is the maximum acceptable error rate percentage
+	ErrorRateThreshold float64 `mapstructure:"error_rate_threshold" jsonschema:"description=Maximum acceptable error rate percentage for SLO tracking.,default=0.1,minimum=0,maximum=100"`
 }
 
 // =============================================================================
@@ -617,14 +710,62 @@ type SensitiveDataConfig struct {
 	Enabled bool `mapstructure:"enabled" jsonschema:"description=Enable automatic masking of sensitive data in logs.,default=true"`
 	// MaskValue is the replacement value for masked data
 	MaskValue string `mapstructure:"mask_value" jsonschema:"description=Value to replace sensitive data with.,default=***MASKED***"`
-	// Fields are field names to mask (case-insensitive)
-	Fields []string `mapstructure:"fields" jsonschema:"description=Field names to mask in logs (case-insensitive). Applied to JSON keys and struct fields.,default=[password\\,secret\\,token\\,api_key\\,apikey\\,authorization\\,client_secret\\,access_token\\,refresh_token\\,private_key\\,credential]"`
-	// Headers are HTTP header names to mask
-	Headers []string `mapstructure:"headers" jsonschema:"description=HTTP header names to mask in logs (case-insensitive).,default=[Authorization\\,X-API-Key\\,Cookie\\,Set-Cookie]"`
+	// Fields are field names to mask (case-insensitive). Replaces default list if specified.
+	Fields []string `mapstructure:"fields" jsonschema:"description=Field names to mask in logs (case-insensitive). Replaces default list if specified."`
+	// ExtraFields are additional field names to mask (merged with defaults)
+	ExtraFields []string `mapstructure:"extra_fields" jsonschema:"description=Additional field names to mask. These are ADDED to the default list without replacing it."`
+	// Headers are HTTP header names to mask. Replaces default list if specified.
+	Headers []string `mapstructure:"headers" jsonschema:"description=HTTP header names to mask in logs (case-insensitive). Replaces default list if specified."`
+	// ExtraHeaders are additional header names to mask (merged with defaults)
+	ExtraHeaders []string `mapstructure:"extra_headers" jsonschema:"description=Additional HTTP header names to mask. These are ADDED to the default list without replacing it."`
 	// MaskJWT masks JWT token payload (keeps header visible)
 	MaskJWT bool `mapstructure:"mask_jwt" jsonschema:"description=Mask JWT token payload in logs (keeps header and signature indicator visible).,default=true"`
 	// PartialMask enables partial masking (show first/last N chars)
 	PartialMask PartialMaskConfig `mapstructure:"partial_mask" jsonschema:"description=Partial masking configuration to show parts of sensitive values."`
+}
+
+// GetAllFields returns all field names to mask (Fields + ExtraFields, deduplicated).
+func (c *SensitiveDataConfig) GetAllFields() []string {
+	return mergeUnique(c.Fields, c.ExtraFields)
+}
+
+// GetAllHeaders returns all header names to mask (Headers + ExtraHeaders, deduplicated).
+func (c *SensitiveDataConfig) GetAllHeaders() []string {
+	return mergeUnique(c.Headers, c.ExtraHeaders)
+}
+
+// mergeUnique merges two string slices and removes duplicates (case-insensitive).
+func mergeUnique(base, extra []string) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(base)+len(extra))
+
+	for _, s := range base {
+		lower := toLower(s)
+		if !seen[lower] {
+			seen[lower] = true
+			result = append(result, s)
+		}
+	}
+	for _, s := range extra {
+		lower := toLower(s)
+		if !seen[lower] {
+			seen[lower] = true
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
+func toLower(s string) string {
+	b := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		b[i] = c
+	}
+	return string(b)
 }
 
 // PartialMaskConfig holds partial masking configuration.

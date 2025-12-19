@@ -385,6 +385,10 @@ func setServicesDefaults(v *viper.Viper) {
 	v.SetDefault("policy.fallback.enabled", true)
 	v.SetDefault("policy.fallback.engine", "builtin")
 	v.SetDefault("policy.fallback.behavior", "deny")
+	// Policy cache defaults
+	v.SetDefault("policy.cache.cel_cache_size", 500)
+	v.SetDefault("policy.cache.path_matcher_cache_size", 1000)
+	v.SetDefault("policy.cache.cidr_matcher_cache_size", 500)
 
 	// Cache defaults
 	v.SetDefault("cache.l1.enabled", true)
@@ -411,6 +415,12 @@ func setServicesDefaults(v *viper.Viper) {
 	// Health defaults
 	v.SetDefault("health.check_interval", "10s")
 	v.SetDefault("health.timeout", "5s")
+	// SLO defaults
+	v.SetDefault("health.slo.enabled", true)
+	v.SetDefault("health.slo.latency_p99_threshold_ms", 100)
+	v.SetDefault("health.slo.latency_p999_threshold_ms", 500)
+	v.SetDefault("health.slo.availability_target", 99.9)
+	v.SetDefault("health.slo.error_rate_threshold", 0.1)
 
 	// Resilience defaults
 	v.SetDefault("resilience.rate_limit.enabled", true)
@@ -433,11 +443,21 @@ func setServicesDefaults(v *viper.Viper) {
 	v.SetDefault("resilience.circuit_breaker.default.success_threshold", 2)
 	v.SetDefault("resilience.circuit_breaker.default.on_state_change", true)
 
-	// Sensitive data defaults
+	// Sensitive data defaults (expanded lists)
 	v.SetDefault("sensitive_data.enabled", true)
 	v.SetDefault("sensitive_data.mask_value", "***MASKED***")
-	v.SetDefault("sensitive_data.fields", []string{"password", "secret", "token", "api_key", "apikey", "authorization", "client_secret", "access_token", "refresh_token", "private_key", "credential"})
-	v.SetDefault("sensitive_data.headers", []string{"Authorization", "X-API-Key", "Cookie", "Set-Cookie"})
+	v.SetDefault("sensitive_data.fields", []string{
+		"password", "secret", "token", "api_key", "apikey",
+		"authorization", "client_secret", "access_token", "refresh_token",
+		"private_key", "credential", "credentials", "passwd", "pwd",
+		"secret_key", "signing_key", "encryption_key", "bearer",
+		"session_id", "session_token", "auth_token", "id_token",
+	})
+	v.SetDefault("sensitive_data.headers", []string{
+		"Authorization", "X-API-Key", "Cookie", "Set-Cookie",
+		"X-Auth-Token", "X-Session-ID", "X-CSRF-Token", "X-XSRF-Token",
+		"Proxy-Authorization", "WWW-Authenticate", "X-Forwarded-Authorization",
+	})
 	v.SetDefault("sensitive_data.mask_jwt", true)
 	v.SetDefault("sensitive_data.partial_mask.enabled", false)
 	v.SetDefault("sensitive_data.partial_mask.show_first", 4)
@@ -484,6 +504,12 @@ func setServicesDefaults(v *viper.Viper) {
 	v.SetDefault("proxy.defaults.retry.initial_backoff", "100ms")
 	v.SetDefault("proxy.defaults.retry.max_backoff", "1s")
 	v.SetDefault("proxy.defaults.retry.retry_on", []int{502, 503, 504})
+	// Proxy error response defaults
+	v.SetDefault("proxy.defaults.error_response.format", "json")
+	v.SetDefault("proxy.defaults.error_response.include_request_id", true)
+	v.SetDefault("proxy.defaults.error_response.include_reason", true)
+	v.SetDefault("proxy.defaults.error_response.include_timestamp", false)
+	v.SetDefault("proxy.defaults.error_response.include_path", false)
 
 	// Egress defaults
 	v.SetDefault("egress.enabled", false)
@@ -496,4 +522,10 @@ func setServicesDefaults(v *viper.Viper) {
 	v.SetDefault("egress.token_store.redis.key_prefix", "egress:tokens:")
 	v.SetDefault("egress.legacy_endpoint.enabled", true)
 	v.SetDefault("egress.legacy_endpoint.path", "/egress")
+	// Egress error response defaults
+	v.SetDefault("egress.defaults.error_response.format", "json")
+	v.SetDefault("egress.defaults.error_response.include_request_id", true)
+	v.SetDefault("egress.defaults.error_response.include_reason", true)
+	v.SetDefault("egress.defaults.error_response.include_timestamp", false)
+	v.SetDefault("egress.defaults.error_response.include_path", false)
 }

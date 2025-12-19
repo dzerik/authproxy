@@ -3,6 +3,30 @@
 
 version: "1.0.0"
 
+# Named rule sets for route configuration reuse
+# Rule sets can be attached to multiple listeners via rule_sets field
+rule_sets:
+  # API routes - shared across multiple gateways
+  api-routes:
+    - path_prefix: "/api/users"
+      upstream: "user-service"
+      methods: [GET, POST, PUT, DELETE]
+    - path_prefix: "/api/admin"
+      upstream: "admin-service"
+      strip_prefix: "/api/admin"
+      rewrite_prefix: "/admin"
+    - path_prefix: "/api"
+      upstream: "api-service"
+
+  # Health check routes - commonly shared
+  health-routes:
+    - path_prefix: "/health"
+      upstream: "api-service"
+      methods: [GET]
+    - path_prefix: "/ready"
+      upstream: "api-service"
+      methods: [GET]
+
 # JWT validation configuration
 jwt:
   issuers:
@@ -58,6 +82,12 @@ policy:
     enabled: true
     engine: builtin
     behavior: deny
+
+  # Policy evaluation cache sizes
+  cache:
+    cel_cache_size: 500        # Max compiled CEL programs
+    path_matcher_cache_size: 1000  # Max compiled path patterns
+    cidr_matcher_cache_size: 500   # Max parsed CIDR patterns
 
 # Cache configuration
 cache:
@@ -117,6 +147,13 @@ health:
     - name: upstream
       enabled: true
       critical: false
+  # SLO configuration for metrics and alerting
+  slo:
+    enabled: true
+    latency_p99_threshold_ms: 100   # P99 latency threshold in ms
+    latency_p999_threshold_ms: 500  # P99.9 latency threshold in ms
+    availability_target: 99.9       # Target availability %
+    error_rate_threshold: 0.1       # Max acceptable error rate %
 
 # Resilience configuration
 resilience:
@@ -156,19 +193,26 @@ resilience:
 sensitive_data:
   enabled: true
   mask_value: "***MASKED***"
-  fields:
-    - password
-    - secret
-    - token
-    - api_key
-    - client_secret
-    - access_token
-    - refresh_token
-    - private_key
-  headers:
-    - Authorization
-    - X-API-Key
-    - Cookie
+
+  # Option 1: Use extra_* to ADD to defaults (recommended)
+  # These are merged with built-in defaults without replacing them
+  extra_fields:
+    - my_custom_secret
+    - internal_token
+  extra_headers:
+    - X-Internal-Auth
+    - X-Service-Key
+
+  # Option 2: Override entire list with 'fields'/'headers' (replaces defaults!)
+  # Uncomment below to completely replace default lists:
+  # fields:
+  #   - password
+  #   - secret
+  #   - token
+  # headers:
+  #   - Authorization
+  #   - X-API-Key
+
   mask_jwt: true
   partial_mask:
     enabled: false
@@ -213,7 +257,7 @@ proxy:
   listeners:
     # Main API gateway listener
     - name: api-gateway
-      port: 8080  # Uses main server port from environment
+      port: 8088  # Uses main server port from environment
       mode: reverse_proxy
       upstreams:
         api-service:
@@ -225,16 +269,12 @@ proxy:
         admin-service:
           url: "http://admin-service:8080"
           timeout: 30s
-      routes:
-        - path_prefix: "/api/users"
-          upstream: "user-service"
-          methods: [ GET, POST, PUT, DELETE ]
-        - path_prefix: "/api/admin"
-          upstream: "admin-service"
-          strip_prefix: "/api/admin"
-          rewrite_prefix: "/admin"
-        - path_prefix: "/api"
-          upstream: "api-service"
+      # Use named rule sets (merged in order specified)
+      rule_sets:
+        - api-routes
+        - health-routes
+      # Inline routes (added after rule_sets routes)
+      routes: []
       headers:
         add:
           X-Forwarded-By: "authz-proxy"
@@ -249,7 +289,7 @@ proxy:
         max_attempts: 3
         initial_backoff: 100ms
         max_backoff: 1s
-        retry_on: [ 502, 503, 504 ]
+        retry_on: [502, 503, 504]
       require_auth: true
 
   defaults:
@@ -269,7 +309,7 @@ egress:
   enabled: false
   listeners:
     - name: external-apis
-      port: 8080
+      port: 8090
       retry:
         max_attempts: 3
         initial_backoff: 100ms

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/your-org/authz-service/internal/config"
+	"github.com/your-org/authz-service/internal/schema"
 	"github.com/your-org/authz-service/pkg/logger"
 )
 
@@ -109,6 +110,13 @@ func (m *ManagementServer) handleRoot(w http.ResponseWriter, r *http.Request) {
   <li><a href="/stats/prometheus">/stats/prometheus</a> - Prometheus metrics</li>
   <li><a href="/logging">/logging</a> - Log level (GET/POST)</li>
   <li><a href="/runtime">/runtime</a> - Runtime info</li>
+</ul>
+<h2>JSON Schemas</h2>
+<ul>
+  <li><a href="/schema">/schema</a> - List available schemas</li>
+  <li><a href="/schema/environment">/schema/environment</a> - Environment config schema</li>
+  <li><a href="/schema/services">/schema/services</a> - Services config schema</li>
+  <li><a href="/schema/rules">/schema/rules</a> - Authorization rules schema</li>
 </ul>
 <h2>Actions</h2>
 <ul>
@@ -468,4 +476,72 @@ func (m *ManagementServer) handleQuit(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(100 * time.Millisecond)
 		os.Exit(0)
 	}()
+}
+
+// SchemaListResponse contains available schema types.
+type SchemaListResponse struct {
+	Schemas []SchemaInfo `json:"schemas"`
+}
+
+// SchemaInfo contains schema metadata.
+type SchemaInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	URL         string `json:"url"`
+}
+
+// handleSchemaList handles GET /schema - lists available schemas.
+func (m *ManagementServer) handleSchemaList(w http.ResponseWriter, r *http.Request) {
+	resp := SchemaListResponse{
+		Schemas: []SchemaInfo{
+			{
+				Name:        "environment",
+				Description: "Environment configuration schema (environment.yaml)",
+				URL:         "/schema/environment",
+			},
+			{
+				Name:        "services",
+				Description: "Services configuration schema (services.yaml)",
+				URL:         "/schema/services",
+			},
+			{
+				Name:        "rules",
+				Description: "Authorization rules schema (rules.yaml)",
+				URL:         "/schema/rules",
+			},
+		},
+	}
+
+	m.writeJSON(w, http.StatusOK, resp)
+}
+
+// handleSchemaEnvironment handles GET /schema/environment.
+func (m *ManagementServer) handleSchemaEnvironment(w http.ResponseWriter, r *http.Request) {
+	m.handleSchemaByType(w, schema.SchemaTypeEnvironment)
+}
+
+// handleSchemaServices handles GET /schema/services.
+func (m *ManagementServer) handleSchemaServices(w http.ResponseWriter, r *http.Request) {
+	m.handleSchemaByType(w, schema.SchemaTypeServices)
+}
+
+// handleSchemaRules handles GET /schema/rules.
+func (m *ManagementServer) handleSchemaRules(w http.ResponseWriter, r *http.Request) {
+	m.handleSchemaByType(w, schema.SchemaTypeRules)
+}
+
+// handleSchemaByType generates and returns schema for the specified type.
+func (m *ManagementServer) handleSchemaByType(w http.ResponseWriter, schemaType schema.SchemaType) {
+	gen := schema.NewGenerator()
+	data, err := gen.Generate(schemaType)
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": fmt.Sprintf("failed to generate schema: %v", err),
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/schema+json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
 }

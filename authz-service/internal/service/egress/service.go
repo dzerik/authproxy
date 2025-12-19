@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/your-org/authz-service/internal/config"
+	"github.com/your-org/authz-service/pkg/httputil"
 	"github.com/your-org/authz-service/pkg/logger"
 )
 
@@ -22,10 +23,11 @@ type Service struct {
 	router      *Router
 	httpClients map[string]*http.Client
 	log         logger.Logger
+	errorWriter *httputil.ErrorResponseWriter
 }
 
 // NewService creates a new egress service.
-func NewService(cfg config.EgressConfig, log logger.Logger) (*Service, error) {
+func NewService(cfg config.EgressConfig, errCfg config.ErrorResponseConfig, log logger.Logger) (*Service, error) {
 	// Create token store
 	tokenStore, err := NewTokenStore(cfg.TokenStore, log)
 	if err != nil {
@@ -60,6 +62,7 @@ func NewService(cfg config.EgressConfig, log logger.Logger) (*Service, error) {
 		router:      router,
 		httpClients: httpClients,
 		log:         log,
+		errorWriter: httputil.NewErrorResponseWriter(errCfg),
 	}, nil
 }
 
@@ -80,7 +83,7 @@ func NewServiceFromListener(
 		TokenStore: tokenStoreCfg,
 	}
 
-	return NewService(egressCfg, log)
+	return NewService(egressCfg, listenerCfg.ErrorResponse, log)
 }
 
 // Start starts the egress service.
@@ -179,7 +182,7 @@ func (s *Service) ProxyRequest(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.Proxy(ctx, r)
 	if err != nil {
 		s.log.Error("Egress proxy error", logger.Err(err))
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		s.errorWriter.WriteError(w, r, http.StatusBadGateway, "Bad Gateway", err.Error())
 		return
 	}
 	defer resp.Body.Close()

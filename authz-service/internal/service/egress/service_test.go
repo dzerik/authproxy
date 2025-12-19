@@ -345,7 +345,7 @@ func TestService_Proxy(t *testing.T) {
 		},
 	}
 
-	svc, err := NewService(cfg, logger)
+	svc, err := NewService(cfg, config.ErrorResponseConfig{}, logger)
 	require.NoError(t, err)
 	defer svc.Stop()
 
@@ -394,7 +394,7 @@ func TestService_ProxyRequest(t *testing.T) {
 		},
 	}
 
-	svc, err := NewService(cfg, logger)
+	svc, err := NewService(cfg, config.ErrorResponseConfig{}, logger)
 	require.NoError(t, err)
 	defer svc.Stop()
 
@@ -437,7 +437,7 @@ func TestService_Proxy_NoMatchingRoute(t *testing.T) {
 		},
 	}
 
-	svc, err := NewService(cfg, logger)
+	svc, err := NewService(cfg, config.ErrorResponseConfig{}, logger)
 	require.NoError(t, err)
 	defer svc.Stop()
 
@@ -465,7 +465,7 @@ func TestService_Health(t *testing.T) {
 		},
 	}
 
-	svc, err := NewService(cfg, logger)
+	svc, err := NewService(cfg, config.ErrorResponseConfig{}, logger)
 	require.NoError(t, err)
 	defer svc.Stop()
 
@@ -508,7 +508,7 @@ func TestService_Enabled(t *testing.T) {
 				},
 			}
 
-			svc, err := NewService(cfg, logger)
+			svc, err := NewService(cfg, config.ErrorResponseConfig{}, logger)
 			require.NoError(t, err)
 			defer svc.Stop()
 

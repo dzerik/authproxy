@@ -123,6 +123,12 @@ func (m *ManagementServer) setupAdminServer() {
 	r.Post("/drain", m.handleDrain)
 	r.Post("/quitquitquit", m.handleQuit)
 
+	// Schema endpoints
+	r.Get("/schema", m.handleSchemaList)
+	r.Get("/schema/environment", m.handleSchemaEnvironment)
+	r.Get("/schema/services", m.handleSchemaServices)
+	r.Get("/schema/rules", m.handleSchemaRules)
+
 	m.adminServer = &http.Server{
 		Addr:         m.cfg.AdminAddr,
 		Handler:      r,

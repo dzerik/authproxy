@@ -20,6 +20,7 @@ import (
 	"github.com/your-org/authz-service/internal/service/jwt"
 	"github.com/your-org/authz-service/internal/service/policy"
 	tlsExtractor "github.com/your-org/authz-service/internal/service/tls"
+	errResponse "github.com/your-org/authz-service/pkg/httputil"
 	"github.com/your-org/authz-service/pkg/logger"
 )
 
@@ -36,6 +37,7 @@ type ReverseProxy struct {
 	proxies       map[string]*httputil.ReverseProxy
 	routes        []*compiledRoute
 	defaultProxy  *httputil.ReverseProxy
+	errorWriter   *errResponse.ErrorResponseWriter
 }
 
 // compiledRoute is a pre-compiled route for faster matching.
@@ -51,6 +53,7 @@ func NewReverseProxy(
 	envCfg config.EnvConfig,
 	tlsCfg config.TLSClientCertConfig,
 	bodyCfg config.RequestBodyConfig,
+	errCfg config.ErrorResponseConfig,
 	jwtService *jwt.Service,
 	policyService *policy.Service,
 ) (*ReverseProxy, error) {
@@ -62,6 +65,7 @@ func NewReverseProxy(
 		jwtService:    jwtService,
 		policyService: policyService,
 		proxies:       make(map[string]*httputil.ReverseProxy),
+		errorWriter:   errResponse.NewErrorResponseWriter(errCfg),
 	}
 
 	// Create TLS extractor if enabled
@@ -151,7 +155,7 @@ func NewReverseProxyFromListener(
 		Retry:     listenerCfg.Retry,
 	}
 
-	return NewReverseProxy(proxyCfg, envCfg, tlsCfg, bodyCfg, jwtService, policyService)
+	return NewReverseProxy(proxyCfg, envCfg, tlsCfg, bodyCfg, listenerCfg.ErrorResponse, jwtService, policyService)
 }
 
 // createProxy creates an httputil.ReverseProxy for an upstream.
@@ -257,7 +261,7 @@ func (rp *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				logger.String("request_id", requestID),
 				logger.Err(err),
 			)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			rp.errorWriter.WriteError(w, r, http.StatusUnauthorized, "Unauthorized", err.Error())
 			return
 		}
 		input.Token = tokenInfo
@@ -274,7 +278,7 @@ func (rp *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			logger.String("request_id", requestID),
 			logger.Err(err),
 		)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		rp.errorWriter.WriteError(w, r, http.StatusInternalServerError, "Internal Server Error", "policy evaluation failed")
 		return
 	}
 
@@ -293,7 +297,7 @@ func (rp *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if len(decision.Reasons) > 0 {
 			reason = decision.Reasons[0]
 		}
-		http.Error(w, reason, http.StatusForbidden)
+		rp.errorWriter.WriteError(w, r, http.StatusForbidden, "Forbidden", reason)
 		return
 	}
 
@@ -315,7 +319,7 @@ func (rp *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			logger.String("request_id", requestID),
 			logger.String("path", r.URL.Path),
 		)
-		http.Error(w, "Bad Gateway", http.StatusBadGateway)
+		rp.errorWriter.WriteError(w, r, http.StatusBadGateway, "Bad Gateway", "no upstream configured")
 		return
 	}
 

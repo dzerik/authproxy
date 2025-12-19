@@ -169,6 +169,8 @@ type FallbackSourceSettings struct {
 type ServicesConfig struct {
 	// Version is the configuration version
 	Version string `mapstructure:"version" jsonschema:"description=Configuration version for change tracking." jsonschema_extras:"x-runtime-updatable=true"`
+	// RuleSets are named collections of routing rules that can be attached to listeners
+	RuleSets map[string][]RouteConfig `mapstructure:"rule_sets" jsonschema:"description=Named rule sets for reuse across proxy listeners. Define routing rules once and reference them by name in listener configurations." jsonschema_extras:"x-runtime-updatable=true"`
 	// JWT validation configuration
 	JWT JWTConfig `mapstructure:"jwt" jsonschema:"description=JWT token validation configuration." jsonschema_extras:"x-runtime-updatable=true"`
 	// TokenExchange configuration (RFC 8693)
@@ -221,8 +223,10 @@ type ProxyListenerConfig struct {
 	Mode string `mapstructure:"mode" jsonschema:"description=Proxy operation mode.,enum=reverse_proxy,enum=decision_only,default=reverse_proxy" jsonschema_extras:"x-runtime-updatable=true"`
 	// Upstreams is a map of named upstreams
 	Upstreams map[string]UpstreamConfig `mapstructure:"upstreams" jsonschema:"description=Named upstream servers for this listener." jsonschema_extras:"x-runtime-updatable=true"`
-	// Routes are routing rules for this listener
-	Routes []RouteConfig `mapstructure:"routes" jsonschema:"description=Routing rules for this listener." jsonschema_extras:"x-runtime-updatable=true"`
+	// RuleSets are names of rule sets from ServicesConfig.RuleSets to include in this listener
+	RuleSets []string `mapstructure:"rule_sets" jsonschema:"description=Names of rule sets to include. Rules are merged in order specified and evaluated by priority." jsonschema_extras:"x-runtime-updatable=true"`
+	// Routes are inline routing rules for this listener (merged with rule sets)
+	Routes []RouteConfig `mapstructure:"routes" jsonschema:"description=Inline routing rules for this listener. Merged with routes from rule_sets." jsonschema_extras:"x-runtime-updatable=true"`
 	// Headers configuration for this listener
 	Headers ProxyHeadersConfig `mapstructure:"headers" jsonschema:"description=Header manipulation for this listener." jsonschema_extras:"x-runtime-updatable=true"`
 	// Timeout for requests on this listener
@@ -231,6 +235,8 @@ type ProxyListenerConfig struct {
 	Retry ProxyRetryConfig `mapstructure:"retry" jsonschema:"description=Retry configuration for this listener." jsonschema_extras:"x-runtime-updatable=true"`
 	// RequireAuth requires authorization for all requests
 	RequireAuth bool `mapstructure:"require_auth" jsonschema:"description=Require authorization for all requests on this listener.,default=true" jsonschema_extras:"x-runtime-updatable=true"`
+	// ErrorResponse configures error response format for this listener
+	ErrorResponse ErrorResponseConfig `mapstructure:"error_response" jsonschema:"description=Error response format configuration for this listener." jsonschema_extras:"x-runtime-updatable=true"`
 }
 
 // ProxyDefaultsConfig holds default settings for proxy listeners.
@@ -245,6 +251,8 @@ type ProxyDefaultsConfig struct {
 	Headers ProxyHeadersConfig `mapstructure:"headers" jsonschema:"description=Default header settings."`
 	// Retry are default retry settings
 	Retry ProxyRetryConfig `mapstructure:"retry" jsonschema:"description=Default retry settings."`
+	// ErrorResponse are default error response settings
+	ErrorResponse ErrorResponseConfig `mapstructure:"error_response" jsonschema:"description=Default error response format settings."`
 }
 
 // =============================================================================
@@ -283,6 +291,8 @@ type EgressListenerConfig struct {
 	Timeout time.Duration `mapstructure:"timeout" jsonschema:"description=Request timeout for this listener." jsonschema_extras:"x-runtime-updatable=true"`
 	// Retry configuration for this listener
 	Retry EgressRetryConfig `mapstructure:"retry" jsonschema:"description=Retry configuration for this listener." jsonschema_extras:"x-runtime-updatable=true"`
+	// ErrorResponse configures error response format for this listener
+	ErrorResponse ErrorResponseConfig `mapstructure:"error_response" jsonschema:"description=Error response format configuration for this listener." jsonschema_extras:"x-runtime-updatable=true"`
 }
 
 // LegacyEgressEndpoint holds legacy egress endpoint configuration.

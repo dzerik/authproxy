@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -98,8 +99,18 @@ func main() {
 	ctx := context.Background()
 	loader, err := config.LoadAll(ctx, *configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to load configuration: %v\n", err)
-		fmt.Fprintf(os.Stderr, "\nUse --help for configuration options\n")
+		// Check if this is a validation error for pretty printing
+		var validationErrs config.ValidationErrors
+		if errors.As(err, &validationErrs) {
+			fmt.Fprintf(os.Stderr, "\nConfiguration validation failed:\n\n")
+			for _, e := range validationErrs {
+				fmt.Fprintf(os.Stderr, "  ✗ %s\n", e.Error())
+			}
+			fmt.Fprintf(os.Stderr, "\nFix the configuration and try again.\n")
+		} else {
+			fmt.Fprintf(os.Stderr, "Error: failed to load configuration: %v\n", err)
+			fmt.Fprintf(os.Stderr, "\nUse --help for configuration options\n")
+		}
 		os.Exit(1)
 	}
 

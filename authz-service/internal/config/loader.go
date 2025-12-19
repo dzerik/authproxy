@@ -149,6 +149,12 @@ func (l *Loader) LoadServices(ctx context.Context) (*ServicesConfig, error) {
 		return nil, fmt.Errorf("unexpected config type: %T", config)
 	}
 
+	// Validate configuration before storing
+	validator := NewConfigValidator()
+	if err := validator.ValidateServices(svc, l.environment); err != nil {
+		return nil, err // Return validation errors as-is for pretty printing
+	}
+
 	l.services.Store(svc)
 
 	l.log.Info("services configuration loaded",
@@ -171,6 +177,12 @@ func (l *Loader) LoadRules(ctx context.Context) (*RulesConfig, error) {
 	rules, ok := config.(*RulesConfig)
 	if !ok {
 		return nil, fmt.Errorf("unexpected config type: %T", config)
+	}
+
+	// Validate rules configuration (priority conflicts, etc.)
+	validator := NewConfigValidator()
+	if err := validator.ValidateRules(rules); err != nil {
+		return nil, err // Return validation errors as-is for pretty printing
 	}
 
 	l.rules.Store(rules)
@@ -237,12 +249,34 @@ func (l *Loader) handleUpdate(update ConfigUpdate) {
 	switch update.Type {
 	case ConfigTypeServices:
 		if svc, ok := update.Config.(*ServicesConfig); ok {
+			// Validate before applying runtime update
+			validator := NewConfigValidator()
+			if err := validator.ValidateServices(svc, l.environment); err != nil {
+				l.log.Error("config update rejected: validation failed",
+					zap.String("type", string(update.Type)),
+					zap.String("version", update.Version),
+					zap.Error(err))
+				return // Don't apply the update, keep using previous config
+			}
 			l.services.Store(svc)
+			l.log.Info("services config updated successfully",
+				zap.String("version", update.Version))
 		}
 
 	case ConfigTypeRules:
 		if rules, ok := update.Config.(*RulesConfig); ok {
+			// Validate before applying runtime update
+			validator := NewConfigValidator()
+			if err := validator.ValidateRules(rules); err != nil {
+				l.log.Error("config update rejected: validation failed",
+					zap.String("type", string(update.Type)),
+					zap.String("version", update.Version),
+					zap.Error(err))
+				return // Don't apply the update, keep using previous config
+			}
 			l.rules.Store(rules)
+			l.log.Info("rules config updated successfully",
+				zap.String("version", update.Version))
 		}
 	}
 
@@ -393,6 +427,12 @@ func setEnvironmentDefaults(v *viper.Viper) {
 	v.SetDefault("server.http.idle_timeout", "120s")
 	v.SetDefault("server.http.shutdown_timeout", "30s")
 	v.SetDefault("server.http.max_header_bytes", 1<<20)
+	// Request tracking header defaults
+	v.SetDefault("server.http.request_tracking.request_id_header", "X-Request-ID")
+	v.SetDefault("server.http.request_tracking.correlation_id_header", "X-Correlation-ID")
+	v.SetDefault("server.http.request_tracking.forwarded_auth_header", "X-Forwarded-Authorization")
+	v.SetDefault("server.http.request_tracking.generate_if_missing", true)
+	v.SetDefault("server.http.request_tracking.propagate_to_upstream", true)
 
 	v.SetDefault("server.grpc.enabled", false)
 	v.SetDefault("server.grpc.addr", ":9090")
