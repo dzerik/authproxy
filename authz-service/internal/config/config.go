@@ -45,6 +45,8 @@ type Config struct {
 	RequestBody RequestBodyConfig `mapstructure:"request_body" jsonschema:"description=Request body access configuration. WARNING: Enabling this feature has security and performance implications. Available in CEL expressions as 'body' variable."`
 	// Tracing configuration for OpenTelemetry distributed tracing
 	Tracing TracingConfig `mapstructure:"tracing" jsonschema:"description=OpenTelemetry distributed tracing configuration. Enables request tracing across services."`
+	// Management server configuration for admin/debug endpoints (Istio-style)
+	Management ManagementServerConfig `mapstructure:"management" jsonschema:"description=Management server configuration for admin/health/readiness endpoints on separate ports."`
 }
 
 // ProxyConfig holds reverse proxy configuration for forwarding authorized requests.

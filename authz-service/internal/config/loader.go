@@ -321,8 +321,9 @@ func (l *Loader) ToConfig() *Config {
 			Output:    env.Logging.Output,
 			AddCaller: env.Logging.AddCaller,
 		},
-		Tracing: env.Tracing,
-		Env:     env.Env,
+		Tracing:    env.Tracing,
+		Env:        env.Env,
+		Management: env.Management,
 	}
 
 	if svc != nil {

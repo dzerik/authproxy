@@ -30,8 +30,11 @@ type App struct {
 	cfg    *config.Config
 	loader *config.Loader // New config loader for hot-reload support
 
+	// Servers
+	httpServer       *httpTransport.Server
+	managementServer *httpTransport.ManagementServer
+
 	// Services
-	httpServer    *httpTransport.Server
 	jwtService    *jwt.Service
 	policyService *policy.Service
 	cacheService  *cache.Service
@@ -214,6 +217,25 @@ func (a *App) Initialize(ctx context.Context) error {
 		}
 	}
 
+	// Initialize management server if enabled
+	if a.cfg.Management.Enabled {
+		a.managementServer = httpTransport.NewManagementServer(
+			a.cfg.Management,
+			a.loader,
+			a, // App implements AppInfo interface
+			httpTransport.BuildInfo{
+				Version:   a.buildInfo.Version,
+				BuildTime: a.buildInfo.BuildTime,
+				GitCommit: a.buildInfo.GitCommit,
+			},
+		)
+		logger.Info("management server initialized",
+			logger.String("admin_addr", a.cfg.Management.AdminAddr),
+			logger.String("health_addr", a.cfg.Management.HealthAddr),
+			logger.String("ready_addr", a.cfg.Management.ReadyAddr),
+		)
+	}
+
 	logger.Info("application initialized",
 		logger.String("version", a.buildInfo.Version),
 		logger.String("commit", a.buildInfo.GitCommit),
@@ -233,6 +255,15 @@ func (a *App) Start() error {
 		}()
 	}
 
+	// Start management server in goroutine
+	if a.managementServer != nil {
+		go func() {
+			if err := a.managementServer.Start(); err != nil {
+				logger.Error("management server error", logger.Err(err))
+			}
+		}()
+	}
+
 	logger.Info("application started",
 		logger.String("http_addr", a.cfg.Server.HTTP.Addr),
 	)
@@ -242,6 +273,13 @@ func (a *App) Start() error {
 // Shutdown gracefully shuts down all application services.
 func (a *App) Shutdown(ctx context.Context) error {
 	logger.Info("shutting down application")
+
+	// Shutdown management server first (to stop health probes)
+	if a.managementServer != nil {
+		if err := a.managementServer.Shutdown(ctx); err != nil {
+			logger.Error("failed to shutdown management server", logger.Err(err))
+		}
+	}
 
 	// Shutdown HTTP server
 	if a.httpServer != nil {
@@ -339,4 +377,111 @@ func (a *App) logSecurityWarnings() {
 			)
 		}
 	}
+}
+
+// =============================================================================
+// AppInfo interface implementation for ManagementServer
+// =============================================================================
+
+// GetServices returns health status of all services.
+func (a *App) GetServices() []httpTransport.ServiceHealth {
+	ctx := context.Background()
+	services := []httpTransport.ServiceHealth{}
+
+	// Policy service
+	if a.policyService != nil {
+		status := "healthy"
+		msg := ""
+		if !a.policyService.Healthy(ctx) {
+			status = "unhealthy"
+			msg = "policy engine not ready"
+		}
+		services = append(services, httpTransport.ServiceHealth{
+			Name:    "policy",
+			Status:  status,
+			Message: msg,
+		})
+	}
+
+	// Cache service
+	if a.cacheService != nil && a.cacheService.Enabled() {
+		status := "healthy"
+		msg := ""
+		if !a.cacheService.Healthy(ctx) {
+			status = "unhealthy"
+			msg = "cache not available"
+		}
+		services = append(services, httpTransport.ServiceHealth{
+			Name:    "cache",
+			Status:  status,
+			Message: msg,
+		})
+	}
+
+	// JWT service
+	if a.jwtService != nil {
+		services = append(services, httpTransport.ServiceHealth{
+			Name:   "jwt",
+			Status: "healthy",
+		})
+	}
+
+	return services
+}
+
+// GetListeners returns information about active listeners.
+func (a *App) GetListeners() []httpTransport.ListenerInfo {
+	listeners := []httpTransport.ListenerInfo{}
+
+	// HTTP server
+	if a.httpServer != nil && a.cfg.Server.HTTP.Enabled {
+		listeners = append(listeners, httpTransport.ListenerInfo{
+			Name:    "http",
+			Type:    "http",
+			Address: a.cfg.Server.HTTP.Addr,
+			Status:  "running",
+		})
+	}
+
+	// Management servers
+	if a.managementServer != nil && a.cfg.Management.Enabled {
+		listeners = append(listeners, httpTransport.ListenerInfo{
+			Name:    "admin",
+			Type:    "management",
+			Address: a.cfg.Management.AdminAddr,
+			Status:  "running",
+		})
+		listeners = append(listeners, httpTransport.ListenerInfo{
+			Name:    "health",
+			Type:    "management",
+			Address: a.cfg.Management.HealthAddr,
+			Status:  "running",
+		})
+		listeners = append(listeners, httpTransport.ListenerInfo{
+			Name:    "ready",
+			Type:    "management",
+			Address: a.cfg.Management.ReadyAddr,
+			Status:  "running",
+		})
+	}
+
+	return listeners
+}
+
+// IsHealthy returns true if the application is healthy.
+func (a *App) IsHealthy() bool {
+	ctx := context.Background()
+	return a.Healthy(ctx)
+}
+
+// IsReady returns true if the application is ready to serve traffic.
+func (a *App) IsReady() bool {
+	ctx := context.Background()
+
+	// Check policy service
+	if a.policyService != nil && !a.policyService.Healthy(ctx) {
+		return false
+	}
+
+	return true
 }

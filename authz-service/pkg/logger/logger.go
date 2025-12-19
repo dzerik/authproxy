@@ -11,6 +11,9 @@ import (
 // Logger is the global logger instance.
 var defaultLogger *zap.Logger
 
+// atomicLevel allows dynamic log level changes at runtime.
+var atomicLevel zap.AtomicLevel
+
 // ctxKey is the context key for logger.
 type ctxKey struct{}
 
@@ -47,6 +50,9 @@ func Init(cfg Config) error {
 		level = zapcore.InfoLevel
 	}
 
+	// Initialize atomic level for runtime changes
+	atomicLevel = zap.NewAtomicLevelAt(level)
+
 	var encoder zapcore.Encoder
 	encoderConfig := zap.NewProductionEncoderConfig()
 	encoderConfig.TimeKey = "timestamp"
@@ -73,7 +79,8 @@ func Init(cfg Config) error {
 		writer = zapcore.AddSync(file)
 	}
 
-	core := zapcore.NewCore(encoder, writer, level)
+	// Use atomicLevel instead of static level
+	core := zapcore.NewCore(encoder, writer, atomicLevel)
 
 	opts := []zap.Option{}
 	if cfg.AddCaller {
@@ -84,6 +91,22 @@ func Init(cfg Config) error {
 	}
 
 	defaultLogger = zap.New(core, opts...)
+	return nil
+}
+
+// GetLevel returns the current log level as a string.
+func GetLevel() string {
+	return atomicLevel.Level().String()
+}
+
+// SetLevel changes the log level at runtime.
+// Valid levels: debug, info, warn, error.
+func SetLevel(level string) error {
+	lvl, err := zapcore.ParseLevel(level)
+	if err != nil {
+		return err
+	}
+	atomicLevel.SetLevel(lvl)
 	return nil
 }
 
