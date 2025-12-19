@@ -338,6 +338,43 @@ func TestGenerator_filesSection(t *testing.T) {
 	assert.Contains(t, result, "/etc/authz/data/")
 }
 
+func TestGenerator_secretsSection(t *testing.T) {
+	gen := NewGenerator(AppInfo{Name: "authz"}, "AUTHZ")
+
+	result := gen.secretsSection()
+
+	// Check warning
+	assert.Contains(t, result, "NEVER store secrets in configuration files")
+
+	// Check sensitive env vars
+	assert.Contains(t, result, "AUTHZ_JWT_ISSUERS_0_CLIENT_SECRET")
+	assert.Contains(t, result, "AUTHZ_CACHE_L2_REDIS_PASSWORD")
+	assert.Contains(t, result, "AUTHZ_RESILIENCE_RATE_LIMIT_REDIS_PASSWORD")
+	assert.Contains(t, result, "AUTHZ_EGRESS_TOKEN_STORE_REDIS_PASSWORD")
+
+	// Check best practices
+	assert.Contains(t, result, "Kubernetes secrets")
+	assert.Contains(t, result, "Docker secrets")
+	assert.Contains(t, result, "HashiCorp Vault")
+	assert.Contains(t, result, "Rotate secrets")
+}
+
+func TestGenerator_PrintExtendedHelp_ContainsSecretsSection(t *testing.T) {
+	gen := NewGenerator(AppInfo{
+		Name:        "authz",
+		Description: "Test app",
+		Version:     "1.0.0",
+		BuildTime:   "2024-01-01",
+		GitCommit:   "abc123",
+		DocsURL:     "https://docs.example.com",
+	}, "AUTHZ")
+
+	result := gen.PrintExtendedHelp()
+
+	assert.Contains(t, result, "SECRETS MANAGEMENT")
+	assert.Contains(t, result, "NEVER store secrets")
+}
+
 func BenchmarkGenerator_PrintVersion(b *testing.B) {
 	gen := NewGenerator(AppInfo{
 		Name:      "test",

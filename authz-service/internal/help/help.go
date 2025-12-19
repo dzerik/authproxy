@@ -136,6 +136,14 @@ func (g *Generator) PrintExtendedHelp() string {
 	// Separator
 	sb.WriteString(g.separator())
 
+	// Secrets management section
+	sb.WriteString("SECRETS MANAGEMENT\n\n")
+	sb.WriteString(g.secretsSection())
+	sb.WriteString("\n")
+
+	// Separator
+	sb.WriteString(g.separator())
+
 	// Operation modes section
 	sb.WriteString("OPERATION MODES\n\n")
 	sb.WriteString(g.operationModesSection())
@@ -380,4 +388,48 @@ func (g *Generator) filesSection() string {
     /etc/authz/policies/      OPA policy directory (opa_embedded engine)
     /etc/authz/data/          OPA data directory
 `
+}
+
+// secretsSection generates the secrets management section.
+func (g *Generator) secretsSection() string {
+	return fmt.Sprintf(`    NEVER store secrets in configuration files! Use environment variables instead.
+
+    SENSITIVE ENVIRONMENT VARIABLES:
+
+    JWT / OAuth2:
+      %s_JWT_ISSUERS_0_CLIENT_SECRET       OAuth2 client secret for token exchange
+      %s_EGRESS_TARGETS_<NAME>_AUTH_CLIENT_SECRET  Egress target OAuth2 client secret
+
+    Redis (L2 Cache):
+      %s_CACHE_L2_REDIS_PASSWORD           Redis password for L2 cache
+
+    Redis (Rate Limiting):
+      %s_RESILIENCE_RATE_LIMIT_REDIS_PASSWORD  Redis password for rate limiting
+
+    Redis (Egress Token Store):
+      %s_EGRESS_TOKEN_STORE_REDIS_PASSWORD Redis password for token store
+
+    Basic Auth (Egress):
+      %s_EGRESS_TARGETS_<NAME>_AUTH_PASSWORD  Basic auth password for egress targets
+
+    API Keys (Egress):
+      %s_EGRESS_TARGETS_<NAME>_AUTH_KEY    API key value for egress targets
+
+    SECURITY BEST PRACTICES:
+
+    1. Use Kubernetes secrets mounted as env vars:
+       env:
+         - name: %s_CACHE_L2_REDIS_PASSWORD
+           valueFrom:
+             secretKeyRef:
+               name: authz-secrets
+               key: redis-password
+
+    2. Use Docker secrets:
+       docker run -e %s_JWT_ISSUERS_0_CLIENT_SECRET_FILE=/run/secrets/jwt_secret ...
+
+    3. Use HashiCorp Vault or similar secret managers
+
+    4. Rotate secrets regularly and monitor for unauthorized access
+`, g.envVarPrefix, g.envVarPrefix, g.envVarPrefix, g.envVarPrefix, g.envVarPrefix, g.envVarPrefix, g.envVarPrefix, g.envVarPrefix, g.envVarPrefix)
 }

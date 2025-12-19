@@ -895,6 +895,13 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("resilience.rate_limit.trust_forwarded_for", true)
 	v.SetDefault("resilience.rate_limit.exclude_paths", []string{"/health", "/ready", "/live", "/metrics"})
 	v.SetDefault("resilience.rate_limit.by_endpoint", false)
+	// Per-endpoint rate limits for security-sensitive endpoints
+	// Format: "count-period" where period is S(second), M(minute), H(hour), D(day)
+	v.SetDefault("resilience.rate_limit.endpoint_rates", map[string]string{
+		"/v1/token":     "50-S",  // JWT validation - stricter limit for brute-force protection
+		"/v1/authorize": "100-S", // Authorization decisions
+		"/admin":        "10-S",  // Admin endpoints - most restrictive
+	})
 	v.SetDefault("resilience.rate_limit.redis.db", 1)
 	v.SetDefault("resilience.rate_limit.redis.key_prefix", "authz:ratelimit:")
 	v.SetDefault("resilience.rate_limit.headers.enabled", true)

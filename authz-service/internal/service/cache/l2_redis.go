@@ -12,12 +12,19 @@ import (
 	"github.com/your-org/authz-service/pkg/logger"
 )
 
+const (
+	// defaultOperationTimeout is the maximum time for a single Redis operation.
+	// This provides defense-in-depth on top of Redis client timeouts.
+	defaultOperationTimeout = 5 * time.Second
+)
+
 // L2RedisCache implements a Redis-based distributed cache.
 type L2RedisCache struct {
-	client    redis.UniversalClient
-	keyPrefix string
-	ttl       config.CacheTTLConfig
-	enabled   bool
+	client           redis.UniversalClient
+	keyPrefix        string
+	ttl              config.CacheTTLConfig
+	enabled          bool
+	operationTimeout time.Duration
 
 	// Metrics
 	hits   int64
@@ -56,11 +63,21 @@ func NewL2RedisCache(cfg config.L2CacheConfig) (*L2RedisCache, error) {
 		})
 	}
 
+	// Use the greater of read/write timeout, with a default fallback
+	opTimeout := cfg.Redis.ReadTimeout
+	if cfg.Redis.WriteTimeout > opTimeout {
+		opTimeout = cfg.Redis.WriteTimeout
+	}
+	if opTimeout == 0 {
+		opTimeout = defaultOperationTimeout
+	}
+
 	return &L2RedisCache{
-		client:    client,
-		keyPrefix: cfg.KeyPrefix,
-		ttl:       cfg.TTL,
-		enabled:   true,
+		client:           client,
+		keyPrefix:        cfg.KeyPrefix,
+		ttl:              cfg.TTL,
+		enabled:          true,
+		operationTimeout: opTimeout,
 	}, nil
 }
 
@@ -95,6 +112,10 @@ func (c *L2RedisCache) Get(ctx context.Context, key string) (*domain.Decision, b
 		return nil, false
 	}
 
+	// Apply operation timeout for defense-in-depth
+	ctx, cancel := context.WithTimeout(ctx, c.operationTimeout)
+	defer cancel()
+
 	fullKey := c.keyPrefix + key
 
 	data, err := c.client.Get(ctx, fullKey).Bytes()
@@ -124,6 +145,10 @@ func (c *L2RedisCache) Set(ctx context.Context, key string, decision *domain.Dec
 		return
 	}
 
+	// Apply operation timeout for defense-in-depth
+	ctx, cancel := context.WithTimeout(ctx, c.operationTimeout)
+	defer cancel()
+
 	if ttl == 0 {
 		ttl = c.ttl.Authorization
 	}
@@ -146,6 +171,10 @@ func (c *L2RedisCache) Delete(ctx context.Context, key string) {
 	if !c.enabled {
 		return
 	}
+
+	// Apply operation timeout for defense-in-depth
+	ctx, cancel := context.WithTimeout(ctx, c.operationTimeout)
+	defer cancel()
 
 	fullKey := c.keyPrefix + key
 	c.client.Del(ctx, fullKey)

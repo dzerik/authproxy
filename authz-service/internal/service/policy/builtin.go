@@ -490,6 +490,21 @@ func (e *BuiltinEngine) loadRules() error {
 		)
 	}
 
+	// Pre-warm PathMatcher cache with all patterns from rules
+	var patterns []string
+	for _, rule := range rules.Rules {
+		patterns = append(patterns, rule.Conditions.Paths...)
+		patterns = append(patterns, rule.Conditions.PathTemplates...)
+		patterns = append(patterns, rule.Conditions.Subjects...)
+		patterns = append(patterns, rule.Conditions.SourcePrincipals...)
+	}
+	if len(patterns) > 0 {
+		compiled := e.pathMatcher.PrecompilePatterns(patterns)
+		logger.Info("path patterns precompiled",
+			logger.Int("count", compiled),
+		)
+	}
+
 	e.mu.Lock()
 	e.rules = &rules
 	e.version = rules.Version

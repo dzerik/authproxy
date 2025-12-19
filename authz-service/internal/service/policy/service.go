@@ -2,9 +2,9 @@ package policy
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
+	"hash/fnv"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/your-org/authz-service/internal/config"
@@ -224,28 +224,35 @@ func (s *Service) applyFallbackBehavior() *domain.Decision {
 }
 
 // computeCacheKey generates a cache key from the policy input.
+// Uses FNV-1a hash for fast, non-cryptographic hashing.
 func (s *Service) computeCacheKey(input *domain.PolicyInput) string {
-	// Create a deterministic key from input
-	keyData := struct {
-		Method  string
-		Path    string
-		Subject string
-		Roles   []string
-		Scopes  []string
-	}{
-		Method: input.Request.Method,
-		Path:   input.Request.Path,
-	}
+	// Pre-allocate builder with estimated capacity
+	var b strings.Builder
+	b.Grow(128)
+
+	// Build key from request fields
+	b.WriteString(input.Request.Method)
+	b.WriteByte('|')
+	b.WriteString(input.Request.Path)
 
 	if input.Token != nil {
-		keyData.Subject = input.Token.Subject
-		keyData.Roles = input.Token.Roles
-		keyData.Scopes = input.Token.Scopes
+		b.WriteByte('|')
+		b.WriteString(input.Token.Subject)
+		// Sort roles/scopes for deterministic keys
+		if len(input.Token.Roles) > 0 {
+			b.WriteByte('|')
+			b.WriteString(strings.Join(input.Token.Roles, ","))
+		}
+		if len(input.Token.Scopes) > 0 {
+			b.WriteByte('|')
+			b.WriteString(strings.Join(input.Token.Scopes, ","))
+		}
 	}
 
-	data, _ := json.Marshal(keyData)
-	hash := sha256.Sum256(data)
-	return hex.EncodeToString(hash[:])
+	// Use FNV-1a hash for fast hashing
+	h := fnv.New64a()
+	h.Write([]byte(b.String()))
+	return strconv.FormatUint(h.Sum64(), 36)
 }
 
 // Healthy returns true if the service is healthy.

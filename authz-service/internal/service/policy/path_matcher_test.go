@@ -234,6 +234,45 @@ func TestPathMatcher_CacheHit(t *testing.T) {
 	}
 }
 
+func TestPathMatcher_PrecompilePatterns(t *testing.T) {
+	m := NewPathMatcher()
+
+	// Start with empty cache
+	if m.CacheSize() != 0 {
+		t.Errorf("Initial cache size = %d, want 0", m.CacheSize())
+	}
+
+	patterns := []string{
+		"/api/v1/{resource}/{id}",
+		"/api/v2/users/*",
+		"/health",
+		"",  // empty string should be ignored
+		"/admin/{action}",
+	}
+
+	// Pre-compile patterns
+	compiled := m.PrecompilePatterns(patterns)
+
+	// Should compile 4 patterns (empty string ignored)
+	if compiled != 4 {
+		t.Errorf("Precompiled count = %d, want 4", compiled)
+	}
+
+	// Cache should have 4 entries
+	if m.CacheSize() != 4 {
+		t.Errorf("Cache size after precompile = %d, want 4", m.CacheSize())
+	}
+
+	// Now matching should use cached patterns (no cache misses)
+	result := m.Match("/api/v1/{resource}/{id}", "/api/v1/users/123")
+	if !result.Matched {
+		t.Error("Match failed for precompiled pattern")
+	}
+	if result.Params["resource"] != "users" {
+		t.Errorf("Params[resource] = %q, want 'users'", result.Params["resource"])
+	}
+}
+
 func TestCIDRMatcher_Match(t *testing.T) {
 	m := NewCIDRMatcher()
 

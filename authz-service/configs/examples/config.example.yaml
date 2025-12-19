@@ -594,10 +594,12 @@ resilience:
       - "/metrics"
 
     # Per-endpoint rate limits (override default)
+    # Stricter limits for security-sensitive endpoints (brute-force protection)
+    by_endpoint: true  # Enable per-endpoint rate limiting
     endpoint_rates:
-      /api/v1/authorize: "5000-S"       # Higher limit for authz
-      /api/v1/token/exchange: "100-S"   # Lower limit for token exchange
-      /api/v1/admin/*: "10-S"           # Very low for admin
+      /v1/token: "50-S"       # JWT validation - strict limit for credential stuffing protection
+      /v1/authorize: "100-S"  # Authorization decisions
+      /admin: "10-S"          # Admin endpoints - most restrictive
 
     # Rate limit by: ip, token, header
     key_by: "ip"

@@ -618,6 +618,18 @@ func (m *PathMatcher) CacheCapacity() int {
 	return m.capacity
 }
 
+// PrecompilePatterns pre-compiles a list of patterns to warm the cache.
+// This is useful at startup to avoid cold-start latency on the first request.
+func (m *PathMatcher) PrecompilePatterns(patterns []string) int {
+	compiled := 0
+	for _, pattern := range patterns {
+		if pattern != "" && m.getOrCompile(pattern) != nil {
+			compiled++
+		}
+	}
+	return compiled
+}
+
 // CIDRCacheSize returns the number of cached CIDRs.
 func (m *CIDRMatcher) CacheSize() int {
 	m.mu.RLock()
