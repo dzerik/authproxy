@@ -151,7 +151,7 @@ func (l *Loader) LoadServices(ctx context.Context) (*ServicesConfig, error) {
 
 	// Validate configuration before storing
 	validator := NewConfigValidator()
-	if err := validator.ValidateServices(svc, l.environment); err != nil {
+	if err := validator.ValidateServices(svc, l.environment, l.GetRules()); err != nil {
 		return nil, err // Return validation errors as-is for pretty printing
 	}
 
@@ -251,7 +251,7 @@ func (l *Loader) handleUpdate(update ConfigUpdate) {
 		if svc, ok := update.Config.(*ServicesConfig); ok {
 			// Validate before applying runtime update
 			validator := NewConfigValidator()
-			if err := validator.ValidateServices(svc, l.environment); err != nil {
+			if err := validator.ValidateServices(svc, l.environment, l.GetRules()); err != nil {
 				l.log.Error("config update rejected: validation failed",
 					zap.String("type", string(update.Type)),
 					zap.String("version", update.Version),

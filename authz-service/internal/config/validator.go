@@ -48,7 +48,8 @@ func NewConfigValidator() *ConfigValidator {
 
 // ValidateServices validates ServicesConfig.
 // envCfg is needed to check for port conflicts with management/metrics ports.
-func (v *ConfigValidator) ValidateServices(cfg *ServicesConfig, envCfg *EnvironmentConfig) error {
+// rulesConfig is needed to validate rule_sets references against rules.yaml.
+func (v *ConfigValidator) ValidateServices(cfg *ServicesConfig, envCfg *EnvironmentConfig, rulesConfig *RulesConfig) error {
 	v.errors = nil
 
 	// 1. Validate required fields are present
@@ -57,8 +58,8 @@ func (v *ConfigValidator) ValidateServices(cfg *ServicesConfig, envCfg *Environm
 	// 2. Validate port uniqueness (including management/metrics)
 	v.validatePortUniqueness(cfg, envCfg)
 
-	// 3. Validate rule set references exist
-	v.validateRuleSetReferences(cfg)
+	// 3. Validate rule set references exist in rules.yaml
+	v.validateRuleSetReferences(cfg, rulesConfig)
 
 	if len(v.errors) > 0 {
 		return v.errors
@@ -153,21 +154,28 @@ func (v *ConfigValidator) validatePortUniqueness(cfg *ServicesConfig, envCfg *En
 	}
 }
 
-// validateRuleSetReferences checks that all referenced rule sets exist.
-func (v *ConfigValidator) validateRuleSetReferences(cfg *ServicesConfig) {
+// validateRuleSetReferences checks that all referenced rule sets exist in rules.yaml.
+func (v *ConfigValidator) validateRuleSetReferences(cfg *ServicesConfig, rulesConfig *RulesConfig) {
 	for _, l := range cfg.Proxy.Listeners {
 		for _, rsName := range l.RuleSets {
-			if cfg.RuleSets == nil {
+			if rulesConfig == nil || rulesConfig.RuleSets == nil {
 				v.errors = append(v.errors, ValidationError{
 					Field:   fmt.Sprintf("proxy.listeners[%s].rule_sets", l.Name),
-					Message: fmt.Sprintf("rule set %q not found (no rule_sets defined)", rsName),
+					Message: fmt.Sprintf("rule set %q not found (no rule_sets defined in rules.yaml)", rsName),
 				})
 				continue
 			}
-			if _, exists := cfg.RuleSets[rsName]; !exists {
+			if _, exists := rulesConfig.RuleSets[rsName]; !exists {
+				// List available rule sets for better error message
+				var available []string
+				for name := range rulesConfig.RuleSets {
+					available = append(available, name)
+				}
+				sort.Strings(available)
 				v.errors = append(v.errors, ValidationError{
 					Field:   fmt.Sprintf("proxy.listeners[%s].rule_sets", l.Name),
-					Message: fmt.Sprintf("rule set %q not found", rsName),
+					Message: fmt.Sprintf("rule set %q not found in rules.yaml", rsName),
+					Details: []string{fmt.Sprintf("available: %s", strings.Join(available, ", "))},
 				})
 			}
 		}
@@ -179,24 +187,31 @@ func (v *ConfigValidator) validateRuleSetReferences(cfg *ServicesConfig) {
 func (v *ConfigValidator) validateRequiredFields(cfg *ServicesConfig) {
 	// Check that proxy listeners have routing configuration
 	for _, l := range cfg.Proxy.Listeners {
-		hasRuleSets := len(l.RuleSets) > 0
 		hasInlineRoutes := len(l.Routes) > 0
 
-		if !hasRuleSets && !hasInlineRoutes {
+		if !hasInlineRoutes {
 			v.errors = append(v.errors, ValidationError{
 				Field:   fmt.Sprintf("proxy.listeners[%s]", l.Name),
-				Message: "listener must have at least one route or rule_set reference",
+				Message: "listener must have at least one route defined",
 			})
 		}
-	}
 
-	// Check that referenced rule sets are not empty
-	for name, routes := range cfg.RuleSets {
-		if len(routes) == 0 {
-			v.errors = append(v.errors, ValidationError{
-				Field:   fmt.Sprintf("rule_sets[%s]", name),
-				Message: "rule set cannot be empty, must contain at least one route",
-			})
+		// Check that upstreams referenced in routes exist
+		for i, route := range l.Routes {
+			if route.Upstream != "" {
+				if _, exists := l.Upstreams[route.Upstream]; !exists {
+					var available []string
+					for name := range l.Upstreams {
+						available = append(available, name)
+					}
+					sort.Strings(available)
+					v.errors = append(v.errors, ValidationError{
+						Field:   fmt.Sprintf("proxy.listeners[%s].routes[%d]", l.Name, i),
+						Message: fmt.Sprintf("upstream %q not found in listener upstreams", route.Upstream),
+						Details: []string{fmt.Sprintf("available: %s", strings.Join(available, ", "))},
+					})
+				}
+			}
 		}
 	}
 
@@ -213,54 +228,83 @@ func (v *ConfigValidator) validateRequiredFields(cfg *ServicesConfig) {
 
 // validateRulesPriorities checks for priority conflicts in authorization rules.
 func (v *ConfigValidator) validateRulesPriorities(cfg *RulesConfig) {
-	if cfg == nil || len(cfg.Rules) == 0 {
+	if cfg == nil {
 		return
 	}
 
-	// Check for priority conflicts
-	priorities := make(map[int][]string) // priority -> rule names
-	for _, rule := range cfg.Rules {
-		name := rule.Name
-		if name == "" {
-			name = fmt.Sprintf("rule@%d", rule.Priority)
+	// Check for priority conflicts in global rules
+	if len(cfg.Rules) > 0 {
+		priorities := make(map[int][]string) // priority -> rule names
+		for _, rule := range cfg.Rules {
+			name := rule.Name
+			if name == "" {
+				name = fmt.Sprintf("rule@%d", rule.Priority)
+			}
+			priorities[rule.Priority] = append(priorities[rule.Priority], name)
 		}
-		priorities[rule.Priority] = append(priorities[rule.Priority], name)
+
+		for priority, rules := range priorities {
+			if len(rules) > 1 {
+				sort.Strings(rules)
+				v.errors = append(v.errors, ValidationError{
+					Field:   "rules",
+					Message: fmt.Sprintf("priority %d is used by multiple global rules", priority),
+					Details: rules,
+				})
+			}
+		}
 	}
 
-	for priority, rules := range priorities {
-		if len(rules) > 1 {
-			// Sort for deterministic output
-			sort.Strings(rules)
+	// Check for priority conflicts within each rule set
+	for setName, rules := range cfg.RuleSets {
+		if len(rules) == 0 {
 			v.errors = append(v.errors, ValidationError{
-				Field:   "rules",
-				Message: fmt.Sprintf("priority %d is used by multiple rules", priority),
-				Details: rules,
+				Field:   fmt.Sprintf("rule_sets[%s]", setName),
+				Message: "rule set cannot be empty, must contain at least one rule",
 			})
+			continue
+		}
+
+		priorities := make(map[int][]string)
+		for _, rule := range rules {
+			name := rule.Name
+			if name == "" {
+				name = fmt.Sprintf("rule@%d", rule.Priority)
+			}
+			priorities[rule.Priority] = append(priorities[rule.Priority], name)
+		}
+
+		for priority, ruleNames := range priorities {
+			if len(ruleNames) > 1 {
+				sort.Strings(ruleNames)
+				v.errors = append(v.errors, ValidationError{
+					Field:   fmt.Sprintf("rule_sets[%s]", setName),
+					Message: fmt.Sprintf("priority %d is used by multiple rules", priority),
+					Details: ruleNames,
+				})
+			}
 		}
 	}
 }
 
-// mergeRulesForListener merges rules from rule sets and inline routes.
-func (v *ConfigValidator) mergeRulesForListener(l ProxyListenerConfig, ruleSets map[string][]RouteConfig) []RouteConfig {
-	var result []RouteConfig
+// GetRulesForListener returns merged authorization rules for a listener.
+// Rules are merged from referenced rule sets (in order specified) plus global rules.
+func GetRulesForListener(listener ProxyListenerConfig, rulesConfig *RulesConfig) []Rule {
+	if rulesConfig == nil {
+		return nil
+	}
 
-	// Add routes from rule sets (in order)
-	for _, rsName := range l.RuleSets {
-		if routes, ok := ruleSets[rsName]; ok {
-			result = append(result, routes...)
+	var result []Rule
+
+	// Add rules from referenced rule sets (in order)
+	for _, rsName := range listener.RuleSets {
+		if rules, ok := rulesConfig.RuleSets[rsName]; ok {
+			result = append(result, rules...)
 		}
 	}
 
-	// Add inline routes
-	result = append(result, l.Routes...)
+	// Add global rules
+	result = append(result, rulesConfig.Rules...)
 
 	return result
-}
-
-// MergeRoutesForListener is a public helper to merge rules for use in proxy.
-// This resolves rule sets and merges them with inline routes.
-// Routes are returned in order: rule sets first (in order specified), then inline routes.
-func MergeRoutesForListener(l ProxyListenerConfig, ruleSets map[string][]RouteConfig) []RouteConfig {
-	v := &ConfigValidator{}
-	return v.mergeRulesForListener(l, ruleSets)
 }

@@ -1,31 +1,8 @@
 # Services Configuration (Dynamic - runtime updatable)
 # This file contains service settings that can be updated without restart.
+# Note: Authorization rule_sets are defined in rules.yaml and referenced by name in listeners.
 
 version: "1.0.0"
-
-# Named rule sets for route configuration reuse
-# Rule sets can be attached to multiple listeners via rule_sets field
-rule_sets:
-  # API routes - shared across multiple gateways
-  api-routes:
-    - path_prefix: "/api/users"
-      upstream: "user-service"
-      methods: [GET, POST, PUT, DELETE]
-    - path_prefix: "/api/admin"
-      upstream: "admin-service"
-      strip_prefix: "/api/admin"
-      rewrite_prefix: "/admin"
-    - path_prefix: "/api"
-      upstream: "api-service"
-
-  # Health check routes - commonly shared
-  health-routes:
-    - path_prefix: "/health"
-      upstream: "api-service"
-      methods: [GET]
-    - path_prefix: "/ready"
-      upstream: "api-service"
-      methods: [GET]
 
 # JWT validation configuration
 jwt:
@@ -269,12 +246,27 @@ proxy:
         admin-service:
           url: "http://admin-service:8080"
           timeout: 30s
-      # Use named rule sets (merged in order specified)
+      # Authorization rule sets from rules.yaml (merged in order specified)
       rule_sets:
-        - api-routes
-        - health-routes
-      # Inline routes (added after rule_sets routes)
-      routes: []
+        - api-rules
+        - health-rules
+      # Routing rules (path -> upstream mapping)
+      routes:
+        - path_prefix: "/api/users"
+          upstream: "user-service"
+          methods: [GET, POST, PUT, DELETE]
+        - path_prefix: "/api/admin"
+          upstream: "admin-service"
+          strip_prefix: "/api/admin"
+          rewrite_prefix: "/admin"
+        - path_prefix: "/api"
+          upstream: "api-service"
+        - path_prefix: "/health"
+          upstream: "api-service"
+          methods: [GET]
+        - path_prefix: "/ready"
+          upstream: "api-service"
+          methods: [GET]
       headers:
         add:
           X-Forwarded-By: "authz-proxy"

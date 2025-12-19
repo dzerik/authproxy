@@ -66,8 +66,8 @@ func TestConfigValidator_ValidatePortUniqueness(t *testing.T) {
 			serviceCfg: &ServicesConfig{
 				Proxy: ProxyListenersConfig{
 					Listeners: []ProxyListenerConfig{
-						{Name: "api", Port: 8080, Routes: []RouteConfig{{PathPrefix: "/api"}}},
-						{Name: "admin", Port: 8081, Routes: []RouteConfig{{PathPrefix: "/admin"}}},
+						{Name: "api", Port: 8080, Routes: []RouteConfig{{PathPrefix: "/api", Upstream: "api-svc"}}, Upstreams: map[string]UpstreamConfig{"api-svc": {URL: "http://api:8080"}}},
+						{Name: "admin", Port: 8081, Routes: []RouteConfig{{PathPrefix: "/admin", Upstream: "admin-svc"}}, Upstreams: map[string]UpstreamConfig{"admin-svc": {URL: "http://admin:8080"}}},
 					},
 				},
 			},
@@ -79,8 +79,8 @@ func TestConfigValidator_ValidatePortUniqueness(t *testing.T) {
 			serviceCfg: &ServicesConfig{
 				Proxy: ProxyListenersConfig{
 					Listeners: []ProxyListenerConfig{
-						{Name: "api", Port: 8080, Routes: []RouteConfig{{PathPrefix: "/api"}}},
-						{Name: "admin", Port: 8080, Routes: []RouteConfig{{PathPrefix: "/admin"}}}, // duplicate
+						{Name: "api", Port: 8080, Routes: []RouteConfig{{PathPrefix: "/api", Upstream: "api-svc"}}, Upstreams: map[string]UpstreamConfig{"api-svc": {URL: "http://api:8080"}}},
+						{Name: "admin", Port: 8080, Routes: []RouteConfig{{PathPrefix: "/admin", Upstream: "admin-svc"}}, Upstreams: map[string]UpstreamConfig{"admin-svc": {URL: "http://admin:8080"}}},
 					},
 				},
 			},
@@ -93,12 +93,12 @@ func TestConfigValidator_ValidatePortUniqueness(t *testing.T) {
 			serviceCfg: &ServicesConfig{
 				Proxy: ProxyListenersConfig{
 					Listeners: []ProxyListenerConfig{
-						{Name: "api", Port: 8080, Routes: []RouteConfig{{PathPrefix: "/api"}}},
+						{Name: "api", Port: 8080, Routes: []RouteConfig{{PathPrefix: "/api", Upstream: "api-svc"}}, Upstreams: map[string]UpstreamConfig{"api-svc": {URL: "http://api:8080"}}},
 					},
 				},
 				Egress: EgressListenersConfig{
 					Listeners: []EgressListenerConfig{
-						{Name: "external", Port: 8080, Targets: map[string]EgressTargetConfig{"svc": {URL: "https://example.com"}}}, // conflict with proxy
+						{Name: "external", Port: 8080, Targets: map[string]EgressTargetConfig{"svc": {URL: "https://example.com"}}},
 					},
 				},
 			},
@@ -111,7 +111,7 @@ func TestConfigValidator_ValidatePortUniqueness(t *testing.T) {
 			serviceCfg: &ServicesConfig{
 				Proxy: ProxyListenersConfig{
 					Listeners: []ProxyListenerConfig{
-						{Name: "api", Port: 15000, Routes: []RouteConfig{{PathPrefix: "/api"}}}, // conflict with management admin
+						{Name: "api", Port: 15000, Routes: []RouteConfig{{PathPrefix: "/api", Upstream: "api-svc"}}, Upstreams: map[string]UpstreamConfig{"api-svc": {URL: "http://api:8080"}}},
 					},
 				},
 			},
@@ -129,7 +129,7 @@ func TestConfigValidator_ValidatePortUniqueness(t *testing.T) {
 			serviceCfg: &ServicesConfig{
 				Proxy: ProxyListenersConfig{
 					Listeners: []ProxyListenerConfig{
-						{Name: "api", Port: 8080, Routes: []RouteConfig{{PathPrefix: "/api"}}}, // conflict with HTTP server
+						{Name: "api", Port: 8080, Routes: []RouteConfig{{PathPrefix: "/api", Upstream: "api-svc"}}, Upstreams: map[string]UpstreamConfig{"api-svc": {URL: "http://api:8080"}}},
 					},
 				},
 			},
@@ -149,13 +149,13 @@ func TestConfigValidator_ValidatePortUniqueness(t *testing.T) {
 			serviceCfg: &ServicesConfig{
 				Proxy: ProxyListenersConfig{
 					Listeners: []ProxyListenerConfig{
-						{Name: "api", Port: 15000, Routes: []RouteConfig{{PathPrefix: "/api"}}}, // same as management but disabled
+						{Name: "api", Port: 15000, Routes: []RouteConfig{{PathPrefix: "/api", Upstream: "api-svc"}}, Upstreams: map[string]UpstreamConfig{"api-svc": {URL: "http://api:8080"}}},
 					},
 				},
 			},
 			envCfg: &EnvironmentConfig{
 				Management: ManagementServerConfig{
-					Enabled:   false, // disabled
+					Enabled:   false,
 					AdminAddr: ":15000",
 				},
 			},
@@ -166,7 +166,7 @@ func TestConfigValidator_ValidatePortUniqueness(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			v := NewConfigValidator()
-			err := v.ValidateServices(tt.serviceCfg, tt.envCfg)
+			err := v.ValidateServices(tt.serviceCfg, tt.envCfg, nil)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -194,66 +194,100 @@ func TestConfigValidator_ValidateRuleSetReferences(t *testing.T) {
 	tests := []struct {
 		name        string
 		serviceCfg  *ServicesConfig
+		rulesCfg    *RulesConfig
 		expectError bool
 		errorCount  int
 	}{
 		{
-			name: "valid rule set references",
+			name: "valid rule set references from rules.yaml",
 			serviceCfg: &ServicesConfig{
-				RuleSets: map[string][]RouteConfig{
-					"api-rules":   {{PathPrefix: "/api"}},
-					"admin-rules": {{PathPrefix: "/admin"}},
-				},
 				Proxy: ProxyListenersConfig{
 					Listeners: []ProxyListenerConfig{
 						{
 							Name:     "api",
 							Port:     8080,
 							RuleSets: []string{"api-rules"},
+							Routes:   []RouteConfig{{PathPrefix: "/api", Upstream: "api-svc"}},
+							Upstreams: map[string]UpstreamConfig{"api-svc": {URL: "http://api:8080"}},
 						},
 						{
 							Name:     "admin",
 							Port:     8081,
 							RuleSets: []string{"admin-rules"},
+							Routes:   []RouteConfig{{PathPrefix: "/admin", Upstream: "admin-svc"}},
+							Upstreams: map[string]UpstreamConfig{"admin-svc": {URL: "http://admin:8080"}},
 						},
 					},
+				},
+			},
+			rulesCfg: &RulesConfig{
+				RuleSets: map[string][]Rule{
+					"api-rules":   {{Name: "allow-api", Priority: 100, Effect: "allow"}},
+					"admin-rules": {{Name: "allow-admin", Priority: 100, Effect: "allow"}},
 				},
 			},
 			expectError: false,
 		},
 		{
-			name: "missing rule set reference",
+			name: "missing rule set reference in rules.yaml",
 			serviceCfg: &ServicesConfig{
-				RuleSets: map[string][]RouteConfig{
-					"api-rules": {{PathPrefix: "/api"}},
-				},
 				Proxy: ProxyListenersConfig{
 					Listeners: []ProxyListenerConfig{
 						{
 							Name:     "api",
 							Port:     8080,
-							RuleSets: []string{"api-rules", "missing-rules"}, // missing-rules doesn't exist
+							RuleSets: []string{"api-rules", "missing-rules"},
+							Routes:   []RouteConfig{{PathPrefix: "/api", Upstream: "api-svc"}},
+							Upstreams: map[string]UpstreamConfig{"api-svc": {URL: "http://api:8080"}},
 						},
 					},
+				},
+			},
+			rulesCfg: &RulesConfig{
+				RuleSets: map[string][]Rule{
+					"api-rules": {{Name: "allow-api", Priority: 100, Effect: "allow"}},
 				},
 			},
 			expectError: true,
 			errorCount:  1,
 		},
 		{
-			name: "no rule sets defined but referenced",
+			name: "no rule sets defined in rules.yaml but referenced",
 			serviceCfg: &ServicesConfig{
-				RuleSets: nil, // no rule sets defined
 				Proxy: ProxyListenersConfig{
 					Listeners: []ProxyListenerConfig{
 						{
 							Name:     "api",
 							Port:     8080,
 							RuleSets: []string{"some-rules"},
+							Routes:   []RouteConfig{{PathPrefix: "/api", Upstream: "api-svc"}},
+							Upstreams: map[string]UpstreamConfig{"api-svc": {URL: "http://api:8080"}},
 						},
 					},
 				},
 			},
+			rulesCfg: &RulesConfig{
+				RuleSets: nil,
+			},
+			expectError: true,
+			errorCount:  1,
+		},
+		{
+			name: "nil rules config but rule sets referenced - error",
+			serviceCfg: &ServicesConfig{
+				Proxy: ProxyListenersConfig{
+					Listeners: []ProxyListenerConfig{
+						{
+							Name:     "api",
+							Port:     8080,
+							RuleSets: []string{"some-rules"},
+							Routes:   []RouteConfig{{PathPrefix: "/api", Upstream: "api-svc"}},
+							Upstreams: map[string]UpstreamConfig{"api-svc": {URL: "http://api:8080"}},
+						},
+					},
+				},
+			},
+			rulesCfg:    nil,
 			expectError: true,
 			errorCount:  1,
 		},
@@ -266,11 +300,13 @@ func TestConfigValidator_ValidateRuleSetReferences(t *testing.T) {
 							Name:     "api",
 							Port:     8080,
 							RuleSets: nil, // no rule sets referenced
-							Routes:   []RouteConfig{{PathPrefix: "/api"}},
+							Routes:   []RouteConfig{{PathPrefix: "/api", Upstream: "api-svc"}},
+							Upstreams: map[string]UpstreamConfig{"api-svc": {URL: "http://api:8080"}},
 						},
 					},
 				},
 			},
+			rulesCfg:    nil,
 			expectError: false,
 		},
 	}
@@ -278,7 +314,7 @@ func TestConfigValidator_ValidateRuleSetReferences(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			v := NewConfigValidator()
-			err := v.ValidateServices(tt.serviceCfg, nil)
+			err := v.ValidateServices(tt.serviceCfg, nil, tt.rulesCfg)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -291,7 +327,6 @@ func TestConfigValidator_ValidateRuleSetReferences(t *testing.T) {
 		})
 	}
 }
-
 
 func TestConfigValidator_ValidateRequiredFields(t *testing.T) {
 	tests := []struct {
@@ -308,7 +343,8 @@ func TestConfigValidator_ValidateRequiredFields(t *testing.T) {
 						{
 							Name:   "api",
 							Port:   8080,
-							Routes: []RouteConfig{{PathPrefix: "/api"}},
+							Routes: []RouteConfig{{PathPrefix: "/api", Upstream: "api-svc"}},
+							Upstreams: map[string]UpstreamConfig{"api-svc": {URL: "http://api:8080"}},
 						},
 					},
 				},
@@ -316,32 +352,14 @@ func TestConfigValidator_ValidateRequiredFields(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "proxy listener with rule_sets - valid",
-			serviceCfg: &ServicesConfig{
-				RuleSets: map[string][]RouteConfig{
-					"api-rules": {{PathPrefix: "/api"}},
-				},
-				Proxy: ProxyListenersConfig{
-					Listeners: []ProxyListenerConfig{
-						{
-							Name:     "api",
-							Port:     8080,
-							RuleSets: []string{"api-rules"},
-						},
-					},
-				},
-			},
-			expectError: false,
-		},
-		{
-			name: "proxy listener without routes or rule_sets - error",
+			name: "proxy listener without routes - error",
 			serviceCfg: &ServicesConfig{
 				Proxy: ProxyListenersConfig{
 					Listeners: []ProxyListenerConfig{
 						{
 							Name: "api",
 							Port: 8080,
-							// No routes, no rule_sets
+							// No routes
 						},
 					},
 				},
@@ -350,23 +368,21 @@ func TestConfigValidator_ValidateRequiredFields(t *testing.T) {
 			errorCount:  1,
 		},
 		{
-			name: "empty rule_set - error",
+			name: "route references missing upstream - error",
 			serviceCfg: &ServicesConfig{
-				RuleSets: map[string][]RouteConfig{
-					"empty-rules": {}, // Empty rule set
-				},
 				Proxy: ProxyListenersConfig{
 					Listeners: []ProxyListenerConfig{
 						{
-							Name:     "api",
-							Port:     8080,
-							RuleSets: []string{"empty-rules"},
+							Name:   "api",
+							Port:   8080,
+							Routes: []RouteConfig{{PathPrefix: "/api", Upstream: "missing-upstream"}},
+							Upstreams: map[string]UpstreamConfig{"api-svc": {URL: "http://api:8080"}},
 						},
 					},
 				},
 			},
 			expectError: true,
-			errorCount:  1, // One error for empty rule set
+			errorCount:  1,
 		},
 		{
 			name: "egress listener without targets or routes - error",
@@ -406,7 +422,7 @@ func TestConfigValidator_ValidateRequiredFields(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			v := NewConfigValidator()
-			err := v.ValidateServices(tt.serviceCfg, nil)
+			err := v.ValidateServices(tt.serviceCfg, nil, nil)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -428,7 +444,7 @@ func TestConfigValidator_ValidateRules(t *testing.T) {
 		errorCount  int
 	}{
 		{
-			name: "unique priorities - valid",
+			name: "unique priorities in global rules - valid",
 			rulesCfg: &RulesConfig{
 				Rules: []Rule{
 					{Name: "rule-1", Priority: 100},
@@ -439,7 +455,7 @@ func TestConfigValidator_ValidateRules(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "duplicate priorities - error",
+			name: "duplicate priorities in global rules - error",
 			rulesCfg: &RulesConfig{
 				Rules: []Rule{
 					{Name: "rule-1", Priority: 100},
@@ -450,27 +466,46 @@ func TestConfigValidator_ValidateRules(t *testing.T) {
 			errorCount:  1,
 		},
 		{
-			name: "multiple duplicate priorities - multiple errors",
+			name: "duplicate priorities in rule set - error",
 			rulesCfg: &RulesConfig{
-				Rules: []Rule{
-					{Name: "rule-1", Priority: 100},
-					{Name: "rule-2", Priority: 100}, // duplicate
-					{Name: "rule-3", Priority: 50},
-					{Name: "rule-4", Priority: 50}, // another duplicate
+				RuleSets: map[string][]Rule{
+					"api-rules": {
+						{Name: "rule-1", Priority: 100},
+						{Name: "rule-2", Priority: 100}, // duplicate within set
+					},
 				},
 			},
 			expectError: true,
-			errorCount:  2,
+			errorCount:  1,
 		},
 		{
-			name: "empty rules - valid",
+			name: "empty rule set - error",
 			rulesCfg: &RulesConfig{
-				Rules: nil,
+				RuleSets: map[string][]Rule{
+					"empty-rules": {}, // empty
+				},
+			},
+			expectError: true,
+			errorCount:  1,
+		},
+		{
+			name: "valid rule sets with unique priorities",
+			rulesCfg: &RulesConfig{
+				RuleSets: map[string][]Rule{
+					"api-rules": {
+						{Name: "rule-1", Priority: 100},
+						{Name: "rule-2", Priority: 90},
+					},
+					"admin-rules": {
+						{Name: "rule-3", Priority: 100}, // same priority but different set - ok
+						{Name: "rule-4", Priority: 90},
+					},
+				},
 			},
 			expectError: false,
 		},
 		{
-			name:        "nil config - valid",
+			name: "nil config - valid",
 			rulesCfg:    nil,
 			expectError: false,
 		},
@@ -504,142 +539,100 @@ func TestConfigValidator_ValidateRules(t *testing.T) {
 	}
 }
 
-func TestMergeRoutesForListener(t *testing.T) {
+func TestGetRulesForListener(t *testing.T) {
 	tests := []struct {
-		name           string
-		listener       ProxyListenerConfig
-		ruleSets       map[string][]RouteConfig
-		expectedCount  int
-		expectedFirst  string // PathPrefix of first route (from rule sets)
-		expectedLast   string // PathPrefix of last route (from inline routes)
+		name          string
+		listener      ProxyListenerConfig
+		rulesConfig   *RulesConfig
+		expectedCount int
+		expectedNames []string
 	}{
 		{
-			name: "merge rule sets and inline routes",
+			name: "merge rule sets and global rules",
 			listener: ProxyListenerConfig{
 				RuleSets: []string{"api-rules"},
-				Routes: []RouteConfig{
-					{PathPrefix: "/inline"},
-				},
 			},
-			ruleSets: map[string][]RouteConfig{
-				"api-rules": {
-					{PathPrefix: "/api"},
+			rulesConfig: &RulesConfig{
+				RuleSets: map[string][]Rule{
+					"api-rules": {
+						{Name: "api-allow", Priority: 100},
+					},
+				},
+				Rules: []Rule{
+					{Name: "global-deny", Priority: 1},
 				},
 			},
 			expectedCount: 2,
-			expectedFirst: "/api",    // from rule set
-			expectedLast:  "/inline", // from inline routes
+			expectedNames: []string{"api-allow", "global-deny"},
 		},
 		{
-			name: "multiple rule sets merged in order",
+			name: "multiple rule sets in order",
 			listener: ProxyListenerConfig{
-				RuleSets: []string{"first-set", "second-set"},
-				Routes:   nil,
+				RuleSets: []string{"first-rules", "second-rules"},
 			},
-			ruleSets: map[string][]RouteConfig{
-				"first-set": {
-					{PathPrefix: "/first"},
+			rulesConfig: &RulesConfig{
+				RuleSets: map[string][]Rule{
+					"first-rules":  {{Name: "first", Priority: 100}},
+					"second-rules": {{Name: "second", Priority: 90}},
 				},
-				"second-set": {
-					{PathPrefix: "/second"},
+				Rules: []Rule{
+					{Name: "global", Priority: 1},
 				},
 			},
-			expectedCount: 2,
-			expectedFirst: "/first",  // first rule set
-			expectedLast:  "/second", // second rule set
+			expectedCount: 3,
+			expectedNames: []string{"first", "second", "global"},
 		},
 		{
-			name: "inline routes only - preserves order",
+			name: "no rule sets - only global rules",
 			listener: ProxyListenerConfig{
 				RuleSets: nil,
-				Routes: []RouteConfig{
-					{PathPrefix: "/b"},
-					{PathPrefix: "/a"},
+			},
+			rulesConfig: &RulesConfig{
+				Rules: []Rule{
+					{Name: "global-only", Priority: 1},
 				},
 			},
-			ruleSets:      nil,
-			expectedCount: 2,
-			expectedFirst: "/b", // first inline route
-			expectedLast:  "/a", // second inline route (order preserved)
-		},
-		{
-			name: "empty configuration",
-			listener: ProxyListenerConfig{
-				RuleSets: nil,
-				Routes:   nil,
-			},
-			ruleSets:      nil,
-			expectedCount: 0,
-		},
-		{
-			name: "missing rule set reference - only inline routes",
-			listener: ProxyListenerConfig{
-				RuleSets: []string{"missing"},
-				Routes: []RouteConfig{
-					{PathPrefix: "/inline"},
-				},
-			},
-			ruleSets:      map[string][]RouteConfig{},
 			expectedCount: 1,
-			expectedFirst: "/inline",
-			expectedLast:  "/inline",
+			expectedNames: []string{"global-only"},
+		},
+		{
+			name: "nil rules config - empty result",
+			listener: ProxyListenerConfig{
+				RuleSets: []string{"api-rules"},
+			},
+			rulesConfig:   nil,
+			expectedCount: 0,
+			expectedNames: nil,
+		},
+		{
+			name: "missing rule set - skipped",
+			listener: ProxyListenerConfig{
+				RuleSets: []string{"existing-rules", "missing-rules"},
+			},
+			rulesConfig: &RulesConfig{
+				RuleSets: map[string][]Rule{
+					"existing-rules": {{Name: "exists", Priority: 100}},
+				},
+				Rules: []Rule{
+					{Name: "global", Priority: 1},
+				},
+			},
+			expectedCount: 2, // only existing-rules and global
+			expectedNames: []string{"exists", "global"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := MergeRoutesForListener(tt.listener, tt.ruleSets)
+			result := GetRulesForListener(tt.listener, tt.rulesConfig)
 
 			assert.Len(t, result, tt.expectedCount)
 
-			if tt.expectedCount > 0 {
-				assert.Equal(t, tt.expectedFirst, result[0].PathPrefix)
-				assert.Equal(t, tt.expectedLast, result[len(result)-1].PathPrefix)
+			if tt.expectedNames != nil {
+				for i, name := range tt.expectedNames {
+					assert.Equal(t, name, result[i].Name)
+				}
 			}
 		})
 	}
-}
-
-func TestValidationError_Error(t *testing.T) {
-	tests := []struct {
-		name     string
-		err      ValidationError
-		expected string
-	}{
-		{
-			name: "simple error without details",
-			err: ValidationError{
-				Field:   "port",
-				Message: "must be unique",
-			},
-			expected: "port: must be unique",
-		},
-		{
-			name: "error with details",
-			err: ValidationError{
-				Field:   "listeners",
-				Message: "port conflict",
-				Details: []string{"proxy:api", "proxy:admin"},
-			},
-			expected: "listeners: port conflict\n    - proxy:api\n    - proxy:admin",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, tt.err.Error())
-		})
-	}
-}
-
-func TestValidationErrors_Error(t *testing.T) {
-	errs := ValidationErrors{
-		{Field: "port", Message: "must be unique"},
-		{Field: "rule_sets", Message: "not found"},
-	}
-
-	result := errs.Error()
-	assert.Contains(t, result, "configuration validation failed:")
-	assert.Contains(t, result, "port: must be unique")
-	assert.Contains(t, result, "rule_sets: not found")
 }

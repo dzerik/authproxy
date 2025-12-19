@@ -309,15 +309,8 @@ func (a *App) addProxyListener(ctx context.Context, listenerCfg config.ProxyList
 		listenerCfg.Timeout = a.cfg.ProxyListeners.Defaults.Timeout
 	}
 
-	// Merge rule sets with inline routes (if loader is available)
-	var ruleSets map[string][]config.RouteConfig
-	if a.loader != nil {
-		if svc := a.loader.GetServices(); svc != nil {
-			ruleSets = svc.RuleSets
-		}
-	}
-	// MergeRoutesForListener merges rule sets and inline routes, sorted by priority
-	listenerCfg.Routes = config.MergeRoutesForListener(listenerCfg, ruleSets)
+	// Routes are defined directly in listener config
+	// Authorization rule_sets are defined in rules.yaml and applied during request processing
 
 	// Create reverse proxy handler for this listener
 	proxy, err := httpTransport.NewReverseProxyFromListener(

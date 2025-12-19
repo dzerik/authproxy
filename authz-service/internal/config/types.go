@@ -169,8 +169,6 @@ type FallbackSourceSettings struct {
 type ServicesConfig struct {
 	// Version is the configuration version
 	Version string `mapstructure:"version" jsonschema:"description=Configuration version for change tracking." jsonschema_extras:"x-runtime-updatable=true"`
-	// RuleSets are named collections of routing rules that can be attached to listeners
-	RuleSets map[string][]RouteConfig `mapstructure:"rule_sets" jsonschema:"description=Named rule sets for reuse across proxy listeners. Define routing rules once and reference them by name in listener configurations." jsonschema_extras:"x-runtime-updatable=true"`
 	// JWT validation configuration
 	JWT JWTConfig `mapstructure:"jwt" jsonschema:"description=JWT token validation configuration." jsonschema_extras:"x-runtime-updatable=true"`
 	// TokenExchange configuration (RFC 8693)

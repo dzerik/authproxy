@@ -2,92 +2,124 @@
 # This file defines the authorization rules for the builtin policy engine.
 
 version: "v1.0.0"
-description: "Example authorization rules"
+description: "Authorization rules with named rule sets"
 default_deny: true  # Deny by default if no rule matches
 
+# Named rule sets - can be referenced by proxy listeners via rule_sets field
+rule_sets:
+  # Health and infrastructure endpoints - no authentication required
+  health-rules:
+    - name: allow-health-endpoints
+      description: "Allow access to health check endpoints"
+      priority: 1000
+      enabled: true
+      conditions:
+        paths:
+          - "/health"
+          - "/health/*"
+          - "/healthz"
+          - "/ready"
+          - "/readyz"
+          - "/live"
+          - "/livez"
+        methods:
+          - GET
+      effect: allow
+
+    - name: allow-metrics
+      description: "Allow access to metrics endpoint"
+      priority: 999
+      enabled: true
+      conditions:
+        paths:
+          - "/metrics"
+        methods:
+          - GET
+      effect: allow
+
+  # API authorization rules - require valid token
+  api-rules:
+    - name: api-admin-access
+      description: "Allow admin role full API access"
+      priority: 100
+      enabled: true
+      conditions:
+        paths:
+          - "/api/*"
+        roles:
+          - admin
+          - realm-admin
+      effect: allow
+
+    - name: api-user-read-access
+      description: "Allow users to read their own data"
+      priority: 90
+      enabled: true
+      conditions:
+        paths:
+          - "/api/v1/users/*"
+          - "/api/v1/profile"
+        methods:
+          - GET
+        roles:
+          - user
+      effect: allow
+
+    - name: api-service-to-service
+      description: "Allow service-to-service communication"
+      priority: 85
+      enabled: true
+      conditions:
+        paths:
+          - "/api/v1/internal/*"
+        scopes:
+          - service:read
+          - service:write
+      effect: allow
+
+    - name: token-exchange
+      description: "Allow token exchange for authenticated users"
+      priority: 80
+      enabled: true
+      conditions:
+        paths:
+          - "/api/v1/token/exchange"
+        methods:
+          - POST
+        scopes:
+          - openid
+      effect: allow
+
+  # Admin panel rules
+  admin-rules:
+    - name: admin-panel-access
+      description: "Allow admin panel access for admins only"
+      priority: 100
+      enabled: true
+      conditions:
+        paths:
+          - "/admin/*"
+        roles:
+          - admin
+          - realm-admin
+      effect: allow
+
+    - name: admin-readonly
+      description: "Allow readonly admin access for operators"
+      priority: 90
+      enabled: true
+      conditions:
+        paths:
+          - "/admin/view/*"
+          - "/admin/reports/*"
+        methods:
+          - GET
+        roles:
+          - operator
+      effect: allow
+
+# Global rules - applied to all requests regardless of listener
 rules:
-  # Health and metrics endpoints - allow without authentication
-  - name: allow-health-endpoints
-    description: "Allow access to health check endpoints"
-    priority: 1000
-    enabled: true
-    conditions:
-      paths:
-        - "/health"
-        - "/health/*"
-        - "/healthz"
-        - "/ready"
-        - "/readyz"
-        - "/live"
-        - "/livez"
-      methods:
-        - GET
-    effect: allow
-
-  - name: allow-metrics
-    description: "Allow access to metrics endpoint"
-    priority: 999
-    enabled: true
-    conditions:
-      paths:
-        - "/metrics"
-      methods:
-        - GET
-    effect: allow
-
-  # API authorization - require valid token
-  - name: api-admin-access
-    description: "Allow admin role full API access"
-    priority: 100
-    enabled: true
-    conditions:
-      paths:
-        - "/api/*"
-      roles:
-        - admin
-        - realm-admin
-    effect: allow
-
-  - name: api-user-read-access
-    description: "Allow users to read their own data"
-    priority: 90
-    enabled: true
-    conditions:
-      paths:
-        - "/api/v1/users/*"
-        - "/api/v1/profile"
-      methods:
-        - GET
-      roles:
-        - user
-    effect: allow
-
-  - name: api-service-to-service
-    description: "Allow service-to-service communication"
-    priority: 85
-    enabled: true
-    conditions:
-      paths:
-        - "/api/v1/internal/*"
-      scopes:
-        - service:read
-        - service:write
-    effect: allow
-
-  # Token exchange endpoint
-  - name: token-exchange
-    description: "Allow token exchange for authenticated users"
-    priority: 80
-    enabled: true
-    conditions:
-      paths:
-        - "/api/v1/token/exchange"
-      methods:
-        - POST
-      scopes:
-        - openid
-    effect: allow
-
   # Deny all other API requests without proper authentication
   - name: deny-unauthenticated-api
     description: "Deny access to API without valid authentication"

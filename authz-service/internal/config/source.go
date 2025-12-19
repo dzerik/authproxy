@@ -313,7 +313,9 @@ type RulesConfig struct {
 	Description string `mapstructure:"description" yaml:"description" json:"description"`
 	// DefaultDeny sets default behavior when no rule matches
 	DefaultDeny bool `mapstructure:"default_deny" yaml:"default_deny" json:"default_deny"`
-	// Rules is the list of authorization rules
+	// RuleSets are named collections of authorization rules that can be referenced by proxy listeners
+	RuleSets map[string][]Rule `mapstructure:"rule_sets" yaml:"rule_sets" json:"rule_sets"`
+	// Rules is the list of authorization rules (global, applied to all requests)
 	Rules []Rule `mapstructure:"rules" yaml:"rules" json:"rules"`
 }
 
