@@ -1,0 +1,210 @@
+{
+  "mappings": [
+    {
+      "name": "Partner API - List resources",
+      "request": {
+        "method": "GET",
+        "urlPath": "/partner/api/resources"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "resources": [
+            {
+              "id": "res-001",
+              "name": "Shared Dataset A",
+              "type": "dataset",
+              "owner": "partner-org",
+              "accessLevel": "read",
+              "createdAt": "2024-01-01T00:00:00Z"
+            },
+            {
+              "id": "res-002",
+              "name": "API Endpoint Collection",
+              "type": "api",
+              "owner": "partner-org",
+              "accessLevel": "execute",
+              "createdAt": "2024-02-15T00:00:00Z"
+            }
+          ],
+          "total": 2,
+          "partnerId": "{{request.headers.X-Partner-Id}}"
+        },
+        "transformers": ["response-template"]
+      }
+    },
+    {
+      "name": "Partner API - Get resource",
+      "request": {
+        "method": "GET",
+        "urlPathPattern": "/partner/api/resources/[a-zA-Z0-9-]+"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "id": "{{request.pathSegments.[3]}}",
+          "name": "Resource {{request.pathSegments.[3]}}",
+          "type": "dataset",
+          "owner": "partner-org",
+          "data": {
+            "records": 1500,
+            "lastUpdated": "{{now offset='-1 hours'}}",
+            "format": "json"
+          },
+          "accessLog": [
+            {
+              "accessor": "{{request.headers.X-User-Id}}",
+              "action": "read",
+              "timestamp": "{{now}}"
+            }
+          ]
+        },
+        "transformers": ["response-template"]
+      }
+    },
+    {
+      "name": "Partner API - Create resource",
+      "request": {
+        "method": "POST",
+        "urlPath": "/partner/api/resources"
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "id": "{{randomValue type='UUID'}}",
+          "message": "Resource created successfully",
+          "createdAt": "{{now}}",
+          "createdBy": "{{request.headers.X-User-Id}}"
+        },
+        "transformers": ["response-template"]
+      }
+    },
+    {
+      "name": "Partner API - Execute action",
+      "request": {
+        "method": "POST",
+        "urlPathPattern": "/partner/api/actions/[a-zA-Z0-9-]+"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "actionId": "{{request.pathSegments.[3]}}",
+          "status": "completed",
+          "result": {
+            "success": true,
+            "output": "Action executed successfully",
+            "duration": 125
+          },
+          "executedAt": "{{now}}",
+          "executedBy": "{{request.headers.X-User-Id}}"
+        },
+        "transformers": ["response-template"]
+      }
+    },
+    {
+      "name": "Partner API - Get quotas",
+      "request": {
+        "method": "GET",
+        "urlPath": "/partner/api/quotas"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "quotas": {
+            "apiCalls": {
+              "used": 4500,
+              "limit": 10000,
+              "resetAt": "{{now offset='1 days'}}"
+            },
+            "storage": {
+              "used": 256,
+              "limit": 1024,
+              "unit": "MB"
+            },
+            "resources": {
+              "used": 15,
+              "limit": 50
+            }
+          },
+          "partnerId": "{{request.headers.X-Partner-Id}}",
+          "tier": "standard"
+        },
+        "transformers": ["response-template"]
+      }
+    },
+    {
+      "name": "Partner API - Token exchange callback",
+      "request": {
+        "method": "POST",
+        "urlPath": "/partner/api/token/validate"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "valid": true,
+          "subject": "{{request.headers.X-User-Id}}",
+          "issuer": "keycloak",
+          "audience": "authz-service-external",
+          "expiresIn": 300
+        },
+        "transformers": ["response-template"]
+      }
+    },
+    {
+      "name": "Partner API - Webhook notification",
+      "request": {
+        "method": "POST",
+        "urlPath": "/partner/api/webhooks/notify"
+      },
+      "response": {
+        "status": 202,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "accepted": true,
+          "webhookId": "{{randomValue type='UUID'}}",
+          "scheduledAt": "{{now}}"
+        },
+        "transformers": ["response-template"]
+      }
+    },
+    {
+      "name": "Health check",
+      "request": {
+        "method": "GET",
+        "urlPath": "/health"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "status": "healthy",
+          "service": "external-api",
+          "timestamp": "{{now}}"
+        },
+        "transformers": ["response-template"]
+      }
+    }
+  ]
+}

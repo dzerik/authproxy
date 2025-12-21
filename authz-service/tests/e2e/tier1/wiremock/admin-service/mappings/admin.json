@@ -1,0 +1,202 @@
+{
+  "mappings": [
+    {
+      "name": "Admin dashboard",
+      "request": {
+        "method": "GET",
+        "urlPath": "/admin/dashboard"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "stats": {
+            "totalUsers": 150,
+            "activeUsers": 42,
+            "totalRequests": 10500,
+            "errorRate": 0.02
+          },
+          "recentActivity": [
+            {
+              "action": "user.login",
+              "userId": "user-001",
+              "timestamp": "{{now offset='-1 hours'}}"
+            },
+            {
+              "action": "user.update",
+              "userId": "user-002",
+              "timestamp": "{{now offset='-2 hours'}}"
+            }
+          ],
+          "systemHealth": "healthy",
+          "generatedAt": "{{now}}"
+        },
+        "transformers": ["response-template"]
+      }
+    },
+    {
+      "name": "Admin settings get",
+      "request": {
+        "method": "GET",
+        "urlPath": "/admin/settings"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "settings": {
+            "maxLoginAttempts": 5,
+            "sessionTimeout": 3600,
+            "mfaEnabled": true,
+            "allowedDomains": ["example.com", "partner.com"],
+            "auditLogRetention": 90
+          },
+          "lastUpdated": "2024-01-15T10:30:00Z",
+          "updatedBy": "admin-user"
+        }
+      }
+    },
+    {
+      "name": "Admin settings update",
+      "request": {
+        "method": "PUT",
+        "urlPath": "/admin/settings"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "message": "Settings updated successfully",
+          "updatedAt": "{{now}}"
+        },
+        "transformers": ["response-template"]
+      }
+    },
+    {
+      "name": "Admin audit logs",
+      "request": {
+        "method": "GET",
+        "urlPath": "/admin/audit-logs"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "logs": [
+            {
+              "id": "log-001",
+              "action": "admin.settings.update",
+              "actor": "admin-user",
+              "resource": "settings",
+              "details": {"changed": ["sessionTimeout"]},
+              "timestamp": "{{now offset='-1 days'}}",
+              "ipAddress": "192.168.1.100"
+            },
+            {
+              "id": "log-002",
+              "action": "admin.user.delete",
+              "actor": "admin-user",
+              "resource": "user:user-005",
+              "details": {"reason": "Requested by user"},
+              "timestamp": "{{now offset='-2 days'}}",
+              "ipAddress": "192.168.1.100"
+            }
+          ],
+          "total": 2,
+          "page": 1,
+          "pageSize": 50
+        },
+        "transformers": ["response-template"]
+      }
+    },
+    {
+      "name": "Admin metrics",
+      "request": {
+        "method": "GET",
+        "urlPath": "/admin/metrics"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "metrics": {
+            "requests": {
+              "total": 10500,
+              "success": 10290,
+              "errors": 210,
+              "latencyP50": 45,
+              "latencyP95": 120,
+              "latencyP99": 250
+            },
+            "cache": {
+              "hits": 8500,
+              "misses": 2000,
+              "hitRate": 0.81
+            },
+            "auth": {
+              "logins": 450,
+              "failures": 23,
+              "tokenRefreshes": 1200
+            }
+          },
+          "period": "last_24h",
+          "generatedAt": "{{now}}"
+        },
+        "transformers": ["response-template"]
+      }
+    },
+    {
+      "name": "Admin system status",
+      "request": {
+        "method": "GET",
+        "urlPath": "/admin/system/status"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "services": {
+            "database": {"status": "healthy", "latency": 5},
+            "cache": {"status": "healthy", "latency": 2},
+            "opa": {"status": "healthy", "latency": 10},
+            "keycloak": {"status": "healthy", "latency": 25}
+          },
+          "uptime": 864000,
+          "version": "1.0.0",
+          "environment": "tier1-test"
+        }
+      }
+    },
+    {
+      "name": "Health check",
+      "request": {
+        "method": "GET",
+        "urlPath": "/health"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "status": "healthy",
+          "service": "admin-service",
+          "timestamp": "{{now}}"
+        },
+        "transformers": ["response-template"]
+      }
+    }
+  ]
+}

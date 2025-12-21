@@ -1,0 +1,274 @@
+# Services Configuration for Tier 1 External Partner authz-service
+# Dynamic configuration - can be updated at runtime
+
+version: "1.0.0"
+
+# JWT validation configuration
+jwt:
+  issuers:
+    - name: keycloak
+      issuer_url: "http://keycloak:8080/realms/test"
+      audience:
+        - "authz-service-external"
+        - "external-service"
+        - "authz-service"
+      algorithms:
+        - RS256
+        - RS384
+        - RS512
+  jwks_cache:
+    refresh_interval: 1h
+    refresh_timeout: 10s
+    min_refresh_interval: 5m
+  validation:
+    clock_skew: 30s
+    require_expiration: true
+    require_not_before: false
+
+# Token exchange configuration (RFC 8693)
+token_exchange:
+  enabled: true
+  token_url: "http://keycloak:8080/realms/test/protocol/openid-connect/token"
+  client_id: "authz-service-external"
+  client_secret: "external-secret"
+  timeout: 10s
+
+# Policy engine configuration - using builtin for external partner
+policy:
+  engine: builtin
+
+  builtin:
+    rules_path: "/etc/authz/rules.yaml"
+
+  fallback:
+    enabled: true
+    engine: builtin
+    behavior: deny
+
+  cache:
+    cel_cache_size: 500
+    path_matcher_cache_size: 1000
+    cidr_matcher_cache_size: 500
+
+# Cache configuration
+cache:
+  l1:
+    enabled: true
+    max_size: 10000
+    ttl: 5m
+  l2:
+    enabled: true
+    backend: redis
+    redis:
+      addresses:
+        - "redis:6379"
+      password: ""
+      db: 0
+      pool_size: 10
+      read_timeout: 3s
+      write_timeout: 3s
+    ttl:
+      authorization: 60s
+      jwt: 300s
+      jwks: 3600s
+    key_prefix: "authz:external:"
+
+# Audit logging configuration
+audit:
+  enabled: true
+  events:
+    - AUTHZ_DECISION
+    - TOKEN_VALIDATION
+    - TOKEN_EXCHANGE
+    - POLICY_RELOAD
+    - CACHE_INVALIDATE
+  export:
+    stdout:
+      enabled: true
+      format: json
+    otlp:
+      enabled: true
+      endpoint: "jaeger:4317"
+      insecure: true
+  enrichment:
+    include_headers:
+      - X-Request-ID
+      - X-Correlation-ID
+      - X-Forwarded-For
+      - X-Partner-Id
+    mask_fields:
+      - authorization
+      - cookie
+      - x-api-key
+
+# Health check configuration
+health:
+  check_interval: 10s
+  timeout: 5s
+  checks:
+    - name: policy
+      enabled: true
+      critical: true
+    - name: upstream
+      enabled: true
+      critical: false
+    - name: cache
+      enabled: true
+      critical: false
+  slo:
+    enabled: true
+    latency_p99_threshold_ms: 100
+    latency_p999_threshold_ms: 500
+    availability_target: 99.9
+    error_rate_threshold: 0.1
+
+# Resilience configuration
+resilience:
+  rate_limit:
+    enabled: true
+    rate: "500-S"
+    store: memory
+    trust_forwarded_for: true
+    exclude_paths:
+      - "/health"
+      - "/ready"
+      - "/live"
+      - "/metrics"
+    by_endpoint: true
+    endpoint_rates:
+      "/partner/api": "200-S"
+      "/v1/authorize": "300-S"
+    headers:
+      enabled: true
+      limit_header: "X-RateLimit-Limit"
+      remaining_header: "X-RateLimit-Remaining"
+      reset_header: "X-RateLimit-Reset"
+    fail_close: true
+
+  circuit_breaker:
+    enabled: true
+    default:
+      max_requests: 5
+      interval: 60s
+      timeout: 30s
+      failure_threshold: 5
+      success_threshold: 2
+      on_state_change: true
+
+# Sensitive data masking
+sensitive_data:
+  enabled: true
+  mask_value: "***MASKED***"
+  extra_fields:
+    - client_secret
+    - refresh_token
+    - partner_key
+  extra_headers:
+    - X-Partner-Secret
+    - X-API-Key
+  mask_jwt: true
+  partial_mask:
+    enabled: true
+    show_first: 4
+    show_last: 4
+    min_length: 12
+
+# TLS client certificate configuration
+tls_client_cert:
+  enabled: false
+  sources:
+    xfcc:
+      enabled: true
+      header: "X-Forwarded-Client-Cert"
+    headers:
+      enabled: false
+  trusted_spiffe_domains:
+    - "cluster.local"
+    - "partner.local"
+  trusted_proxy_cidrs:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+  require_verified: false
+
+# Request body access configuration
+request_body:
+  enabled: true
+  max_size: 65536
+  allowed_content_types:
+    - "application/json"
+  require_content_type: true
+  methods:
+    - POST
+    - PUT
+    - PATCH
+  paths:
+    - "/partner"
+  schema:
+    enabled: false
+    schema_dir: "/etc/authz/schemas"
+    strict_validation: false
+    allow_additional_properties: true
+
+# Proxy listeners configuration
+proxy:
+  enabled: true
+  listeners:
+    - name: partner-gateway
+      port: 8088
+      mode: reverse_proxy
+      upstreams:
+        external-api:
+          url: "http://mock-external-api:8080"
+          timeout: 15s
+      routes:
+        - path_prefix: "/partner/api"
+          upstream: "external-api"
+          methods: [GET, POST, PUT, DELETE]
+        - path_prefix: "/health"
+          upstream: "external-api"
+          methods: [GET]
+      headers:
+        add:
+          X-Forwarded-By: "authz-external"
+          X-Partner-Verified: "true"
+        remove:
+          - "X-Internal-Token"
+        add_user_info: true
+        user_id_header: "X-User-ID"
+        user_roles_header: "X-User-Roles"
+      timeout: 30s
+      retry:
+        enabled: true
+        max_attempts: 3
+        initial_backoff: 100ms
+        max_backoff: 1s
+        retry_on: [502, 503, 504]
+      require_auth: true
+
+  defaults:
+    timeout: 30s
+    idle_conn_timeout: 90s
+    max_idle_conns: 100
+    headers:
+      add_user_info: true
+      user_id_header: "X-User-ID"
+      user_roles_header: "X-User-Roles"
+    retry:
+      enabled: true
+      max_attempts: 3
+
+# Egress listeners configuration (disabled for external)
+egress:
+  enabled: false
+  listeners: []
+  defaults:
+    timeout: 30s
+    retry:
+      max_attempts: 3
+      initial_backoff: 100ms
+      max_backoff: 2s
+  token_store:
+    type: memory
+  legacy_endpoint:
+    enabled: false

@@ -43,8 +43,9 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /app/bin/authz /app/authz
 
-# Copy default config
-COPY --from=builder /app/configs/config.yaml /etc/authz/config.yaml
+# Copy default config (new 3-file structure)
+COPY --from=builder /app/configs/environment.yaml /etc/authz/environment.yaml
+COPY --from=builder /app/configs/services.yaml /etc/authz/services.yaml
 COPY --from=builder /app/configs/rules.yaml /etc/authz/rules.yaml
 
 # Set ownership
@@ -53,15 +54,15 @@ RUN chown -R authz:authz /app /etc/authz
 # Switch to non-root user
 USER authz
 
-# Expose ports
-EXPOSE 8080 9090
+# Expose ports (main, grpc, admin, health, ready)
+EXPOSE 8080 9090 15000 15020 15021
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+# Health check (using management health endpoint)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:15020/healthz/ready || exit 1
 
 # Set entrypoint
 ENTRYPOINT ["/app/authz"]
 
-# Default command
-CMD ["--config", "/etc/authz/config.yaml"]
+# Default command (config path is directory containing environment.yaml)
+CMD ["--config", "/etc/authz/environment.yaml"]

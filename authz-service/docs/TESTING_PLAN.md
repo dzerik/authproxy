@@ -92,9 +92,16 @@ This document defines the complete testing strategy for `authz-service` covering
 
 ## 2. Test Stand Configuration
 
-### 2.1 Tier 1: Local Development (Podman Compose)
+### 2.1 Tier 1: Local Development (Docker/Podman Compose)
 
 **Purpose:** Fast iteration, local testing, CI integration
+
+**Components:**
+- Docker Compose (primary) / Podman Compose (fallback)
+- mkcert for TLS certificates
+- authz-service (internal) + authz-service-external (partner)
+
+See: [TIER1_LOCAL_COMPOSE.md](testing/stacks/TIER1_LOCAL_COMPOSE.md)
 
 ```yaml
 # tests/compose/docker-compose.yml
@@ -413,8 +420,15 @@ spec:
 
 **Purpose:** eBPF-based networking, L7 observability, network policies
 
+**Components:**
+- Cilium CNI with eBPF dataplane
+- Hubble for L7 observability
+- CiliumNetworkPolicy for L3/L4/L7 rules
+
+See: [TIER4_CILIUM.md](testing/stacks/TIER4_CILIUM.md)
+
 ```yaml
-# tests/k8s/cilium/network-policy.yaml
+# tests/k8s/cilium/network-policy.yaml (excerpt)
 
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
@@ -437,33 +451,25 @@ spec:
             http:
               - method: POST
                 path: "/authorize"
-              - method: POST
-                path: "/authorize/batch"
-              - method: GET
-                path: "/health"
-  egress:
-    - toEndpoints:
-        - matchLabels:
-            app: keycloak
-      toPorts:
-        - ports:
-            - port: "8080"
-              protocol: TCP
-    - toEndpoints:
-        - matchLabels:
-            app: redis
-      toPorts:
-        - ports:
-            - port: "6379"
-              protocol: TCP
-    - toEndpoints:
-        - matchLabels:
-            app: opa
-      toPorts:
-        - ports:
-            - port: "8181"
-              protocol: TCP
 ```
+
+### 2.5 Tier 5: k3s + Istio + Cilium (Production-like)
+
+**Purpose:** Combined testing with Cilium CNI + Istio service mesh for maximum observability and security.
+
+**Components:**
+- Cilium as CNI (eBPF dataplane, Hubble flows)
+- Istio for service mesh (mTLS, traffic management)
+- cert-manager for certificate automation
+- Both Hubble and Kiali for observability
+
+See: [TIER5_ISTIO_CILIUM.md](testing/stacks/TIER5_ISTIO_CILIUM.md)
+
+**Use cases:**
+- Production-like environment validation
+- Combined L3/L4 (Cilium) + L7 (Istio) policies
+- Full observability with Hubble + Kiali
+- authz-to-authz integration testing
 
 ---
 
@@ -596,6 +602,58 @@ spec:
 |----|-----------|-------------|-------|
 | E2E-EGRESS-001 | External API Call | Full egress flow | 1. Request to /egress/github<br>2. Token injected<br>3. External API called<br>4. Response returned |
 | E2E-EGRESS-002 | OAuth2 Flow | Token exchange | 1. Request egress<br>2. OAuth2 token fetched<br>3. Token injected<br>4. API called |
+
+### 4.6 Egress authz-to-authz (mTLS + JWT)
+
+| ID | Test Case | Description | Steps |
+|----|-----------|-------------|-------|
+| E2E-A2A-001 | Basic authz-to-authz | Full chain flow | 1. Client → internal authz<br>2. Internal validates user JWT<br>3. Internal → external authz (mTLS + service JWT)<br>4. External validates service JWT<br>5. External → backend API<br>6. Response chain |
+| E2E-A2A-002 | mTLS Client Cert | SPIFFE validation | 1. Internal presents client cert<br>2. External validates SPIFFE ID<br>3. SPIFFE domain trusted<br>4. Request allowed |
+| E2E-A2A-003 | Service Token Injection | OAuth2 service token | 1. Internal gets service token from Keycloak<br>2. Token injected to egress request<br>3. External validates service token<br>4. Claims checked |
+| E2E-A2A-004 | Token Refresh Chain | Expired service token | 1. Service token expires<br>2. Internal refreshes token<br>3. New token used<br>4. External accepts |
+| E2E-A2A-005 | External Policy Deny | Unauthorized service | 1. Internal sends request<br>2. External policy denies<br>3. 403 returned to internal<br>4. Internal returns 403 to client |
+| E2E-A2A-006 | Bidirectional Trust | Mutual authz-to-authz | 1. Service A → authz-A → authz-B → Service B<br>2. Service B → authz-B → authz-A → Service A<br>3. Both directions work |
+
+### 4.7 Token Exchange (RFC 8693)
+
+| ID | Test Case | Description | Steps |
+|----|-----------|-------------|-------|
+| E2E-TEX-001 | Basic Exchange | User to service token | 1. Service A has user JWT<br>2. Exchange for Service B audience<br>3. New token has act claim<br>4. authz validates actor |
+| E2E-TEX-002 | Actor Claim Validation | Check delegation actor | 1. Exchange creates token with act claim<br>2. authz extracts original user<br>3. Policy checks both subject and actor<br>4. Headers include X-Actor-ID |
+| E2E-TEX-003 | Audience Restriction | Wrong audience rejected | 1. Exchange for Service B<br>2. Try to use with Service C<br>3. Audience mismatch<br>4. 401 Unauthorized |
+| E2E-TEX-004 | Exchange Chain | Multi-hop delegation | 1. User → Service A<br>2. A exchanges for B<br>3. B exchanges for C<br>4. Chain tracked in act claims |
+| E2E-TEX-005 | Exchange Denied | Policy blocks exchange | 1. User token for exchange<br>2. Keycloak policy denies<br>3. Exchange fails<br>4. Original request fails |
+
+### 4.8 Agent Delegation Chain (LLM Agents)
+
+| ID | Test Case | Description | Steps |
+|----|-----------|-------------|-------|
+| E2E-AGENT-001 | Basic Agent Delegation | User delegates to agent | 1. User authorizes LLM agent<br>2. Agent gets token with delegation_chain<br>3. authz validates chain<br>4. Agent accesses user resources |
+| E2E-AGENT-002 | Chain Depth Limit | Max depth exceeded | 1. User → Agent1 → Agent2 → Agent3<br>2. Chain depth = 3<br>3. Max depth = 2<br>4. Request denied |
+| E2E-AGENT-003 | Agent Scope Restriction | Limited permissions | 1. User has admin role<br>2. Agent scope = read only<br>3. Agent tries write<br>4. 403 Forbidden |
+| E2E-AGENT-004 | Sub-Agent Delegation | Agent delegates to tool | 1. Agent needs tool execution<br>2. Agent delegates to tool-agent<br>3. Tool-agent has reduced scope<br>4. Chain: [user, agent, tool] |
+| E2E-AGENT-005 | Chain Integrity | Tampered chain rejected | 1. Agent modifies delegation_chain<br>2. authz validates chain signature<br>3. Signature mismatch<br>4. 401 Unauthorized |
+| E2E-AGENT-006 | User Revocation | User revokes agent | 1. User revokes agent access<br>2. Agent token still valid (not expired)<br>3. authz checks revocation<br>4. Request denied |
+
+### 4.9 Multi-Issuer JWT
+
+| ID | Test Case | Description | Steps |
+|----|-----------|-------------|-------|
+| E2E-MULTI-001 | Internal Keycloak | Standard issuer | 1. Token from internal Keycloak<br>2. Standard claims mapping<br>3. Validated successfully |
+| E2E-MULTI-002 | Azure AD Token | Enterprise SSO | 1. Token from Azure AD<br>2. Azure claims mapping (oid → sub)<br>3. Roles extracted correctly<br>4. Policy evaluated |
+| E2E-MULTI-003 | Auth0 Token | External partner | 1. Token from Auth0<br>2. Auth0 claims mapping (permissions → scopes)<br>3. Validated successfully |
+| E2E-MULTI-004 | Unknown Issuer | Reject unknown | 1. Token from unknown issuer<br>2. No matching JWKS config<br>3. 401 Unknown issuer |
+| E2E-MULTI-005 | JWKS Cache Per Issuer | Independent caching | 1. Keycloak JWKS cached<br>2. Azure AD JWKS cached<br>3. Auth0 JWKS cached<br>4. Each refreshed independently |
+| E2E-MULTI-006 | Issuer Failover | Primary issuer down | 1. Primary issuer unavailable<br>2. JWKS from cache used<br>3. Token validated<br>4. Background refresh retries |
+
+### 4.10 HA and Scaling
+
+| ID | Test Case | Description | Steps |
+|----|-----------|-------------|-------|
+| E2E-HA-001 | Rolling Update | Zero downtime | 1. Deploy new version<br>2. Pods rolling update<br>3. All requests succeed<br>4. No 5xx errors |
+| E2E-HA-002 | Pod Failure | Automatic recovery | 1. Kill one pod<br>2. Traffic routes to others<br>3. New pod starts<br>4. Traffic rebalanced |
+| E2E-HA-003 | Horizontal Scaling | Scale up/down | 1. Start with 2 replicas<br>2. Load increases<br>3. HPA scales to 5<br>4. Load decreases<br>5. HPA scales to 2 |
+| E2E-HA-004 | Session Affinity | Stateless validation | 1. Request to pod A<br>2. Next request to pod B<br>3. Both succeed (L1+L2 cache) |
 
 ---
 
@@ -992,19 +1050,24 @@ spec:
 
 ### 8.1 Environment vs Test Type
 
-| Test Type | Local (Compose) | CI (GitHub Actions) | k3s Vanilla | k3s + Istio | k3s + Cilium |
-|-----------|-----------------|---------------------|-------------|-------------|--------------|
-| Unit Tests | ✅ | ✅ | - | - | - |
-| Integration | ✅ | ✅ | ✅ | ✅ | ✅ |
-| E2E User Flow | ✅ | ✅ | ✅ | ✅ | ✅ |
-| E2E S2S (mTLS) | - | - | ✅ | ✅ | ✅ |
-| E2E S2S (JWT) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Load Basic | ✅ | ✅ (short) | ✅ | ✅ | ✅ |
-| Load Full | - | - | ✅ | ✅ | ✅ |
-| Security OWASP | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Security Custom | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Chaos Basic | ✅ (Toxiproxy) | - | ✅ | ✅ | ✅ |
-| Chaos Full | - | - | ✅ (Litmus) | ✅ (Litmus) | ✅ (Litmus) |
+| Test Type | Tier 1 (Compose) | CI (Actions) | Tier 2 (k3s) | Tier 3 (Istio) | Tier 4 (Cilium) | Tier 5 (Both) |
+|-----------|------------------|--------------|--------------|----------------|-----------------|---------------|
+| Unit Tests | ✅ | ✅ | - | - | - | - |
+| Integration | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| E2E User Flow | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| E2E S2S (mTLS) | ✅ (mkcert) | - | ✅ | ✅ | ✅ | ✅ |
+| E2E S2S (JWT) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| E2E authz-to-authz | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| E2E Token Exchange | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| E2E Agent Delegation | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| E2E Multi-Issuer | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Load Basic | ✅ | ✅ (short) | ✅ | ✅ | ✅ | ✅ |
+| Load Full | - | - | ✅ | ✅ | ✅ | ✅ |
+| Security OWASP | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Security Custom | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Chaos Basic | ✅ (Toxiproxy) | - | ✅ | ✅ | ✅ | ✅ |
+| Chaos Full | - | - | ✅ (Litmus) | ✅ (Litmus) | ✅ (Litmus) | ✅ (Litmus) |
+| HA/Scaling | - | - | ✅ | ✅ | ✅ | ✅ |
 
 ### 8.2 Test Execution Commands
 
@@ -1383,3 +1446,4 @@ tests/
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2025-12-19 | Claude | Initial comprehensive plan |
+| 1.1 | 2025-12-21 | Claude | Added: Tier 5 (Istio+Cilium), authz-to-authz scenarios, Token Exchange RFC 8693, Agent delegation, Multi-issuer JWT, HA/Scaling tests. Updated Tier 1 for Docker+Podman with mkcert |

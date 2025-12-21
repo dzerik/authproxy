@@ -1,0 +1,15 @@
+# Grafana Dashboard Provisioning for Tier 1 E2E Testing
+apiVersion: 1
+
+providers:
+  - name: 'Tier 1 E2E Dashboards'
+    orgId: 1
+    folder: 'E2E Testing'
+    folderUid: 'e2e-testing'
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

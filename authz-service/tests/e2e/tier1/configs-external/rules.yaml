@@ -1,0 +1,171 @@
+# Authorization Rules for Tier 1 External Partner authz-service
+# Named rule sets for partner access
+
+version: "v1.0.0"
+description: "External partner authorization rules"
+default_deny: true
+
+# Named rule sets
+rule_sets:
+  # Partner access rules
+  partner-rules:
+    - name: public-health
+      description: "Allow health endpoints"
+      priority: 1000
+      enabled: true
+      conditions:
+        paths:
+          - "/health"
+          - "/health/*"
+        methods:
+          - GET
+      effect: allow
+
+    - name: public-metrics
+      description: "Allow metrics endpoint"
+      priority: 999
+      enabled: true
+      conditions:
+        paths:
+          - "/metrics"
+        methods:
+          - GET
+      effect: allow
+
+    - name: partner-resources-list
+      description: "Allow listing partner resources"
+      priority: 500
+      enabled: true
+      conditions:
+        paths:
+          - "/partner/api/resources"
+        methods:
+          - GET
+        roles:
+          - external
+          - service
+      effect: allow
+
+    - name: partner-resources-create
+      description: "Allow creating partner resources"
+      priority: 499
+      enabled: true
+      conditions:
+        paths:
+          - "/partner/api/resources"
+        methods:
+          - POST
+        roles:
+          - external
+      effect: allow
+
+    - name: partner-resources-read
+      description: "Allow reading partner resources"
+      priority: 498
+      enabled: true
+      conditions:
+        paths:
+          - "/partner/api/resources/*"
+        methods:
+          - GET
+        roles:
+          - external
+          - service
+      effect: allow
+
+    - name: partner-actions
+      description: "Allow partner actions"
+      priority: 497
+      enabled: true
+      conditions:
+        paths:
+          - "/partner/api/actions/*"
+        methods:
+          - POST
+        roles:
+          - external
+      effect: allow
+
+    - name: partner-quotas
+      description: "Allow checking quotas"
+      priority: 496
+      enabled: true
+      conditions:
+        paths:
+          - "/partner/api/quotas"
+        methods:
+          - GET
+        roles:
+          - external
+          - service
+      effect: allow
+
+    - name: partner-webhooks
+      description: "Allow webhook notifications"
+      priority: 494
+      enabled: true
+      conditions:
+        paths:
+          - "/partner/api/webhooks/*"
+        methods:
+          - POST
+        roles:
+          - external
+          - service
+      effect: allow
+
+  # Internal service rules
+  internal-service-rules:
+    - name: internal-validate
+      description: "Allow internal validation"
+      priority: 600
+      enabled: true
+      conditions:
+        paths:
+          - "/internal/validate"
+          - "/internal/validate/*"
+        methods:
+          - POST
+        roles:
+          - service
+      effect: allow
+
+  # Agent delegation rules
+  delegated-agent-rules:
+    - name: delegated-read
+      description: "Allow delegated read access"
+      priority: 400
+      enabled: true
+      conditions:
+        paths:
+          - "/partner/api/*"
+        methods:
+          - GET
+        roles:
+          - agent
+      effect: allow
+
+    - name: delegated-write
+      description: "Allow delegated write access"
+      priority: 399
+      enabled: true
+      conditions:
+        paths:
+          - "/partner/api/*"
+        methods:
+          - POST
+          - PUT
+        roles:
+          - agent
+      effect: allow
+
+# Global rules
+rules:
+  - name: deny-unauthenticated
+    description: "Deny unauthenticated access"
+    priority: 1
+    enabled: true
+    conditions:
+      paths:
+        - "/partner/*"
+    effect: deny

@@ -1,0 +1,249 @@
+# Authorization Rules for Tier 1 Internal authz-service
+# Named rule sets for reuse across listeners
+
+version: "v1.0.0"
+description: "Internal authorization rules"
+default_deny: true
+
+# Named rule sets
+rule_sets:
+  # Health and infrastructure endpoints
+  health-rules:
+    - name: public-health
+      description: "Allow health endpoints"
+      priority: 1000
+      enabled: true
+      conditions:
+        paths:
+          - "/health"
+          - "/health/*"
+          - "/healthz"
+          - "/ready"
+          - "/live"
+        methods:
+          - GET
+      effect: allow
+
+    - name: public-metrics
+      description: "Allow metrics endpoint"
+      priority: 999
+      enabled: true
+      conditions:
+        paths:
+          - "/metrics"
+        methods:
+          - GET
+      effect: allow
+
+  # API access rules
+  api-rules:
+    - name: user-profile-read
+      description: "Users can read their profile"
+      priority: 100
+      enabled: true
+      conditions:
+        paths:
+          - "/api/v1/users/me"
+          - "/api/v1/profile"
+        methods:
+          - GET
+        roles:
+          - user
+          - admin
+          - service
+      effect: allow
+
+    - name: user-profile-write
+      description: "Users can update their profile"
+      priority: 99
+      enabled: true
+      conditions:
+        paths:
+          - "/api/v1/users/me"
+        methods:
+          - PUT
+          - PATCH
+        roles:
+          - user
+          - admin
+      effect: allow
+
+    - name: users-list
+      description: "Admins can list users"
+      priority: 98
+      enabled: true
+      conditions:
+        paths:
+          - "/api/v1/users"
+        methods:
+          - GET
+        roles:
+          - admin
+      effect: allow
+
+    - name: users-manage
+      description: "Admins can manage users"
+      priority: 97
+      enabled: true
+      conditions:
+        paths:
+          - "/api/v1/users/*"
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+        roles:
+          - admin
+      effect: allow
+
+    - name: api-v1-read
+      description: "Authenticated users can read API"
+      priority: 50
+      enabled: true
+      conditions:
+        paths:
+          - "/api/v1/*"
+        methods:
+          - GET
+        roles:
+          - user
+          - admin
+          - service
+      effect: allow
+
+    - name: api-v1-write
+      description: "Admins and services can write to API"
+      priority: 49
+      enabled: true
+      conditions:
+        paths:
+          - "/api/v1/*"
+        methods:
+          - POST
+          - PUT
+          - PATCH
+          - DELETE
+        roles:
+          - admin
+          - service
+      effect: allow
+
+  # Admin access rules
+  admin-rules:
+    - name: admin-dashboard
+      description: "Admins can access dashboard"
+      priority: 200
+      enabled: true
+      conditions:
+        paths:
+          - "/admin/dashboard"
+          - "/admin/dashboard/*"
+        methods:
+          - GET
+        roles:
+          - admin
+      effect: allow
+
+    - name: admin-settings
+      description: "Admins can manage settings"
+      priority: 199
+      enabled: true
+      conditions:
+        paths:
+          - "/admin/settings"
+          - "/admin/settings/*"
+        methods:
+          - GET
+          - PUT
+        roles:
+          - admin
+      effect: allow
+
+    - name: admin-audit
+      description: "Admins can view audit logs"
+      priority: 198
+      enabled: true
+      conditions:
+        paths:
+          - "/admin/audit-logs"
+          - "/admin/audit/*"
+        methods:
+          - GET
+        roles:
+          - admin
+      effect: allow
+
+    - name: admin-all
+      description: "Admins full access"
+      priority: 100
+      enabled: true
+      conditions:
+        paths:
+          - "/admin/*"
+        roles:
+          - admin
+      effect: allow
+
+  # Service-to-service rules
+  service-rules:
+    - name: internal-api
+      description: "Service account internal access"
+      priority: 300
+      enabled: true
+      conditions:
+        paths:
+          - "/internal/*"
+        roles:
+          - service
+      effect: allow
+
+  # External partner rules
+  partner-rules:
+    - name: partner-resources
+      description: "Partner resource access"
+      priority: 400
+      enabled: true
+      conditions:
+        paths:
+          - "/partner/api/*"
+        roles:
+          - external
+      effect: allow
+
+  # Agent delegation rules
+  agent-rules:
+    - name: agent-actions
+      description: "Agent can perform actions"
+      priority: 500
+      enabled: true
+      conditions:
+        paths:
+          - "/agent/actions/*"
+        roles:
+          - agent
+      effect: allow
+
+    - name: agent-delegated-read
+      description: "Agent delegated read"
+      priority: 499
+      enabled: true
+      conditions:
+        paths:
+          - "/api/*"
+        methods:
+          - GET
+        roles:
+          - agent
+      effect: allow
+
+# Global rules
+rules:
+  - name: deny-unauthenticated-api
+    description: "Deny unauthenticated API access"
+    priority: 1
+    enabled: true
+    conditions:
+      paths:
+        - "/api/*"
+    effect: deny

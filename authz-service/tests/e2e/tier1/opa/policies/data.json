@@ -1,0 +1,116 @@
+{
+  "authz": {
+    "rules": [
+      {
+        "name": "public_health",
+        "description": "Health check endpoints are public",
+        "path_prefix": "/health",
+        "methods": ["GET"]
+      },
+      {
+        "name": "public_metrics",
+        "description": "Metrics endpoint is public",
+        "path_exact": "/metrics",
+        "methods": ["GET"]
+      },
+      {
+        "name": "admin_full_access",
+        "description": "Admins have full access to admin endpoints",
+        "path_prefix": "/admin",
+        "methods": ["GET", "POST", "PUT", "DELETE"],
+        "required_roles": ["admin"]
+      },
+      {
+        "name": "user_profile_read",
+        "description": "Users can read their own profile",
+        "path_prefix": "/api/v1/users/me",
+        "methods": ["GET"],
+        "required_roles": ["user"]
+      },
+      {
+        "name": "user_profile_update",
+        "description": "Users can update their own profile",
+        "path_prefix": "/api/v1/users/me",
+        "methods": ["PUT", "PATCH"],
+        "required_roles": ["user"]
+      },
+      {
+        "name": "users_list",
+        "description": "Admins can list all users",
+        "path_exact": "/api/v1/users",
+        "methods": ["GET"],
+        "required_roles": ["admin"]
+      },
+      {
+        "name": "users_manage",
+        "description": "Admins can manage users",
+        "path_prefix": "/api/v1/users/",
+        "methods": ["GET", "POST", "PUT", "DELETE"],
+        "required_roles": ["admin"]
+      },
+      {
+        "name": "api_v1_read",
+        "description": "Authenticated users can read API v1",
+        "path_prefix": "/api/v1",
+        "methods": ["GET"],
+        "required_roles": ["user", "admin", "service"]
+      },
+      {
+        "name": "api_v1_write",
+        "description": "Admins and services can write to API v1",
+        "path_prefix": "/api/v1",
+        "methods": ["POST", "PUT", "PATCH", "DELETE"],
+        "required_roles": ["admin", "service"]
+      },
+      {
+        "name": "external_partner_access",
+        "description": "External partners can access partner endpoints",
+        "path_prefix": "/partner/api",
+        "methods": ["GET", "POST"],
+        "required_roles": ["external"]
+      },
+      {
+        "name": "agent_actions",
+        "description": "Agents can perform delegated actions",
+        "path_prefix": "/agent/actions",
+        "methods": ["GET", "POST"],
+        "required_roles": ["agent"]
+      },
+      {
+        "name": "token_exchange_endpoint",
+        "description": "Token exchange endpoint",
+        "path_exact": "/oauth/token/exchange",
+        "methods": ["POST"],
+        "required_roles": ["user", "service", "external"]
+      },
+      {
+        "name": "service_to_service",
+        "description": "Service account access for internal APIs",
+        "path_prefix": "/internal",
+        "methods": ["GET", "POST", "PUT", "DELETE"],
+        "required_roles": ["service"]
+      }
+    ],
+    "allowed_audiences": [
+      "authz-service",
+      "authz-service-external",
+      "external-service",
+      "account"
+    ],
+    "max_delegation_depth": 3,
+    "rate_limits": {
+      "high": {
+        "requests_per_second": 1000,
+        "burst": 2000
+      },
+      "medium": {
+        "requests_per_second": 100,
+        "burst": 200
+      },
+      "low": {
+        "requests_per_second": 10,
+        "burst": 20
+      }
+    }
+  }
+}

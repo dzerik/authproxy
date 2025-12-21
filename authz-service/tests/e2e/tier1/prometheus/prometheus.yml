@@ -1,0 +1,82 @@
+# Prometheus Configuration for Tier 1 E2E Testing
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: tier1-e2e
+    cluster: docker-compose
+
+# Alerting configuration (disabled for E2E tests)
+alerting:
+  alertmanagers: []
+
+# Rule files (disabled for E2E tests)
+rule_files: []
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: prometheus
+
+  # authz-service (internal)
+  - job_name: 'authz-service-internal'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['authz-service:15020']
+        labels:
+          service: authz-service
+          instance_type: internal
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):\d+'
+        replacement: '${1}'
+
+  # authz-service (external partner)
+  - job_name: 'authz-service-external'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['authz-service-external:15020']
+        labels:
+          service: authz-service
+          instance_type: external
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):\d+'
+        replacement: '${1}'
+
+  # Keycloak metrics
+  - job_name: 'keycloak'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['keycloak:8080']
+        labels:
+          service: keycloak
+
+  # Redis metrics - disabled (requires redis-exporter)
+  # - job_name: 'redis'
+  #   static_configs:
+  #     - targets: ['redis-exporter:9121']
+  #       labels:
+  #         service: redis
+
+  # OPA metrics
+  - job_name: 'opa'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['opa:8181']
+        labels:
+          service: opa
+
+  # Jaeger metrics
+  - job_name: 'jaeger'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['jaeger:14269']
+        labels:
+          service: jaeger

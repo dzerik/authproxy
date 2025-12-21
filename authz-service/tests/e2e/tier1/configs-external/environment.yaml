@@ -1,0 +1,91 @@
+# Environment Configuration for Tier 1 External Partner authz-service
+# This is the external partner authorization service for authz-to-authz scenarios
+
+env:
+  name: tier1-external
+  region: local
+  cluster: docker-compose
+  version: "1.0.0"
+  features:
+    token_exchange: true
+    agent_delegation: true
+    multi_issuer: true
+  custom:
+    tier: "1"
+    mode: "external-partner"
+
+# HTTP/gRPC Server configuration
+server:
+  http:
+    enabled: true
+    addr: ":8080"
+    read_timeout: 10s
+    write_timeout: 30s
+    idle_timeout: 120s
+    shutdown_timeout: 30s
+    max_header_bytes: 1048576
+  grpc:
+    enabled: false
+    addr: ":9090"
+    max_recv_msg_size: 4194304
+    max_send_msg_size: 4194304
+    keepalive:
+      time: 30s
+      timeout: 10s
+
+# Management server configuration (Istio-style)
+management:
+  enabled: true
+  admin_addr: ":15000"
+  health_addr: ":15020"
+  ready_addr: ":15021"
+
+# Logging configuration
+logging:
+  level: debug
+  format: json
+  output: stdout
+  add_caller: true
+
+# Tracing configuration (disabled due to OpenTelemetry schema conflict)
+tracing:
+  enabled: false
+  endpoint: "jaeger:4317"
+  insecure: true
+  service_name: "authz-service-external"
+  service_version: "1.0.0"
+  environment: "tier1-e2e"
+  sample_rate: 1.0
+  batch_timeout: "5s"
+  export_timeout: "30s"
+  propagate_headers: true
+
+# Configuration source settings
+config_source:
+  type: file
+  file:
+    services_path: "/etc/authz/services.yaml"
+    rules_path: "/etc/authz/rules.yaml"
+    watch_enabled: true
+  remote:
+    endpoint: ""
+    auth:
+      type: none
+    paths:
+      services: "/api/v1/configs/authz/services"
+      rules: "/api/v1/configs/authz/rules"
+    polling:
+      enabled: false
+      interval: 30s
+      timeout: 10s
+      retry:
+        max_attempts: 3
+        backoff: 1s
+        max_backoff: 30s
+    push:
+      enabled: false
+      type: sse
+  fallback:
+    enabled: true
+    cache_path: "/var/cache/authz/"
+    max_age: 1h

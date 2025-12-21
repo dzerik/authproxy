@@ -1,0 +1,157 @@
+{
+  "mappings": [
+    {
+      "name": "Get current user profile",
+      "request": {
+        "method": "GET",
+        "urlPath": "/api/v1/users/me"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "id": "{{randomValue type='UUID'}}",
+          "username": "{{request.headers.X-User-Id}}",
+          "email": "{{request.headers.X-User-Email}}",
+          "firstName": "Test",
+          "lastName": "User",
+          "roles": ["user"],
+          "createdAt": "2024-01-01T00:00:00Z",
+          "updatedAt": "{{now}}"
+        },
+        "transformers": ["response-template"]
+      }
+    },
+    {
+      "name": "Update current user profile",
+      "request": {
+        "method": "PUT",
+        "urlPath": "/api/v1/users/me"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "id": "{{randomValue type='UUID'}}",
+          "username": "{{request.headers.X-User-Id}}",
+          "message": "Profile updated successfully",
+          "updatedAt": "{{now}}"
+        },
+        "transformers": ["response-template"]
+      }
+    },
+    {
+      "name": "List all users (admin only)",
+      "request": {
+        "method": "GET",
+        "urlPath": "/api/v1/users"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "users": [
+            {
+              "id": "user-001",
+              "username": "admin-user",
+              "email": "admin@example.com",
+              "roles": ["admin", "user"]
+            },
+            {
+              "id": "user-002",
+              "username": "test-user",
+              "email": "test@example.com",
+              "roles": ["user"]
+            },
+            {
+              "id": "user-003",
+              "username": "external-user",
+              "email": "external@partner.com",
+              "roles": ["external"]
+            }
+          ],
+          "total": 3,
+          "page": 1,
+          "pageSize": 10
+        }
+      }
+    },
+    {
+      "name": "Get user by ID",
+      "request": {
+        "method": "GET",
+        "urlPathPattern": "/api/v1/users/[a-zA-Z0-9-]+"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "id": "{{request.pathSegments.[3]}}",
+          "username": "user-{{request.pathSegments.[3]}}",
+          "email": "user-{{request.pathSegments.[3]}}@example.com",
+          "firstName": "User",
+          "lastName": "{{request.pathSegments.[3]}}",
+          "roles": ["user"],
+          "createdAt": "2024-01-01T00:00:00Z"
+        },
+        "transformers": ["response-template"]
+      }
+    },
+    {
+      "name": "Create user",
+      "request": {
+        "method": "POST",
+        "urlPath": "/api/v1/users"
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "id": "{{randomValue type='UUID'}}",
+          "message": "User created successfully",
+          "createdAt": "{{now}}"
+        },
+        "transformers": ["response-template"]
+      }
+    },
+    {
+      "name": "Delete user",
+      "request": {
+        "method": "DELETE",
+        "urlPathPattern": "/api/v1/users/[a-zA-Z0-9-]+"
+      },
+      "response": {
+        "status": 204
+      }
+    },
+    {
+      "name": "Health check",
+      "request": {
+        "method": "GET",
+        "urlPath": "/health"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "status": "healthy",
+          "service": "user-service",
+          "timestamp": "{{now}}"
+        },
+        "transformers": ["response-template"]
+      }
+    }
+  ]
+}
