@@ -1,0 +1,300 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
+	"go.uber.org/zap"
+
+	"github.com/dzerik/auth-portal/internal/config"
+	"github.com/dzerik/auth-portal/internal/handler"
+	"github.com/dzerik/auth-portal/internal/nginx"
+	"github.com/dzerik/auth-portal/internal/service/idp"
+	"github.com/dzerik/auth-portal/internal/service/metrics"
+	"github.com/dzerik/auth-portal/internal/service/session"
+	"github.com/dzerik/auth-portal/internal/ui"
+	"github.com/dzerik/auth-portal/pkg/logger"
+)
+
+var (
+	Version   = "dev"
+	BuildTime = "unknown"
+)
+
+func main() {
+	// Parse flags
+	configPath := flag.String("config", getEnv("AUTH_PORTAL_CONFIG", "/etc/auth-portal/config.yaml"), "Path to configuration file")
+	generateNginx := flag.Bool("generate-nginx", false, "Generate nginx config and exit")
+	nginxOutput := flag.String("output", getEnv("AUTH_PORTAL_NGINX_CONFIG", "/etc/nginx/nginx.conf"), "Output path for nginx config")
+	devMode := flag.Bool("dev", false, "Enable development mode")
+	showVersion := flag.Bool("version", false, "Show version and exit")
+	flag.Parse()
+
+	// Show version
+	if *showVersion {
+		fmt.Printf("auth-portal %s (built %s)\n", Version, BuildTime)
+		os.Exit(0)
+	}
+
+	// Initialize logger early with minimal config
+	logCfg := logger.DefaultConfig()
+	if *devMode || os.Getenv("DEV_MODE") == "true" {
+		logCfg.Level = "debug"
+		logCfg.Development = true
+	}
+	if err := logger.Init(logCfg); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
+		os.Exit(1)
+	}
+	defer logger.Sync()
+
+	logger.Info("starting auth-portal",
+		zap.String("version", Version),
+		zap.Bool("dev_mode", *devMode),
+	)
+
+	// Load configuration
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		logger.Error("failed to load configuration",
+			zap.Error(err),
+			zap.String("path", *configPath),
+		)
+		os.Exit(1)
+	}
+
+	// Override dev mode from flag
+	if *devMode {
+		cfg.DevMode.Enabled = true
+	}
+
+	// Reinitialize logger with config settings
+	if cfg.Log.Level != "" || cfg.Log.Development {
+		logCfg.Level = cfg.Log.Level
+		logCfg.Development = cfg.Log.Development || cfg.DevMode.Enabled
+		logger.SetLevel(logCfg.Level)
+	}
+
+	logger.Info("configuration loaded",
+		zap.String("path", *configPath),
+		zap.String("mode", cfg.Mode),
+		zap.Bool("dev_mode", cfg.DevMode.Enabled),
+	)
+
+	// Validate configuration
+	if err := config.Validate(cfg); err != nil {
+		logger.Error("configuration validation failed", zap.Error(err))
+		os.Exit(1)
+	}
+
+	// Generate nginx config if requested
+	if *generateNginx {
+		if err := generateNginxConfig(cfg, *nginxOutput); err != nil {
+			logger.Error("failed to generate nginx config", zap.Error(err))
+			os.Exit(1)
+		}
+		logger.Info("nginx config generated successfully", zap.String("output", *nginxOutput))
+		os.Exit(0)
+	}
+
+	// Create metrics
+	m := metrics.New()
+
+	// Create and start server
+	srv, healthHandler, err := NewServer(cfg, m)
+	if err != nil {
+		logger.Error("failed to create server", zap.Error(err))
+		os.Exit(1)
+	}
+
+	// Start server in goroutine
+	go func() {
+		addr := fmt.Sprintf(":%d", cfg.Server.HTTPPort)
+		logger.Info("starting HTTP server", zap.String("addr", addr))
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("server error", zap.Error(err))
+			os.Exit(1)
+		}
+	}()
+
+	// Mark as ready after startup
+	time.AfterFunc(1*time.Second, func() {
+		healthHandler.SetReady(true)
+		logger.Info("service is ready")
+	})
+
+	// Wait for interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	logger.Info("shutting down server...")
+
+	// Mark as not ready
+	healthHandler.SetReady(false)
+
+	// Graceful shutdown with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Error("server shutdown error", zap.Error(err))
+		os.Exit(1)
+	}
+
+	logger.Info("server stopped")
+}
+
+// NewServer creates a new HTTP server with chi router and all handlers.
+func NewServer(cfg *config.Config, m *metrics.Metrics) (*http.Server, *handler.HealthHandler, error) {
+	// Load templates
+	templates, err := ui.LoadTemplates()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to load templates: %w", err)
+	}
+
+	// Create session manager
+	sessionMgr, err := session.NewManager(&cfg.Session)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create session manager: %w", err)
+	}
+	logger.Info("session manager created", zap.String("store", sessionMgr.StoreName()))
+
+	// Create IdP manager
+	var devCfg *config.DevModeConfig
+	if cfg.DevMode.Enabled {
+		devCfg = &cfg.DevMode
+	}
+	idpMgr, err := idp.NewManager(&cfg.Auth, cfg.DevMode.Enabled, devCfg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create IdP manager: %w", err)
+	}
+	logger.Info("IdP manager created", zap.String("provider", idpMgr.Provider().Name()))
+
+	// Create handlers
+	authHandler := handler.NewAuthHandler(idpMgr, sessionMgr, cfg, templates)
+	portalHandler := handler.NewPortalHandler(sessionMgr, cfg, templates)
+	forwardAuthHandler := handler.NewForwardAuthHandler(sessionMgr, idpMgr, cfg)
+	healthHandler := handler.NewHealthHandler(cfg, nil) // No nginx manager in Go process
+
+	// Setup chi router
+	r := chi.NewRouter()
+
+	// Global middleware stack
+	r.Use(chimw.RequestID)
+	r.Use(chimw.RealIP)
+	r.Use(logger.RequestLogger) // Zap-based request logging
+	r.Use(logger.RecoveryLogger) // Zap-based panic recovery
+	r.Use(chimw.CleanPath)
+	r.Use(chimw.Timeout(60 * time.Second))
+	r.Use(m.Middleware) // Prometheus metrics
+
+	// CORS configuration
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-Request-ID"},
+		ExposedHeaders:   []string{"Link", "X-Request-ID"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
+
+	// Static files
+	r.Handle("/static/*", ui.StaticFileHandler())
+
+	// Auth routes (public)
+	r.Group(func(r chi.Router) {
+		r.Get("/", authHandler.HandleRoot)
+		r.Get("/login", authHandler.HandleLogin)
+		r.Get("/login/keycloak", authHandler.HandleLoginKeycloak)
+		r.Get("/login/social/{provider}", authHandler.HandleLoginSocial)
+		r.Get("/login/dev/{profile}", authHandler.HandleLoginDevProfile)
+		r.Get("/callback", authHandler.HandleCallback)
+		r.Get("/logout", authHandler.HandleLogout)
+		r.Post("/logout", authHandler.HandleLogout)
+	})
+
+	// User info (requires session but not full auth)
+	r.Group(func(r chi.Router) {
+		r.Use(sessionMgr.Middleware)
+		r.Get("/userinfo", authHandler.HandleUserInfo)
+		r.Get("/session", authHandler.HandleSessionInfo)
+	})
+
+	// Portal routes (requires auth)
+	r.Group(func(r chi.Router) {
+		r.Use(sessionMgr.Middleware)
+		r.Use(authHandler.RequireAuthMiddleware)
+		r.Get("/portal", portalHandler.HandlePortal)
+		r.Get("/service/{service}", portalHandler.HandleServiceRedirect)
+	})
+
+	// API routes (requires auth, returns JSON errors)
+	r.Route("/api", func(r chi.Router) {
+		r.Use(sessionMgr.Middleware)
+		r.Use(authHandler.RequireAuthJSONMiddleware)
+		r.Get("/services", portalHandler.HandleServices)
+	})
+
+	// Forward auth endpoints
+	r.Route("/auth", func(r chi.Router) {
+		r.Use(sessionMgr.Middleware)
+		r.Get("/", forwardAuthHandler.HandleAuth)
+		r.Get("/redirect", forwardAuthHandler.HandleAuthWithRedirect)
+		r.Get("/verify", forwardAuthHandler.HandleVerify)
+		r.Post("/introspect", forwardAuthHandler.HandleIntrospect)
+	})
+
+	// Health endpoints (no auth required)
+	r.Get("/health", healthHandler.HandleHealth)
+	r.Get("/ready", healthHandler.HandleReady)
+
+	// Metrics endpoint
+	if cfg.Observability.Metrics.Enabled {
+		metricsPath := cfg.Observability.Metrics.Path
+		if metricsPath == "" {
+			metricsPath = "/metrics"
+		}
+		r.Handle(metricsPath, m.Handler())
+	}
+
+	// Log level change endpoint (admin only in production)
+	if cfg.DevMode.Enabled {
+		r.Handle("/admin/log/level", logger.LevelHandler())
+	}
+
+	return &http.Server{
+		Addr:         fmt.Sprintf(":%d", cfg.Server.HTTPPort),
+		Handler:      r,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}, healthHandler, nil
+}
+
+// generateNginxConfig generates nginx configuration from YAML.
+func generateNginxConfig(cfg *config.Config, outputPath string) error {
+	generator, err := nginx.NewGenerator(cfg, "")
+	if err != nil {
+		return fmt.Errorf("failed to create nginx generator: %w", err)
+	}
+
+	return generator.GenerateToFile(outputPath)
+}
+
+// getEnv returns environment variable value or default.
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
