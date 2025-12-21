@@ -7,7 +7,7 @@ type Config struct {
 	// Server contains HTTP server settings
 	Server ServerConfig `yaml:"server" mapstructure:"server" jsonschema:"description=HTTP server configuration including ports and TLS settings"`
 	// Mode defines the operation mode: portal or single-service
-	Mode string `yaml:"mode" mapstructure:"mode" jsonschema:"required,enum=portal|single-service,default=portal,description=Operation mode: portal (show service list) or single-service (redirect to single target)"`
+	Mode string `yaml:"mode" mapstructure:"mode" jsonschema:"required,enum=portal,enum=single-service,default=portal,description=Operation mode: portal (show service list) or single-service (redirect to single target)"`
 	// SingleService configuration for single-service mode
 	SingleService SingleServiceConfig `yaml:"single_service" mapstructure:"single_service" jsonschema:"description=Configuration for single-service mode"`
 	// Auth contains authentication settings
@@ -33,9 +33,9 @@ type Config struct {
 // LogConfig represents logging configuration
 type LogConfig struct {
 	// Level sets the minimum log level
-	Level string `yaml:"level" mapstructure:"level" jsonschema:"enum=debug|info|warn|error,default=info,description=Minimum log level (debug/info/warn/error)"`
+	Level string `yaml:"level" mapstructure:"level" jsonschema:"enum=debug,enum=info,enum=warn,enum=error,default=info,description=Minimum log level (debug/info/warn/error)"`
 	// Format sets the log output format
-	Format string `yaml:"format" mapstructure:"format" jsonschema:"enum=json|console,default=json,description=Log format - json for structured or console for human-readable"`
+	Format string `yaml:"format" mapstructure:"format" jsonschema:"enum=json,enum=console,default=json,description=Log format - json for structured or console for human-readable"`
 	// Development enables development mode logging
 	Development bool `yaml:"development" mapstructure:"development" jsonschema:"default=false,description=Enable development mode with more verbose output"`
 }
@@ -115,7 +115,7 @@ type SocialProvider struct {
 // SessionConfig represents session storage configuration
 type SessionConfig struct {
 	// Store is the session storage backend type
-	Store string `yaml:"store" mapstructure:"store" jsonschema:"required,enum=cookie|jwt|redis,default=cookie,description=Session storage backend - cookie (encrypted) or jwt (stateless) or redis (distributed)"`
+	Store string `yaml:"store" mapstructure:"store" jsonschema:"required,enum=cookie,enum=jwt,enum=redis,default=cookie,description=Session storage backend - cookie (encrypted) or jwt (stateless) or redis (distributed)"`
 	// CookieName is the session cookie name
 	CookieName string `yaml:"cookie_name" mapstructure:"cookie_name" jsonschema:"default=_auth_session,description=Name of the session cookie"`
 	// TTL is the session lifetime
@@ -123,7 +123,7 @@ type SessionConfig struct {
 	// Secure enables secure cookie flag
 	Secure bool `yaml:"secure" mapstructure:"secure" jsonschema:"default=true,description=Set Secure flag on session cookie (requires HTTPS)"`
 	// SameSite sets the cookie SameSite attribute
-	SameSite string `yaml:"same_site" mapstructure:"same_site" jsonschema:"enum=strict|lax|none,default=lax,description=Cookie SameSite attribute - strict or lax or none"`
+	SameSite string `yaml:"same_site" mapstructure:"same_site" jsonschema:"enum=strict,enum=lax,enum=none,default=lax,description=Cookie SameSite attribute - strict or lax or none"`
 	// Encryption contains session data encryption settings
 	Encryption EncryptionConfig `yaml:"encryption" mapstructure:"encryption" jsonschema:"description=Session data encryption configuration"`
 	// Cookie contains cookie store specific settings
@@ -153,7 +153,7 @@ type JWTStoreConfig struct {
 	// SigningKey is the HMAC signing key for HS256
 	SigningKey string `yaml:"signing_key" mapstructure:"signing_key" jsonschema:"description=HMAC signing key for HS256 (use ${JWT_SIGNING_KEY} for env var)"`
 	// Algorithm is the JWT signing algorithm
-	Algorithm string `yaml:"algorithm" mapstructure:"algorithm" jsonschema:"enum=HS256|RS256,default=HS256,description=JWT signing algorithm"`
+	Algorithm string `yaml:"algorithm" mapstructure:"algorithm" jsonschema:"enum=HS256,enum=RS256,default=HS256,description=JWT signing algorithm"`
 	// PrivateKey is the path to RSA private key for RS256
 	PrivateKey string `yaml:"private_key" mapstructure:"private_key" jsonschema:"description=Path to RSA private key file (for RS256)"`
 	// PublicKey is the path to RSA public key for RS256
@@ -295,7 +295,7 @@ type TracingConfig struct {
 	// Endpoint is the OTLP collector endpoint
 	Endpoint string `yaml:"endpoint" mapstructure:"endpoint" jsonschema:"default=localhost:4317,description=OTLP collector endpoint (host:port)"`
 	// Protocol is the OTLP protocol
-	Protocol string `yaml:"protocol" mapstructure:"protocol" jsonschema:"enum=grpc|http,default=grpc,description=OTLP protocol: grpc or http"`
+	Protocol string `yaml:"protocol" mapstructure:"protocol" jsonschema:"enum=grpc,enum=http,default=grpc,description=OTLP protocol: grpc or http"`
 	// Insecure disables TLS for collector connection
 	Insecure bool `yaml:"insecure" mapstructure:"insecure" jsonschema:"default=true,description=Disable TLS for OTLP collector connection"`
 	// SamplingRatio is the trace sampling rate

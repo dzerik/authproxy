@@ -1,0 +1,597 @@
+package config
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestValidationError_Error(t *testing.T) {
+	err := ValidationError{
+		Field:   "test.field",
+		Message: "test message",
+	}
+
+	expected := "test.field: test message"
+	if err.Error() != expected {
+		t.Errorf("Error() = %s, want %s", err.Error(), expected)
+	}
+}
+
+func TestValidationErrors_Error(t *testing.T) {
+	t.Run("empty errors", func(t *testing.T) {
+		var errs ValidationErrors
+		if errs.Error() != "" {
+			t.Errorf("Error() = %s, want empty string", errs.Error())
+		}
+	})
+
+	t.Run("single error", func(t *testing.T) {
+		errs := ValidationErrors{
+			{Field: "field1", Message: "message1"},
+		}
+		result := errs.Error()
+		if !strings.Contains(result, "field1: message1") {
+			t.Errorf("Error() should contain 'field1: message1', got %s", result)
+		}
+	})
+
+	t.Run("multiple errors", func(t *testing.T) {
+		errs := ValidationErrors{
+			{Field: "field1", Message: "message1"},
+			{Field: "field2", Message: "message2"},
+		}
+		result := errs.Error()
+		if !strings.Contains(result, "field1: message1") {
+			t.Errorf("Error() should contain 'field1: message1', got %s", result)
+		}
+		if !strings.Contains(result, "field2: message2") {
+			t.Errorf("Error() should contain 'field2: message2', got %s", result)
+		}
+	})
+}
+
+func TestValidate_Mode(t *testing.T) {
+	tests := []struct {
+		name      string
+		mode      string
+		expectErr bool
+	}{
+		{"valid portal", "portal", false},
+		{"valid single-service", "single-service", false},
+		{"invalid mode", "invalid", true},
+		{"empty mode", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.Mode = tt.mode
+
+			// Set target_url for single-service mode
+			if tt.mode == "single-service" {
+				cfg.SingleService.TargetURL = "https://app.example.com"
+			}
+
+			err := Validate(cfg)
+			hasErr := err != nil && containsField(err, "mode")
+
+			if tt.expectErr && !hasErr {
+				t.Error("expected mode validation error")
+			}
+			if !tt.expectErr && hasErr {
+				t.Errorf("unexpected mode validation error: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidate_SingleService(t *testing.T) {
+	t.Run("single-service mode without target_url", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Mode = "single-service"
+		cfg.SingleService.TargetURL = ""
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "single_service.target_url") {
+			t.Error("expected single_service.target_url validation error")
+		}
+	})
+
+	t.Run("single-service mode with target_url", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Mode = "single-service"
+		cfg.SingleService.TargetURL = "https://app.example.com"
+
+		err := Validate(cfg)
+		if containsField(err, "single_service.target_url") {
+			t.Error("unexpected single_service.target_url validation error")
+		}
+	})
+
+	t.Run("portal mode without target_url is valid", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Mode = "portal"
+		cfg.SingleService.TargetURL = ""
+
+		err := Validate(cfg)
+		if containsField(err, "single_service.target_url") {
+			t.Error("single_service.target_url should not be required in portal mode")
+		}
+	})
+}
+
+func TestValidate_Auth(t *testing.T) {
+	t.Run("missing issuer_url", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Auth.Keycloak.IssuerURL = ""
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "auth.keycloak.issuer_url") {
+			t.Error("expected auth.keycloak.issuer_url validation error")
+		}
+	})
+
+	t.Run("invalid issuer_url", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Auth.Keycloak.IssuerURL = "://invalid-url"
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "auth.keycloak.issuer_url") {
+			t.Error("expected auth.keycloak.issuer_url validation error")
+		}
+	})
+
+	t.Run("missing client_id", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Auth.Keycloak.ClientID = ""
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "auth.keycloak.client_id") {
+			t.Error("expected auth.keycloak.client_id validation error")
+		}
+	})
+
+	t.Run("missing client_secret", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Auth.Keycloak.ClientSecret = ""
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "auth.keycloak.client_secret") {
+			t.Error("expected auth.keycloak.client_secret validation error")
+		}
+	})
+
+	t.Run("missing redirect_url", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Auth.Keycloak.RedirectURL = ""
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "auth.keycloak.redirect_url") {
+			t.Error("expected auth.keycloak.redirect_url validation error")
+		}
+	})
+
+	t.Run("dev mode skips auth validation", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.DevMode.Enabled = true
+		cfg.DevMode.ProfilesDir = "./profiles"
+		cfg.Auth.Keycloak.IssuerURL = ""
+		cfg.Auth.Keycloak.ClientID = ""
+		cfg.Auth.Keycloak.ClientSecret = ""
+		cfg.Auth.Keycloak.RedirectURL = ""
+
+		err := Validate(cfg)
+		if containsField(err, "auth.keycloak") {
+			t.Error("auth validation should be skipped in dev mode")
+		}
+	})
+}
+
+func TestValidate_SessionStore(t *testing.T) {
+	tests := []struct {
+		name      string
+		store     string
+		expectErr bool
+	}{
+		{"valid cookie", "cookie", false},
+		{"valid jwt", "jwt", false},
+		{"valid redis", "redis", false},
+		{"invalid store", "memcache", true},
+		{"empty store", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.Session.Store = tt.store
+
+			// Add required fields for specific stores
+			if tt.store == "jwt" {
+				cfg.Session.JWT.SigningKey = "test-key"
+			}
+			if tt.store == "redis" {
+				cfg.Session.Redis.Addresses = []string{"redis:6379"}
+				cfg.Session.Encryption.Enabled = false
+			}
+
+			err := Validate(cfg)
+			hasErr := containsField(err, "session.store")
+
+			if tt.expectErr && !hasErr {
+				t.Error("expected session.store validation error")
+			}
+			if !tt.expectErr && hasErr {
+				t.Errorf("unexpected session.store validation error: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidate_Encryption(t *testing.T) {
+	t.Run("missing encryption key when enabled", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Session.Store = "cookie"
+		cfg.Session.Encryption.Enabled = true
+		cfg.Session.Encryption.Key = ""
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "session.encryption.key") {
+			t.Error("expected session.encryption.key validation error")
+		}
+	})
+
+	t.Run("wrong key length", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Session.Store = "cookie"
+		cfg.Session.Encryption.Enabled = true
+		cfg.Session.Encryption.Key = "short-key"
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "session.encryption.key") {
+			t.Error("expected session.encryption.key validation error for wrong length")
+		}
+	})
+
+	t.Run("valid 32-byte key", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Session.Store = "cookie"
+		cfg.Session.Encryption.Enabled = true
+		cfg.Session.Encryption.Key = "12345678901234567890123456789012" // 32 bytes
+
+		err := Validate(cfg)
+		if containsField(err, "session.encryption.key") {
+			t.Errorf("unexpected session.encryption.key validation error: %v", err)
+		}
+	})
+
+	t.Run("encryption disabled skips key validation", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Session.Store = "cookie"
+		cfg.Session.Encryption.Enabled = false
+		cfg.Session.Encryption.Key = ""
+
+		err := Validate(cfg)
+		if containsField(err, "session.encryption.key") {
+			t.Error("encryption.key should not be required when disabled")
+		}
+	})
+}
+
+func TestValidate_JWTStore(t *testing.T) {
+	t.Run("missing signing_key", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Session.Store = "jwt"
+		cfg.Session.JWT.SigningKey = ""
+		cfg.Session.JWT.PrivateKey = ""
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "session.jwt.signing_key") {
+			t.Error("expected session.jwt.signing_key validation error")
+		}
+	})
+
+	t.Run("valid with signing_key", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Session.Store = "jwt"
+		cfg.Session.JWT.SigningKey = "my-secret-key"
+		cfg.Session.JWT.Algorithm = "HS256"
+
+		err := Validate(cfg)
+		if containsField(err, "session.jwt.signing_key") {
+			t.Errorf("unexpected session.jwt.signing_key validation error: %v", err)
+		}
+	})
+
+	t.Run("valid with private_key", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Session.Store = "jwt"
+		cfg.Session.JWT.PrivateKey = "/path/to/private.pem"
+		cfg.Session.JWT.Algorithm = "RS256"
+
+		err := Validate(cfg)
+		if containsField(err, "session.jwt.signing_key") {
+			t.Errorf("unexpected validation error when private_key is set: %v", err)
+		}
+	})
+
+	t.Run("invalid algorithm", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Session.Store = "jwt"
+		cfg.Session.JWT.SigningKey = "my-secret-key"
+		cfg.Session.JWT.Algorithm = "invalid"
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "session.jwt.algorithm") {
+			t.Error("expected session.jwt.algorithm validation error")
+		}
+	})
+}
+
+func TestValidate_RedisStore(t *testing.T) {
+	t.Run("missing addresses", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Session.Store = "redis"
+		cfg.Session.Redis.Addresses = nil
+		cfg.Session.Encryption.Enabled = false
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "session.redis.addresses") {
+			t.Error("expected session.redis.addresses validation error")
+		}
+	})
+
+	t.Run("empty addresses", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Session.Store = "redis"
+		cfg.Session.Redis.Addresses = []string{}
+		cfg.Session.Encryption.Enabled = false
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "session.redis.addresses") {
+			t.Error("expected session.redis.addresses validation error")
+		}
+	})
+
+	t.Run("valid addresses", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Session.Store = "redis"
+		cfg.Session.Redis.Addresses = []string{"redis:6379"}
+		cfg.Session.Encryption.Enabled = false
+
+		err := Validate(cfg)
+		if containsField(err, "session.redis.addresses") {
+			t.Errorf("unexpected session.redis.addresses validation error: %v", err)
+		}
+	})
+}
+
+func TestValidate_Services(t *testing.T) {
+	t.Run("missing service name", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Services = []ServiceConfig{
+			{Name: "", Location: "/test", Upstream: "http://test:8080"},
+		}
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "services[0].name") {
+			t.Error("expected services[0].name validation error")
+		}
+	})
+
+	t.Run("duplicate service name", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Services = []ServiceConfig{
+			{Name: "test", Location: "/test1", Upstream: "http://test1:8080"},
+			{Name: "test", Location: "/test2", Upstream: "http://test2:8080"},
+		}
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "services[1].name") {
+			t.Error("expected duplicate name validation error")
+		}
+	})
+
+	t.Run("missing service location", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Services = []ServiceConfig{
+			{Name: "test", Location: "", Upstream: "http://test:8080"},
+		}
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "services[0].location") {
+			t.Error("expected services[0].location validation error")
+		}
+	})
+
+	t.Run("duplicate service location", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Services = []ServiceConfig{
+			{Name: "test1", Location: "/test", Upstream: "http://test1:8080"},
+			{Name: "test2", Location: "/test", Upstream: "http://test2:8080"},
+		}
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "services[1].location") {
+			t.Error("expected duplicate location validation error")
+		}
+	})
+
+	t.Run("missing service upstream", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Services = []ServiceConfig{
+			{Name: "test", Location: "/test", Upstream: ""},
+		}
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "services[0].upstream") {
+			t.Error("expected services[0].upstream validation error")
+		}
+	})
+
+	t.Run("invalid service upstream URL", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Services = []ServiceConfig{
+			{Name: "test", Location: "/test", Upstream: "://invalid"},
+		}
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "services[0].upstream") {
+			t.Error("expected services[0].upstream validation error for invalid URL")
+		}
+	})
+
+	t.Run("valid services", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Services = []ServiceConfig{
+			{Name: "test1", Location: "/test1", Upstream: "http://test1:8080"},
+			{Name: "test2", Location: "/test2", Upstream: "http://test2:8080"},
+		}
+
+		err := Validate(cfg)
+		if containsField(err, "services") {
+			t.Errorf("unexpected services validation error: %v", err)
+		}
+	})
+}
+
+func TestValidate_DevMode(t *testing.T) {
+	t.Run("dev mode without profiles_dir", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.DevMode.Enabled = true
+		cfg.DevMode.ProfilesDir = ""
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "dev_mode.profiles_dir") {
+			t.Error("expected dev_mode.profiles_dir validation error")
+		}
+	})
+
+	t.Run("dev mode with profiles_dir", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.DevMode.Enabled = true
+		cfg.DevMode.ProfilesDir = "./profiles"
+
+		err := Validate(cfg)
+		if containsField(err, "dev_mode.profiles_dir") {
+			t.Errorf("unexpected dev_mode.profiles_dir validation error: %v", err)
+		}
+	})
+
+	t.Run("dev mode disabled without profiles_dir is valid", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.DevMode.Enabled = false
+		cfg.DevMode.ProfilesDir = ""
+
+		err := Validate(cfg)
+		if containsField(err, "dev_mode.profiles_dir") {
+			t.Error("dev_mode.profiles_dir should not be required when disabled")
+		}
+	})
+}
+
+func TestValidate_TLS(t *testing.T) {
+	t.Run("TLS enabled without cert", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Server.TLS.Enabled = true
+		cfg.Server.TLS.Cert = ""
+		cfg.Server.TLS.Key = "/path/to/key.pem"
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "server.tls.cert") {
+			t.Error("expected server.tls.cert validation error")
+		}
+	})
+
+	t.Run("TLS enabled without key", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Server.TLS.Enabled = true
+		cfg.Server.TLS.Cert = "/path/to/cert.pem"
+		cfg.Server.TLS.Key = ""
+
+		err := Validate(cfg)
+		if err == nil || !containsField(err, "server.tls.key") {
+			t.Error("expected server.tls.key validation error")
+		}
+	})
+
+	t.Run("TLS enabled with autocert skips cert/key validation", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Server.TLS.Enabled = true
+		cfg.Server.TLS.AutoCert.Enabled = true
+		cfg.Server.TLS.Cert = ""
+		cfg.Server.TLS.Key = ""
+
+		err := Validate(cfg)
+		if containsField(err, "server.tls.cert") || containsField(err, "server.tls.key") {
+			t.Error("cert/key should not be required when autocert is enabled")
+		}
+	})
+
+	t.Run("TLS disabled skips cert/key validation", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Server.TLS.Enabled = false
+		cfg.Server.TLS.Cert = ""
+		cfg.Server.TLS.Key = ""
+
+		err := Validate(cfg)
+		if containsField(err, "server.tls.cert") || containsField(err, "server.tls.key") {
+			t.Error("cert/key should not be required when TLS is disabled")
+		}
+	})
+}
+
+func TestValidate_FullyValid(t *testing.T) {
+	cfg := validConfig()
+	err := Validate(cfg)
+	if err != nil {
+		t.Errorf("valid config should pass validation: %v", err)
+	}
+}
+
+// Helper functions
+
+func validConfig() *Config {
+	return &Config{
+		Mode: "portal",
+		Server: ServerConfig{
+			HTTPPort:  8080,
+			HTTPSPort: 443,
+		},
+		Auth: AuthConfig{
+			Keycloak: KeycloakConfig{
+				IssuerURL:    "https://keycloak.example.com/realms/main",
+				ClientID:     "auth-portal",
+				ClientSecret: "secret",
+				RedirectURL:  "https://auth.example.com/callback",
+				Scopes:       []string{"openid", "profile", "email"},
+			},
+		},
+		Session: SessionConfig{
+			Store:      "cookie",
+			CookieName: "_auth_session",
+			SameSite:   "lax",
+			Encryption: EncryptionConfig{
+				Enabled: true,
+				Key:     "12345678901234567890123456789012",
+			},
+			Cookie: CookieStoreConfig{
+				MaxSize: 4096,
+			},
+			JWT: JWTStoreConfig{
+				Algorithm: "HS256",
+			},
+		},
+		Log: LogConfig{
+			Level:  "info",
+			Format: "json",
+		},
+	}
+}
+
+func containsField(err error, field string) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, field)
+}
