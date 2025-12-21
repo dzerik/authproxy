@@ -242,6 +242,41 @@ func applyDefaults(cfg *Config) {
 		cfg.Log.Format = "json"
 	}
 
+	// Resilience defaults
+	if cfg.Resilience.RateLimit.Rate == "" {
+		cfg.Resilience.RateLimit.Rate = "100-S"
+	}
+	if len(cfg.Resilience.RateLimit.ExcludePaths) == 0 {
+		cfg.Resilience.RateLimit.ExcludePaths = []string{"/health", "/ready", "/metrics"}
+	}
+	if cfg.Resilience.RateLimit.Headers.LimitHeader == "" {
+		cfg.Resilience.RateLimit.Headers.LimitHeader = "X-RateLimit-Limit"
+	}
+	if cfg.Resilience.RateLimit.Headers.RemainingHeader == "" {
+		cfg.Resilience.RateLimit.Headers.RemainingHeader = "X-RateLimit-Remaining"
+	}
+	if cfg.Resilience.RateLimit.Headers.ResetHeader == "" {
+		cfg.Resilience.RateLimit.Headers.ResetHeader = "X-RateLimit-Reset"
+	}
+	if cfg.Resilience.CircuitBreaker.Default.MaxRequests == 0 {
+		cfg.Resilience.CircuitBreaker.Default.MaxRequests = 3
+	}
+	if cfg.Resilience.CircuitBreaker.Default.Interval == 0 {
+		cfg.Resilience.CircuitBreaker.Default.Interval = 60 * time.Second
+	}
+	if cfg.Resilience.CircuitBreaker.Default.Timeout == 0 {
+		cfg.Resilience.CircuitBreaker.Default.Timeout = 30 * time.Second
+	}
+	if cfg.Resilience.CircuitBreaker.Default.FailureThreshold == 0 {
+		cfg.Resilience.CircuitBreaker.Default.FailureThreshold = 5
+	}
+	if cfg.Resilience.CircuitBreaker.Default.SuccessThreshold == 0 {
+		cfg.Resilience.CircuitBreaker.Default.SuccessThreshold = 2
+	}
+	if cfg.Resilience.CircuitBreaker.Services == nil {
+		cfg.Resilience.CircuitBreaker.Services = make(map[string]CircuitBreakerSettings)
+	}
+
 	// Service defaults
 	for i := range cfg.Services {
 		if cfg.Services[i].DisplayName == "" {

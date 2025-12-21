@@ -23,6 +23,7 @@ import (
 	"github.com/dzerik/auth-portal/internal/service/session"
 	"github.com/dzerik/auth-portal/internal/ui"
 	"github.com/dzerik/auth-portal/pkg/logger"
+	"github.com/dzerik/auth-portal/pkg/resilience/ratelimit"
 	"github.com/dzerik/auth-portal/pkg/tracing"
 )
 
@@ -249,6 +250,32 @@ func NewServer(cfg *config.Config, m *metrics.Metrics, tp *tracing.TracerProvide
 	r.Use(chimw.CleanPath)
 	r.Use(chimw.Timeout(60 * time.Second))
 	r.Use(m.Middleware) // Prometheus metrics
+
+	// Add rate limiting if enabled
+	if cfg.Resilience.RateLimit.Enabled {
+		rateLimitCfg := ratelimit.Config{
+			Enabled:           cfg.Resilience.RateLimit.Enabled,
+			Rate:              cfg.Resilience.RateLimit.Rate,
+			TrustForwardedFor: cfg.Resilience.RateLimit.TrustForwardedFor,
+			ExcludePaths:      cfg.Resilience.RateLimit.ExcludePaths,
+			ByEndpoint:        cfg.Resilience.RateLimit.ByEndpoint,
+			EndpointRates:     cfg.Resilience.RateLimit.EndpointRates,
+			Headers: ratelimit.HeadersConfig{
+				Enabled:         cfg.Resilience.RateLimit.Headers.Enabled,
+				LimitHeader:     cfg.Resilience.RateLimit.Headers.LimitHeader,
+				RemainingHeader: cfg.Resilience.RateLimit.Headers.RemainingHeader,
+				ResetHeader:     cfg.Resilience.RateLimit.Headers.ResetHeader,
+			},
+			FailClose: cfg.Resilience.RateLimit.FailClose,
+		}
+		limiter, err := ratelimit.NewLimiter(rateLimitCfg)
+		if err != nil {
+			logger.Error("failed to create rate limiter", zap.Error(err))
+		} else {
+			r.Use(limiter.Middleware())
+			logger.Info("rate limiting enabled", zap.String("rate", cfg.Resilience.RateLimit.Rate))
+		}
+	}
 
 	// CORS configuration
 	r.Use(cors.Handler(cors.Options{

@@ -14,6 +14,7 @@ type Config struct {
 	DevMode       DevModeConfig       `yaml:"dev_mode" mapstructure:"dev_mode"`
 	Nginx         NginxConfig         `yaml:"nginx" mapstructure:"nginx"`
 	Observability ObservabilityConfig `yaml:"observability" mapstructure:"observability"`
+	Resilience    ResilienceConfig    `yaml:"resilience" mapstructure:"resilience"`
 	Log           LogConfig           `yaml:"log" mapstructure:"log"`
 }
 
@@ -212,4 +213,70 @@ type HealthConfig struct {
 // ReadyConfig represents readiness check configuration
 type ReadyConfig struct {
 	Path string `yaml:"path" mapstructure:"path"`
+}
+
+// ResilienceConfig holds resilience configuration
+type ResilienceConfig struct {
+	// RateLimit configuration for incoming requests
+	RateLimit HTTPRateLimitConfig `yaml:"rate_limit" mapstructure:"rate_limit"`
+	// CircuitBreaker configuration for external calls
+	CircuitBreaker CircuitBreakerConfig `yaml:"circuit_breaker" mapstructure:"circuit_breaker"`
+}
+
+// HTTPRateLimitConfig holds HTTP rate limiting configuration for resilience
+type HTTPRateLimitConfig struct {
+	// Enabled enables rate limiting
+	Enabled bool `yaml:"enabled" mapstructure:"enabled"`
+	// Rate is the rate limit in format 'requests-period' (e.g. '100-S' for 100 requests per second)
+	Rate string `yaml:"rate" mapstructure:"rate"`
+	// TrustForwardedFor trusts X-Forwarded-For header for client IP
+	TrustForwardedFor bool `yaml:"trust_forwarded_for" mapstructure:"trust_forwarded_for"`
+	// ExcludePaths excludes paths from rate limiting
+	ExcludePaths []string `yaml:"exclude_paths" mapstructure:"exclude_paths"`
+	// ByEndpoint enables per-endpoint rate limiting
+	ByEndpoint bool `yaml:"by_endpoint" mapstructure:"by_endpoint"`
+	// EndpointRates defines per-endpoint rate limits
+	EndpointRates map[string]string `yaml:"endpoint_rates" mapstructure:"endpoint_rates"`
+	// Headers configuration for rate limit response headers
+	Headers HTTPRateLimitHeadersConfig `yaml:"headers" mapstructure:"headers"`
+	// FailClose denies requests when rate limiter encounters an error
+	FailClose bool `yaml:"fail_close" mapstructure:"fail_close"`
+}
+
+// HTTPRateLimitHeadersConfig holds rate limit headers configuration
+type HTTPRateLimitHeadersConfig struct {
+	// Enabled enables rate limit headers in response
+	Enabled bool `yaml:"enabled" mapstructure:"enabled"`
+	// LimitHeader is the header name for rate limit
+	LimitHeader string `yaml:"limit_header" mapstructure:"limit_header"`
+	// RemainingHeader is the header name for remaining requests
+	RemainingHeader string `yaml:"remaining_header" mapstructure:"remaining_header"`
+	// ResetHeader is the header name for reset timestamp
+	ResetHeader string `yaml:"reset_header" mapstructure:"reset_header"`
+}
+
+// CircuitBreakerConfig holds circuit breaker configuration
+type CircuitBreakerConfig struct {
+	// Enabled enables circuit breaker
+	Enabled bool `yaml:"enabled" mapstructure:"enabled"`
+	// Default settings for all circuit breakers
+	Default CircuitBreakerSettings `yaml:"default" mapstructure:"default"`
+	// Services holds per-service circuit breaker settings
+	Services map[string]CircuitBreakerSettings `yaml:"services" mapstructure:"services"`
+}
+
+// CircuitBreakerSettings holds settings for a single circuit breaker
+type CircuitBreakerSettings struct {
+	// MaxRequests is the maximum number of requests in half-open state
+	MaxRequests uint32 `yaml:"max_requests" mapstructure:"max_requests"`
+	// Interval is the cyclic period for clearing counts in closed state
+	Interval time.Duration `yaml:"interval" mapstructure:"interval"`
+	// Timeout is the period of open state before switching to half-open
+	Timeout time.Duration `yaml:"timeout" mapstructure:"timeout"`
+	// FailureThreshold is the number of consecutive failures to open circuit
+	FailureThreshold uint32 `yaml:"failure_threshold" mapstructure:"failure_threshold"`
+	// SuccessThreshold is the number of consecutive successes to close circuit
+	SuccessThreshold uint32 `yaml:"success_threshold" mapstructure:"success_threshold"`
+	// OnStateChange enables logging on state changes
+	OnStateChange bool `yaml:"on_state_change" mapstructure:"on_state_change"`
 }
