@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
@@ -17,7 +18,9 @@ import (
 
 	"github.com/dzerik/auth-portal/internal/config"
 	"github.com/dzerik/auth-portal/internal/handler"
+	"github.com/dzerik/auth-portal/internal/help"
 	"github.com/dzerik/auth-portal/internal/nginx"
+	"github.com/dzerik/auth-portal/internal/schema"
 	"github.com/dzerik/auth-portal/internal/service/idp"
 	"github.com/dzerik/auth-portal/internal/service/metrics"
 	"github.com/dzerik/auth-portal/internal/service/session"
@@ -39,11 +42,50 @@ func main() {
 	nginxOutput := flag.String("output", getEnv("AUTH_PORTAL_NGINX_CONFIG", "/etc/nginx/nginx.conf"), "Output path for nginx config")
 	devMode := flag.Bool("dev", false, "Enable development mode")
 	showVersion := flag.Bool("version", false, "Show version and exit")
+	showHelp := flag.Bool("help", false, "Show extended help")
+	generateSchema := flag.Bool("schema", false, "Generate JSON schema and exit")
+	schemaOutput := flag.String("schema-output", "", "Output file for schema (default: stdout)")
 	flag.Parse()
+
+	// Create help generator
+	helpGen := help.NewGenerator(help.AppInfo{
+		Name:        "auth-portal",
+		Description: "Authentication portal with Keycloak OIDC integration",
+		Version:     Version,
+		BuildTime:   BuildTime,
+		DocsURL:     "https://github.com/dzerik/auth-portal",
+	}, "AUTH_PORTAL")
 
 	// Show version
 	if *showVersion {
-		fmt.Printf("auth-portal %s (built %s)\n", Version, BuildTime)
+		fmt.Print(helpGen.PrintVersion())
+		os.Exit(0)
+	}
+
+	// Show extended help
+	if *showHelp {
+		fmt.Print(helpGen.PrintExtendedHelp())
+		os.Exit(0)
+	}
+
+	// Generate JSON schema
+	if *generateSchema {
+		gen := schema.NewGenerator()
+		data, err := gen.Generate()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to generate schema: %v\n", err)
+			os.Exit(1)
+		}
+
+		if *schemaOutput != "" {
+			if err := os.WriteFile(*schemaOutput, data, 0644); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to write schema: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("Schema written to %s\n", *schemaOutput)
+		} else {
+			fmt.Println(string(data))
+		}
 		os.Exit(0)
 	}
 
@@ -346,10 +388,55 @@ func NewServer(cfg *config.Config, m *metrics.Metrics, tp *tracing.TracerProvide
 		r.Handle(metricsPath, m.Handler())
 	}
 
-	// Log level change endpoint (admin only in production)
-	if cfg.DevMode.Enabled {
-		r.Handle("/admin/log/level", logger.LevelHandler())
-	}
+	// Admin endpoints
+	r.Route("/admin", func(r chi.Router) {
+		// Schema endpoint (always available)
+		r.Get("/schema", func(w http.ResponseWriter, req *http.Request) {
+			gen := schema.NewGenerator()
+			data, err := gen.Generate()
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(data)
+		})
+
+		// Config dump (dev mode only)
+		if cfg.DevMode.Enabled {
+			r.Handle("/log/level", logger.LevelHandler())
+
+			r.Get("/config", func(w http.ResponseWriter, req *http.Request) {
+				// Return sanitized config (no secrets)
+				sanitized := struct {
+					Mode        string `json:"mode"`
+					DevMode     bool   `json:"dev_mode"`
+					HTTPPort    int    `json:"http_port"`
+					SessionType string `json:"session_type"`
+					Services    int    `json:"services_count"`
+				}{
+					Mode:        cfg.Mode,
+					DevMode:     cfg.DevMode.Enabled,
+					HTTPPort:    cfg.Server.HTTPPort,
+					SessionType: cfg.Session.Store,
+					Services:    len(cfg.Services),
+				}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(sanitized)
+			})
+
+			r.Get("/info", func(w http.ResponseWriter, req *http.Request) {
+				info := map[string]interface{}{
+					"version":    Version,
+					"build_time": BuildTime,
+					"mode":       cfg.Mode,
+					"dev_mode":   cfg.DevMode.Enabled,
+				}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(info)
+			})
+		}
+	})
 
 	return &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Server.HTTPPort),
