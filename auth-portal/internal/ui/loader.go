@@ -14,12 +14,9 @@ var templatesFS embed.FS
 //go:embed static
 var staticFS embed.FS
 
-// LoadTemplates loads all HTML templates from embedded filesystem
-func LoadTemplates() (*template.Template, error) {
-	tmpl := template.New("")
-
-	// Add custom template functions
-	tmpl = tmpl.Funcs(template.FuncMap{
+// templateFuncs returns the custom template functions
+func templateFuncs() template.FuncMap {
+	return template.FuncMap{
 		"slice": func(s string, start, end int) string {
 			if start < 0 {
 				start = 0
@@ -42,7 +39,12 @@ func LoadTemplates() (*template.Template, error) {
 			}
 			return result
 		},
-	})
+	}
+}
+
+// LoadTemplates loads all HTML templates from embedded filesystem
+func LoadTemplates() (*template.Template, error) {
+	tmpl := template.New("").Funcs(templateFuncs())
 
 	// Parse all templates
 	entries, err := fs.ReadDir(templatesFS, "templates")

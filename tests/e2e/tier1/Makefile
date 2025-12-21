@@ -1,8 +1,16 @@
 # Tier 1 E2E Testing Makefile
 # Docker/Podman Compose based local development and testing
+#
+# Includes:
+#   - Infrastructure management (infra-*)
+#   - Application management (authz, portal)
+#   - Testing commands
 
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
+
+# Include infrastructure targets
+-include Makefile.infra
 
 # Detect container runtime
 RUNTIME := $(shell ./scripts/detect-runtime.sh detect 2>/dev/null || echo "docker")
@@ -244,3 +252,76 @@ ci: setup up test down ## Full CI pipeline: setup, start, test, stop
 .PHONY: ci-quick
 ci-quick: up test-short down ## Quick CI: start, smoke tests, stop
 	@echo -e "$(GREEN)Quick CI complete$(NC)"
+
+# ==================== Application Management ====================
+
+.PHONY: authz-up
+authz-up: ## Start authz-service (requires infrastructure)
+	@echo -e "$(YELLOW)Starting authz-service...$(NC)"
+	@cd $(COMPOSE_DIR) && $(COMPOSE) -f docker-compose.authz.yaml up -d --build
+	@echo -e "$(GREEN)authz-service started$(NC)"
+
+.PHONY: authz-down
+authz-down: ## Stop authz-service
+	@cd $(COMPOSE_DIR) && $(COMPOSE) -f docker-compose.authz.yaml down
+
+.PHONY: authz-logs
+authz-logs: ## Follow authz-service logs
+	@cd $(COMPOSE_DIR) && $(COMPOSE) -f docker-compose.authz.yaml logs -f
+
+.PHONY: portal-up
+portal-up: ## Start auth-portal (requires infrastructure)
+	@echo -e "$(YELLOW)Starting auth-portal...$(NC)"
+	@cd $(COMPOSE_DIR) && $(COMPOSE) -f docker-compose.portal.yaml up -d --build
+	@echo -e "$(GREEN)auth-portal started$(NC)"
+
+.PHONY: portal-down
+portal-down: ## Stop auth-portal
+	@cd $(COMPOSE_DIR) && $(COMPOSE) -f docker-compose.portal.yaml down
+
+.PHONY: portal-logs
+portal-logs: ## Follow auth-portal logs
+	@cd $(COMPOSE_DIR) && $(COMPOSE) -f docker-compose.portal.yaml logs -f
+
+# ==================== Full Stack ====================
+
+.PHONY: stack-up
+stack-up: infra-up authz-up portal-up ## Start full stack (infra + apps)
+	@echo -e "$(GREEN)Full stack is ready!$(NC)"
+	@$(MAKE) stack-status
+
+.PHONY: stack-down
+stack-down: portal-down authz-down infra-down ## Stop full stack
+	@echo -e "$(GREEN)Full stack stopped$(NC)"
+
+.PHONY: stack-status
+stack-status: ## Show full stack status
+	@echo ""
+	@echo "$(GREEN)═══════════════════════════════════════════════════════════════$(NC)"
+	@echo "$(GREEN)                     Full Stack Status$(NC)"
+	@echo "$(GREEN)═══════════════════════════════════════════════════════════════$(NC)"
+	@echo ""
+	@echo "$(YELLOW)Infrastructure:$(NC)"
+	@cd $(COMPOSE_DIR) && $(COMPOSE) -f docker-compose.infra.yaml ps 2>/dev/null || echo "  Not running"
+	@echo ""
+	@echo "$(YELLOW)Authz-Service:$(NC)"
+	@cd $(COMPOSE_DIR) && $(COMPOSE) -f docker-compose.authz.yaml ps 2>/dev/null || echo "  Not running"
+	@echo ""
+	@echo "$(YELLOW)Auth-Portal:$(NC)"
+	@cd $(COMPOSE_DIR) && $(COMPOSE) -f docker-compose.portal.yaml ps 2>/dev/null || echo "  Not running"
+	@echo ""
+	@echo "$(GREEN)═══════════════════════════════════════════════════════════════$(NC)"
+	@echo ""
+	@echo "Endpoints:"
+	@echo "  Keycloak:        http://localhost:8180"
+	@echo "  authz-service:   http://localhost:8080"
+	@echo "  authz-external:  http://localhost:9080"
+	@echo "  auth-portal:     http://localhost:8880"
+	@echo "  Jaeger:          http://localhost:16686"
+	@echo "  Grafana:         http://localhost:3000"
+	@echo "  Prometheus:      http://localhost:9090"
+	@echo ""
+
+.PHONY: stack-destroy
+stack-destroy: portal-down authz-down infra-destroy ## Destroy full stack (removes volumes)
+	@echo -e "$(GREEN)Full stack destroyed$(NC)"

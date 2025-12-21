@@ -1,0 +1,238 @@
+# Auth-Portal Nginx Configuration
+# Generated automatically - do not edit manually
+
+worker_processes {{ .Nginx.WorkerProcesses | default "auto" }};
+error_log {{ .Nginx.ErrorLog | default "/var/log/nginx/error.log" }} warn;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections {{ .Nginx.WorkerConnections | default 1024 }};
+    use epoll;
+    multi_accept on;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    # Logging
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for" '
+                    'rt=$request_time uct="$upstream_connect_time" '
+                    'uht="$upstream_header_time" urt="$upstream_response_time"';
+
+    {{- if .Nginx.LogFormat }}
+    log_format custom '{{ .Nginx.LogFormat }}';
+    access_log {{ .Nginx.AccessLog | default "/var/log/nginx/access.log" }} custom;
+    {{- else }}
+    access_log {{ .Nginx.AccessLog | default "/var/log/nginx/access.log" }} main;
+    {{- end }}
+
+    # Performance
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout {{ .Nginx.KeepaliveTimeout | default 65 }};
+    types_hash_max_size 2048;
+
+    # Security headers
+    server_tokens off;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+
+    # Gzip
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css text/xml application/json application/javascript
+               application/xml application/xml+rss text/javascript application/x-javascript;
+
+    # Client settings
+    client_max_body_size {{ .Nginx.ClientMaxBodySize | default "10m" }};
+    client_body_buffer_size 128k;
+
+    {{- if .Nginx.RateLimit.Enabled }}
+    # Rate limiting
+    limit_req_zone $binary_remote_addr zone=auth_limit:{{ .Nginx.RateLimit.ZoneSize | default "10m" }} rate={{ .Nginx.RateLimit.RequestsPerSecond | default 10 }}r/s;
+    {{- end }}
+
+    # Upstream to auth-portal backend
+    upstream auth_portal {
+        server 127.0.0.1:{{ .Server.HTTPPort | default 8081 }};
+        keepalive 32;
+    }
+
+    {{- range .Services }}
+    {{- if .Upstream }}
+    # Upstream for {{ .Name }}
+    upstream {{ .Name | replace "-" "_" }}_backend {
+        server {{ .Upstream }};
+        keepalive 16;
+    }
+    {{- end }}
+    {{- end }}
+
+    # Main server
+    server {
+        listen 80 default_server;
+        listen [::]:80 default_server;
+        {{- if .Server.TLS.Enabled }}
+        listen 443 ssl http2 default_server;
+        listen [::]:443 ssl http2 default_server;
+
+        ssl_certificate {{ .Server.TLS.Cert }};
+        ssl_certificate_key {{ .Server.TLS.Key }};
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 1d;
+        ssl_session_tickets off;
+        {{- end }}
+
+        server_name _;
+        root /var/www/html;
+
+        # Auth endpoints - proxy to Go backend
+        location / {
+            proxy_pass http://auth_portal;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Host $host;
+            proxy_set_header X-Forwarded-Port $server_port;
+            proxy_set_header Connection "";
+            proxy_connect_timeout 5s;
+            proxy_send_timeout 60s;
+            proxy_read_timeout 60s;
+        }
+
+        location /static/ {
+            proxy_pass http://auth_portal;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_cache_valid 200 1d;
+            expires 1d;
+            add_header Cache-Control "public, immutable";
+        }
+
+        # Internal auth request endpoint
+        location = /_auth {
+            internal;
+            proxy_pass http://auth_portal/auth;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Uri $request_uri;
+            proxy_set_header X-Forwarded-Host $host;
+            proxy_set_header X-Forwarded-Method $request_method;
+            proxy_set_header Content-Length "";
+            proxy_set_header Connection "";
+            proxy_pass_request_body off;
+        }
+
+        # Health check
+        location /health {
+            proxy_pass http://auth_portal/health;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            access_log off;
+        }
+
+        # Readiness check
+        location /ready {
+            proxy_pass http://auth_portal/ready;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            access_log off;
+        }
+
+        {{- if .Observability.Metrics.Enabled }}
+        # Metrics endpoint
+        location {{ .Observability.Metrics.Path | default "/metrics" }} {
+            proxy_pass http://auth_portal{{ .Observability.Metrics.Path | default "/metrics" }};
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            # Restrict access to internal networks
+            # allow 10.0.0.0/8;
+            # allow 172.16.0.0/12;
+            # allow 192.168.0.0/16;
+            # deny all;
+        }
+        {{- end }}
+
+        {{- range .Services }}
+
+        # Service: {{ .Name }}
+        location {{ .Location | default (printf "/%s" .Name) }} {
+            {{- if $.AuthRequired .AuthRequired }}
+            # Authentication required
+            auth_request /_auth;
+            auth_request_set $auth_user $upstream_http_x_auth_request_user;
+            auth_request_set $auth_email $upstream_http_x_auth_request_email;
+            auth_request_set $auth_roles $upstream_http_x_auth_request_roles;
+            auth_request_set $auth_groups $upstream_http_x_auth_request_groups;
+            auth_request_set $auth_tenant $upstream_http_x_auth_request_tenant;
+
+            # Error handling for auth failures
+            error_page 401 = @auth_redirect;
+            {{- end }}
+
+            {{- if .Rewrite }}
+            # URL rewrite
+            rewrite {{ .Rewrite }} break;
+            {{- end }}
+
+            {{- if .Upstream }}
+            proxy_pass http://{{ .Name | replace "-" "_" }}_backend;
+            {{- end }}
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Connection "";
+
+            {{- if $.AuthRequired .AuthRequired }}
+            # Pass auth headers to backend
+            proxy_set_header X-Auth-Request-User $auth_user;
+            proxy_set_header X-Auth-Request-Email $auth_email;
+            proxy_set_header X-Auth-Request-Roles $auth_roles;
+            proxy_set_header X-Auth-Request-Groups $auth_groups;
+            proxy_set_header X-Auth-Request-Tenant $auth_tenant;
+            {{- end }}
+
+            {{- if .Headers.Add }}
+            # Custom headers
+            {{- range $key, $value := .Headers.Add }}
+            proxy_set_header {{ $key }} "{{ $value }}";
+            {{- end }}
+            {{- end }}
+
+            {{- if .Headers.Remove }}
+            # Remove headers
+            {{- range .Headers.Remove }}
+            proxy_set_header {{ . }} "";
+            {{- end }}
+            {{- end }}
+
+            {{- if .NginxExtra }}
+            # Extra nginx config
+            {{ .NginxExtra }}
+            {{- end }}
+        }
+        {{- end }}
+
+        # Auth redirect handler
+        location @auth_redirect {
+            return 302 /login?redirect=$request_uri;
+        }
+    }
+}

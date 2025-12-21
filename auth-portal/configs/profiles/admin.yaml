@@ -1,0 +1,48 @@
+# =============================================================================
+# DEV MODE PROFILE: Administrator
+# =============================================================================
+# This profile is used in development mode (dev_mode.enabled: true)
+# Switch profiles: http://localhost:8080/login/dev/admin
+# =============================================================================
+
+user:
+  # Unique user identifier
+  id: "admin-user-001"
+
+  # User email
+  email: "admin@example.local"
+
+  # Display name
+  name: "Admin User"
+
+  # Given name
+  given_name: "Admin"
+
+  # Family name
+  family_name: "User"
+
+  # Username
+  preferred_username: "admin"
+
+  # User roles (from Keycloak realm/client roles)
+  roles:
+    - admin
+    - super-admin
+    - developer
+    - viewer
+
+  # User groups (from Keycloak groups)
+  groups:
+    - /admins
+    - /developers
+    - /all-access
+
+  # Tenant ID (for multi-tenant applications)
+  tenant_id: "tenant-main"
+
+  # Additional claims (custom attributes)
+  claims:
+    department: "Operations"
+    team: "Platform"
+    location: "Moscow"
+    access_level: "full"

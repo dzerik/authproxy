@@ -1,0 +1,121 @@
+# Auth-Portal E2E Testing Configuration
+server:
+  port: 8080
+  read_timeout: 30s
+  write_timeout: 30s
+
+mode: portal
+
+# Keycloak OIDC Configuration
+keycloak:
+  issuer_url: http://infra-keycloak:8080/realms/test
+  client_id: auth-portal
+  client_secret: ${KC_CLIENT_SECRET}
+  redirect_url: http://localhost:8880/callback
+  # Social login providers (via kc_idp_hint)
+  social_providers:
+    - name: google
+      display_name: Google
+      idp_hint: google
+      icon: google
+    - name: github
+      display_name: GitHub
+      idp_hint: github
+      icon: github
+
+# Session Configuration
+session:
+  secret: ${SESSION_SECRET}
+  store: cookie
+  ttl: 24h
+  cookie:
+    name: _auth_session
+    secure: false  # HTTP for testing
+    http_only: true
+    same_site: lax
+  encryption:
+    enabled: true
+    key: ${ENCRYPTION_KEY}
+
+# Dev Mode Configuration
+dev_mode:
+  enabled: true
+  profiles_dir: /app/configs/profiles
+  default_profile: developer
+  profiles:
+    developer:
+      id: "dev-user-001"
+      email: "developer@test.local"
+      name: "Developer User"
+      roles:
+        - developer
+        - user
+      groups:
+        - dev-team
+    admin:
+      id: "dev-admin-001"
+      email: "admin@test.local"
+      name: "Admin User"
+      roles:
+        - admin
+        - developer
+        - user
+      groups:
+        - admin-team
+        - dev-team
+    readonly:
+      id: "dev-readonly-001"
+      email: "readonly@test.local"
+      name: "ReadOnly User"
+      roles:
+        - viewer
+      groups:
+        - readonly-team
+
+# Services for portal mode
+services:
+  - name: grafana
+    display_name: "Grafana"
+    description: "Metrics & Dashboards"
+    url: http://localhost:3000
+    icon: chart-line
+    allowed_roles:
+      - admin
+      - developer
+    allowed_groups:
+      - monitoring
+
+  - name: jaeger
+    display_name: "Jaeger"
+    description: "Distributed Tracing"
+    url: http://localhost:16686
+    icon: search
+    allowed_roles:
+      - admin
+      - developer
+
+  - name: prometheus
+    display_name: "Prometheus"
+    description: "Metrics Collection"
+    url: http://localhost:9090
+    icon: database
+    allowed_roles:
+      - admin
+
+  - name: keycloak
+    display_name: "Keycloak"
+    description: "Identity Management"
+    url: http://localhost:8180
+    icon: settings
+    allowed_roles:
+      - admin
+
+# Observability
+tracing:
+  enabled: true
+  service_name: auth-portal
+  otlp_endpoint: ${TRACING_OTLP_ENDPOINT:-infra-jaeger:4317}
+
+logging:
+  level: debug
+  format: json

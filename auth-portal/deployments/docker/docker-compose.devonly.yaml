@@ -1,0 +1,42 @@
+version: '3.8'
+
+# Standalone development compose file (no external dependencies)
+# Usage: podman-compose -f docker-compose.devonly.yaml up --build
+
+services:
+  auth-portal:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile
+      target: builder
+    image: auth-portal-dev:latest
+    container_name: auth-portal-dev
+    volumes:
+      # Mount source code for hot reload
+      - ../..:/build:cached
+      # Mount configs
+      - ../../configs:/app/configs:ro
+    environment:
+      - TZ=UTC
+      - AUTH_PORTAL_CONFIG=/app/configs/auth-portal.yaml
+      # Dev mode enabled
+      - DEV_MODE=true
+      # Use in-memory session (no Redis required)
+      - SESSION_STORE=cookie
+      # Dummy secrets for dev
+      - SESSION_SECRET=dev-session-secret-32-bytes-long
+      - ENCRYPTION_KEY=abcdefghijklmnopqrstuvwxyz!@#$%^
+    ports:
+      - "8080:8080"   # Main HTTP port (non-privileged)
+      - "8081:8081"   # Go backend directly for debugging
+    command: >
+      sh -c "
+        cd /build &&
+        go run ./cmd/auth-portal
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

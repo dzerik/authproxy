@@ -1,0 +1,131 @@
+# Authz-Service Application Compose
+# Requires: docker-compose.infra.yaml running first
+#
+# Usage:
+#   # Start infrastructure first
+#   docker compose -f docker-compose.infra.yaml up -d
+#
+#   # Then start authz-service
+#   docker compose -f docker-compose.authz.yaml up -d --build
+
+version: "3.9"
+
+services:
+  # ============================================================================
+  # AUTHZ-SERVICE (Internal)
+  # ============================================================================
+
+  authz-service:
+    build:
+      context: ../../../../
+      dockerfile: deployments/docker/Dockerfile
+    image: authz-service:e2e
+    container_name: authz-service
+    environment:
+      AUTHZ_ENV_NAME: tier1-internal
+      AUTHZ_SERVER_HTTP_ADDR: ":8080"
+      AUTHZ_LOGGING_LEVEL: ${AUTHZ_LOG_LEVEL:-debug}
+      AUTHZ_LOGGING_FORMAT: json
+      # JWT Configuration
+      AUTHZ_JWT_ISSUERS_0_NAME: keycloak
+      AUTHZ_JWT_ISSUERS_0_ISSUER_URL: "http://infra-keycloak:8080/realms/test"
+      AUTHZ_JWT_ISSUERS_0_AUDIENCE_0: "authz-service"
+      AUTHZ_JWT_ISSUERS_0_AUDIENCE_1: "account"
+      # Cache
+      AUTHZ_CACHE_L1_ENABLED: "true"
+      AUTHZ_CACHE_L1_MAX_SIZE: "10000"
+      AUTHZ_CACHE_L1_TTL: "5m"
+      AUTHZ_CACHE_L2_ENABLED: "true"
+      AUTHZ_CACHE_L2_REDIS_ADDRESSES_0: "infra-redis:6379"
+      AUTHZ_CACHE_L2_REDIS_PASSWORD: ${REDIS_PASSWORD:-redis}
+      # Policy
+      AUTHZ_POLICY_ENGINE: "opa_sidecar"
+      AUTHZ_POLICY_OPA_URL: "http://infra-opa:8181"
+      AUTHZ_POLICY_OPA_POLICY_PATH: "/v1/data/authz/allow"
+      # Tracing
+      AUTHZ_TRACING_ENABLED: "true"
+      AUTHZ_TRACING_OTLP_ENDPOINT: "infra-jaeger:4317"
+      # Metrics
+      AUTHZ_METRICS_ENABLED: "true"
+    ports:
+      - "8080:8080"     # Main HTTP
+      - "8088:8088"     # gRPC
+      - "15000:15000"   # Admin
+      - "15020:15020"   # Health
+      - "15021:15021"   # Ready
+    volumes:
+      - ../configs:/etc/authz:ro
+      - ../certs:/certs:ro
+    networks:
+      - infra-backend
+      - infra-frontend
+      - app-partner
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:15020/healthz/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+
+  # ============================================================================
+  # AUTHZ-SERVICE (External Partner)
+  # ============================================================================
+
+  authz-service-external:
+    build:
+      context: ../../../../
+      dockerfile: deployments/docker/Dockerfile
+    image: authz-service:e2e
+    container_name: authz-service-external
+    environment:
+      AUTHZ_ENV_NAME: tier1-external
+      AUTHZ_SERVER_HTTP_ADDR: ":8080"
+      AUTHZ_LOGGING_LEVEL: ${AUTHZ_LOG_LEVEL:-debug}
+      AUTHZ_LOGGING_FORMAT: json
+      # JWT
+      AUTHZ_JWT_ISSUERS_0_NAME: keycloak
+      AUTHZ_JWT_ISSUERS_0_ISSUER_URL: "http://infra-keycloak:8080/realms/test"
+      AUTHZ_JWT_ISSUERS_0_AUDIENCE_0: "external-service"
+      AUTHZ_JWT_ISSUERS_0_AUDIENCE_1: "authz-service"
+      # Cache
+      AUTHZ_CACHE_L1_ENABLED: "true"
+      AUTHZ_CACHE_L2_ENABLED: "true"
+      AUTHZ_CACHE_L2_REDIS_ADDRESSES_0: "infra-redis:6379"
+      AUTHZ_CACHE_L2_REDIS_PASSWORD: ${REDIS_PASSWORD:-redis}
+      # Policy - builtin for external
+      AUTHZ_POLICY_ENGINE: "builtin"
+      # Tracing
+      AUTHZ_TRACING_ENABLED: "true"
+      AUTHZ_TRACING_OTLP_ENDPOINT: "infra-jaeger:4317"
+    ports:
+      - "9080:8080"     # Main HTTP
+      - "9088:8088"     # gRPC
+      - "25000:15000"   # Admin
+      - "25020:15020"   # Health
+      - "25021:15021"   # Ready
+    volumes:
+      - ../configs-external:/etc/authz:ro
+      - ../certs:/certs:ro
+    networks:
+      - app-partner
+      - infra-external
+      - infra-backend
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:15020/healthz/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+
+networks:
+  # Use existing infrastructure networks
+  infra-backend:
+    external: true
+  infra-frontend:
+    external: true
+  infra-external:
+    external: true
+  # Application-specific network
+  app-partner:
+    name: app-partner
+    driver: bridge

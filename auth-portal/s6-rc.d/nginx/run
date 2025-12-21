@@ -1,0 +1,6 @@
+#!/command/execlineb -P
+
+# Nginx service
+
+# Run nginx in foreground
+exec nginx -g "daemon off;" -c /etc/nginx/nginx.conf

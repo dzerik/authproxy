@@ -1,0 +1,443 @@
+# =============================================================================
+# AUTH-PORTAL CONFIGURATION
+# =============================================================================
+# Full configuration reference for auth-portal service.
+# Generate JSON Schema: auth-portal --schema
+# Show help: auth-portal --help
+#
+# Environment variables:
+#   - Use ${VAR_NAME} syntax for substitution
+#   - Use ${VAR_NAME:-default} for default values
+#   - Secrets should always come from environment variables
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Server Settings
+# -----------------------------------------------------------------------------
+server:
+  # HTTP listen port (default: 8080)
+  http_port: 8080
+
+  # HTTPS listen port (default: 443, used when TLS enabled)
+  https_port: 443
+
+  # TLS/HTTPS configuration
+  tls:
+    # Enable HTTPS server
+    enabled: false
+
+    # Path to TLS certificate (PEM format)
+    cert: /certs/server.crt
+
+    # Path to TLS private key (PEM format)
+    key: /certs/server.key
+
+    # Automatic certificate via Let's Encrypt
+    auto_cert:
+      enabled: false
+      email: admin@example.com
+      domains:
+        - auth.example.com
+        - portal.example.com
+
+# -----------------------------------------------------------------------------
+# Operation Mode
+# -----------------------------------------------------------------------------
+# portal        - Show service list after login, user selects service
+# single-service - Redirect directly to single target after login
+mode: portal
+
+# Single-service mode configuration (when mode: single-service)
+single_service:
+  # Target URL to redirect after authentication
+  target_url: https://app.internal
+
+# -----------------------------------------------------------------------------
+# Authentication (Keycloak OIDC)
+# -----------------------------------------------------------------------------
+auth:
+  keycloak:
+    # Keycloak realm URL (issuer)
+    # Example: https://keycloak.example.com/realms/main
+    issuer_url: ${KC_ISSUER_URL:-https://keycloak.example.com/realms/main}
+
+    # OAuth2/OIDC client ID registered in Keycloak
+    client_id: ${KC_CLIENT_ID:-auth-portal}
+
+    # OAuth2/OIDC client secret (ALWAYS use environment variable!)
+    client_secret: ${KC_CLIENT_SECRET}
+
+    # OAuth2 callback URL (must be registered in Keycloak)
+    redirect_url: ${KC_REDIRECT_URL:-http://localhost:8080/callback}
+
+    # OAuth2 scopes to request
+    scopes:
+      - openid
+      - profile
+      - email
+      - roles        # Custom scope for roles
+      - groups       # Custom scope for groups
+
+    # Social login providers (via kc_idp_hint)
+    # Configure these Identity Providers in Keycloak first
+    social_providers:
+      - name: google
+        display_name: "Sign in with Google"
+        idp_hint: google
+        icon: google
+
+      - name: github
+        display_name: "Sign in with GitHub"
+        idp_hint: github
+        icon: github
+
+      - name: yandex
+        display_name: "Yandex ID"
+        idp_hint: yandex
+        icon: yandex
+
+      - name: sber
+        display_name: "Sber ID"
+        idp_hint: sberid
+        icon: sber
+
+# -----------------------------------------------------------------------------
+# Session Storage
+# -----------------------------------------------------------------------------
+session:
+  # Storage backend type:
+  #   cookie - Encrypted cookie (default, stateless)
+  #   jwt    - JWT in cookie (stateless, larger tokens)
+  #   redis  - Redis backend (stateful, distributed)
+  store: cookie
+
+  # Session cookie name
+  cookie_name: _auth_session
+
+  # Session time-to-live
+  ttl: 24h
+
+  # Secure cookie flag (set to true for HTTPS in production!)
+  secure: false
+
+  # Cookie SameSite attribute: strict | lax | none
+  # Use 'none' for cross-site requests (requires secure: true)
+  same_site: lax
+
+  # Session data encryption (recommended for cookie/jwt stores)
+  encryption:
+    enabled: true
+    # AES-256 key (exactly 32 bytes). ALWAYS use environment variable!
+    key: ${ENCRYPTION_KEY:-}
+
+  # Cookie store specific settings
+  cookie:
+    # Maximum cookie size in bytes (browser limit ~4096)
+    max_size: 4096
+
+  # JWT store specific settings (when store: jwt)
+  jwt:
+    # HMAC signing key for HS256 (use env var!)
+    signing_key: ${JWT_SIGNING_KEY:-}
+
+    # Signing algorithm: HS256 | RS256
+    algorithm: HS256
+
+    # RSA keys for RS256 algorithm
+    private_key: /certs/jwt-private.pem
+    public_key: /certs/jwt-public.pem
+
+  # Redis store specific settings (when store: redis)
+  redis:
+    enabled: false
+
+    # Redis server addresses (supports cluster/sentinel)
+    addresses:
+      - redis:6379
+      # - redis-1:6379
+      # - redis-2:6379
+      # - redis-3:6379
+
+    # Redis password (use env var!)
+    password: ${REDIS_PASSWORD:-}
+
+    # Redis database number (0-15)
+    db: 0
+
+    # Sentinel master name (for HA setup)
+    master_name: ""
+
+    # Connection pool size
+    pool_size: 10
+
+    # Minimum idle connections
+    min_idle_conns: 5
+
+    # Key prefix for session keys
+    key_prefix: "authportal:session:"
+
+    # Redis TLS configuration
+    tls:
+      enabled: false
+      cert: /certs/redis-client.crt
+      key: /certs/redis-client.key
+      ca: /certs/redis-ca.crt
+
+# -----------------------------------------------------------------------------
+# Token Refresh
+# -----------------------------------------------------------------------------
+token:
+  # Enable automatic token refresh before expiry
+  auto_refresh: true
+
+  # Refresh token when this much time remains before expiry
+  refresh_threshold: 5m
+
+# -----------------------------------------------------------------------------
+# Services (Backend Junctions for Portal Mode)
+# -----------------------------------------------------------------------------
+services:
+  # Grafana monitoring
+  - name: grafana
+    display_name: "Grafana Monitoring"
+    description: "Metrics visualization and dashboards"
+    icon: chart-line
+    location: /grafana/
+    upstream: http://grafana:3000
+    auth_required: true
+    rewrite: "^/grafana/(.*) /$1 break"
+    headers:
+      add:
+        X-User-Email: "{{.User.Email}}"
+        X-User-ID: "{{.User.ID}}"
+        X-User-Roles: "{{.User.Roles | join \",\"}}"
+        X-WEBAUTH-USER: "{{.User.Email}}"
+      remove:
+        - Authorization
+    nginx_extra: |
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+
+  # Kibana logs
+  - name: kibana
+    display_name: "Kibana Logs"
+    description: "Elasticsearch logs and analytics"
+    icon: search
+    location: /kibana/
+    upstream: http://kibana:5601
+    auth_required: true
+    rewrite: "^/kibana/(.*) /$1 break"
+    headers:
+      add:
+        X-Proxy-User: "{{.User.ID}}"
+
+  # Jaeger tracing
+  - name: jaeger
+    display_name: "Jaeger Tracing"
+    description: "Distributed tracing UI"
+    icon: project-diagram
+    location: /jaeger/
+    upstream: http://jaeger:16686
+    auth_required: true
+    headers:
+      add:
+        X-User-ID: "{{.User.ID}}"
+
+  # Prometheus
+  - name: prometheus
+    display_name: "Prometheus"
+    description: "Metrics storage and querying"
+    icon: database
+    location: /prometheus/
+    upstream: http://prometheus:9090
+    auth_required: true
+    rewrite: "^/prometheus/(.*) /$1 break"
+
+  # AlertManager
+  - name: alertmanager
+    display_name: "AlertManager"
+    description: "Alert management and routing"
+    icon: bell
+    location: /alertmanager/
+    upstream: http://alertmanager:9093
+    auth_required: true
+    rewrite: "^/alertmanager/(.*) /$1 break"
+
+  # Public docs (no auth required)
+  - name: docs
+    display_name: "Documentation"
+    description: "Public documentation portal"
+    icon: book
+    location: /docs/
+    upstream: http://docs:80
+    auth_required: false
+
+# -----------------------------------------------------------------------------
+# Development Mode (Mock Authentication)
+# -----------------------------------------------------------------------------
+# Enable for local development without real Keycloak
+dev_mode:
+  enabled: false
+
+  # Directory with user profile YAML files
+  profiles_dir: ./configs/profiles
+
+  # Default profile to use (filename without .yaml)
+  default_profile: developer
+
+# -----------------------------------------------------------------------------
+# Nginx Configuration (for nginx.conf generation)
+# -----------------------------------------------------------------------------
+nginx:
+  # Number of worker processes (auto = CPU cores)
+  worker_processes: auto
+
+  # Maximum connections per worker
+  worker_connections: 1024
+
+  # HTTP keepalive timeout (seconds)
+  keepalive_timeout: 65
+
+  # Maximum client request body size
+  client_max_body_size: 100m
+
+  # Nginx-level rate limiting
+  rate_limit:
+    enabled: true
+    zone_size: 10m
+    requests_per_second: 10
+    burst: 20
+
+  # Log paths
+  access_log: /var/log/nginx/access.log
+  error_log: /var/log/nginx/error.log
+
+  # Custom log format name (optional)
+  log_format: ""
+
+# -----------------------------------------------------------------------------
+# Observability
+# -----------------------------------------------------------------------------
+observability:
+  # Prometheus metrics
+  metrics:
+    enabled: true
+    path: /metrics
+
+  # OpenTelemetry distributed tracing
+  tracing:
+    enabled: false
+
+    # OTLP collector endpoint
+    endpoint: localhost:4317
+
+    # Protocol: grpc | http
+    protocol: grpc
+
+    # Disable TLS for collector (dev only)
+    insecure: true
+
+    # Sampling ratio (0.0 to 1.0)
+    # 1.0 = sample all traces
+    # 0.1 = sample 10% of traces
+    sampling_ratio: 1.0
+
+    # Additional OTLP headers (e.g., authentication)
+    headers:
+      # Authorization: "Bearer ${OTEL_TOKEN}"
+
+  # Kubernetes health probes
+  health:
+    path: /health
+
+  ready:
+    path: /ready
+
+# -----------------------------------------------------------------------------
+# Resilience (Rate Limiting & Circuit Breaker)
+# -----------------------------------------------------------------------------
+resilience:
+  # HTTP rate limiting for incoming requests
+  rate_limit:
+    enabled: true
+
+    # Rate format: 'requests-period'
+    # S = second, M = minute, H = hour, D = day
+    # Examples: 100-S (100 req/sec), 1000-M (1000 req/min)
+    rate: 100-S
+
+    # Trust X-Forwarded-For header (enable behind proxy)
+    trust_forwarded_for: true
+
+    # Paths excluded from rate limiting
+    exclude_paths:
+      - /health
+      - /ready
+      - /metrics
+
+    # Per-endpoint rate limiting
+    by_endpoint: true
+    endpoint_rates:
+      "/login": "10-S"
+      "/callback": "5-S"
+      "/auth": "50-S"
+      "/api/*": "100-S"
+
+    # Rate limit response headers
+    headers:
+      enabled: true
+      limit_header: X-RateLimit-Limit
+      remaining_header: X-RateLimit-Remaining
+      reset_header: X-RateLimit-Reset
+
+    # Deny requests on rate limiter error
+    fail_close: false
+
+  # Circuit breaker for external service calls
+  circuit_breaker:
+    enabled: true
+
+    # Default settings for all circuit breakers
+    default:
+      # Max requests in half-open state
+      max_requests: 3
+
+      # Period for clearing failure counts (closed state)
+      interval: 60s
+
+      # Duration in open state before half-open
+      timeout: 30s
+
+      # Consecutive failures to open circuit
+      failure_threshold: 5
+
+      # Consecutive successes to close circuit
+      success_threshold: 2
+
+      # Log state changes
+      on_state_change: true
+
+    # Per-service overrides
+    services:
+      keycloak:
+        failure_threshold: 3
+        timeout: 10s
+
+      grafana:
+        failure_threshold: 10
+        timeout: 60s
+
+# -----------------------------------------------------------------------------
+# Logging
+# -----------------------------------------------------------------------------
+log:
+  # Minimum log level: debug | info | warn | error
+  level: info
+
+  # Log format: json | console
+  # json    - structured JSON logs (production)
+  # console - human-readable colored output (development)
+  format: json
+
+  # Enable development mode logging (more verbose)
+  development: false

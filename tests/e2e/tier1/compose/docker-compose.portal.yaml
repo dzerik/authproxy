@@ -1,0 +1,58 @@
+# Auth-Portal Application Compose
+# Requires: docker-compose.infra.yaml running first
+#
+# Usage:
+#   # Start infrastructure first
+#   docker compose -f docker-compose.infra.yaml up -d
+#
+#   # Then start auth-portal
+#   docker compose -f docker-compose.portal.yaml up -d --build
+
+version: "3.9"
+
+services:
+  # ============================================================================
+  # AUTH-PORTAL
+  # ============================================================================
+
+  auth-portal:
+    build:
+      context: ../../../../auth-portal
+      dockerfile: deployments/docker/Dockerfile
+    image: auth-portal:e2e
+    container_name: auth-portal
+    environment:
+      TZ: UTC
+      AUTH_PORTAL_CONFIG: /app/configs/auth-portal.yaml
+      # Dev mode for testing
+      DEV_MODE: ${DEV_MODE:-true}
+      # Keycloak configuration
+      KC_CLIENT_SECRET: ${KC_CLIENT_SECRET:-test-client-secret}
+      # Session
+      SESSION_STORE: cookie
+      SESSION_SECRET: ${SESSION_SECRET:-e2e-session-secret-32bytes!}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-abcdefghijklmnopqrstuvwxyz!@#$%^}
+      # Tracing
+      TRACING_ENABLED: "true"
+      TRACING_OTLP_ENDPOINT: "infra-jaeger:4317"
+    ports:
+      - "8880:8080"     # Main HTTP (avoiding conflict with authz)
+      - "8881:8081"     # Backend direct access
+    volumes:
+      - ../configs-portal:/app/configs:ro
+    networks:
+      - infra-backend
+      - infra-frontend
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+networks:
+  # Use existing infrastructure networks
+  infra-backend:
+    external: true
+  infra-frontend:
+    external: true

@@ -1,0 +1,342 @@
+# Infrastructure-only Docker Compose for E2E Testing
+# Supports both authz-service and auth-portal testing
+#
+# This file contains ONLY infrastructure components (no applications):
+# - Keycloak + PostgreSQL (Identity Provider)
+# - Redis (Caching/Sessions)
+# - OPA (Policy Engine)
+# - Observability (Jaeger, Prometheus, Grafana)
+# - Mock Services (WireMock)
+# - Chaos Engineering (ToxiProxy)
+#
+# Usage:
+#   docker compose -f docker-compose.infra.yaml up -d
+#   podman-compose -f docker-compose.infra.yaml up -d
+#
+# After infrastructure is ready, start applications separately:
+#   docker compose -f docker-compose.authz.yaml up -d
+#   docker compose -f docker-compose.portal.yaml up -d
+
+version: "3.9"
+
+x-common-labels: &common-labels
+  labels:
+    tier: "1"
+    environment: "e2e-testing"
+    managed-by: "compose"
+
+x-healthcheck-defaults: &healthcheck-defaults
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 10s
+
+services:
+  # ============================================================================
+  # IDENTITY PROVIDER
+  # ============================================================================
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: infra-postgres
+    <<: *common-labels
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-keycloak}
+      # Performance tuning for testing
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts/postgres:/docker-entrypoint-initdb.d:ro
+    networks:
+      - infra-db
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    container_name: infra-keycloak
+    <<: *common-labels
+    command: start-dev --import-realm
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-keycloak}
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+      KC_FEATURES: "token-exchange,admin-fine-grained-authz"
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_LOG_LEVEL: ${KC_LOG_LEVEL:-info}
+    ports:
+      - "${KEYCLOAK_PORT:-8180}:8080"
+    volumes:
+      - ../keycloak/realm-export.json:/opt/keycloak/data/import/realm.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - infra-db
+      - infra-backend
+      - infra-frontend
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '200'"]
+      start_period: 60s
+      retries: 20
+
+  # ============================================================================
+  # CACHE
+  # ============================================================================
+
+  redis:
+    image: redis:7-alpine
+    container_name: infra-redis
+    <<: *common-labels
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --requirepass ${REDIS_PASSWORD:-redis}
+      --save 60 1
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - infra-backend
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis}", "ping"]
+      interval: 5s
+
+  # ============================================================================
+  # POLICY ENGINE
+  # ============================================================================
+
+  opa:
+    image: openpolicyagent/opa:0.64.0
+    container_name: infra-opa
+    <<: *common-labels
+    command:
+      - run
+      - --server
+      - --addr=0.0.0.0:8181
+      - --log-level=${OPA_LOG_LEVEL:-info}
+      - --log-format=json
+      - /policies
+    ports:
+      - "${OPA_PORT:-8181}:8181"
+    volumes:
+      - ../opa/policies:/policies:ro
+    networks:
+      - infra-backend
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8181/health"]
+
+  # ============================================================================
+  # OBSERVABILITY - TRACING
+  # ============================================================================
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.55
+    container_name: infra-jaeger
+    <<: *common-labels
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      SPAN_STORAGE_TYPE: "memory"
+      MEMORY_MAX_TRACES: 10000
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686"    # UI
+      - "${JAEGER_OTLP_GRPC:-4317}:4317"    # OTLP gRPC
+      - "${JAEGER_OTLP_HTTP:-4318}:4318"    # OTLP HTTP
+    networks:
+      - infra-backend
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:14269/"]
+
+  # ============================================================================
+  # OBSERVABILITY - METRICS
+  # ============================================================================
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: infra-prometheus
+    <<: *common-labels
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-remote-write-receiver'
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    networks:
+      - infra-backend
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: infra-grafana
+    <<: *common-labels
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: "grafana-clock-panel,grafana-piechart-panel"
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - jaeger
+    networks:
+      - infra-backend
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+
+  # ============================================================================
+  # MOCK SERVICES (WireMock)
+  # ============================================================================
+
+  mock-user-service:
+    image: wiremock/wiremock:3.5.4
+    container_name: infra-mock-user
+    <<: *common-labels
+    command: --verbose --global-response-templating
+    ports:
+      - "${MOCK_USER_PORT:-8081}:8080"
+    volumes:
+      - ../wiremock/user-service:/home/wiremock:ro
+    networks:
+      - infra-backend
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/__admin/health"]
+
+  mock-admin-service:
+    image: wiremock/wiremock:3.5.4
+    container_name: infra-mock-admin
+    <<: *common-labels
+    command: --verbose --global-response-templating
+    ports:
+      - "${MOCK_ADMIN_PORT:-8082}:8080"
+    volumes:
+      - ../wiremock/admin-service:/home/wiremock:ro
+    networks:
+      - infra-backend
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/__admin/health"]
+
+  mock-external-api:
+    image: wiremock/wiremock:3.5.4
+    container_name: infra-mock-external
+    <<: *common-labels
+    command: --verbose --global-response-templating
+    ports:
+      - "${MOCK_EXTERNAL_PORT:-8083}:8080"
+    volumes:
+      - ../wiremock/external-api:/home/wiremock:ro
+    networks:
+      - infra-external
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/__admin/health"]
+
+  # ============================================================================
+  # CHAOS ENGINEERING
+  # ============================================================================
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    container_name: infra-toxiproxy
+    <<: *common-labels
+    ports:
+      - "${TOXIPROXY_API_PORT:-8474}:8474"   # API
+      - "${TOXIPROXY_KC_PORT:-18080}:18080"  # keycloak proxy
+      - "${TOXIPROXY_REDIS_PORT:-16379}:16379" # redis proxy
+      - "${TOXIPROXY_OPA_PORT:-18181}:18181" # opa proxy
+    volumes:
+      - ../toxiproxy/config.json:/config/toxiproxy.json:ro
+    networks:
+      - infra-backend
+      - infra-external
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8474/version"]
+    profiles:
+      - chaos
+
+  # ============================================================================
+  # MAIL SERVER (for testing email flows)
+  # ============================================================================
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: infra-mailhog
+    <<: *common-labels
+    ports:
+      - "${MAILHOG_SMTP_PORT:-1025}:1025"
+      - "${MAILHOG_UI_PORT:-8025}:8025"
+    networks:
+      - infra-backend
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8025/api/v2/messages"]
+    profiles:
+      - mail
+
+# ============================================================================
+# NETWORKS
+# ============================================================================
+
+networks:
+  infra-db:
+    name: infra-db
+    driver: bridge
+  infra-backend:
+    name: infra-backend
+    driver: bridge
+  infra-frontend:
+    name: infra-frontend
+    driver: bridge
+  infra-external:
+    name: infra-external
+    driver: bridge
+
+# ============================================================================
+# VOLUMES
+# ============================================================================
+
+volumes:
+  postgres_data:
+    name: infra-postgres-data
+  redis_data:
+    name: infra-redis-data
+  prometheus_data:
+    name: infra-prometheus-data
+  grafana_data:
+    name: infra-grafana-data

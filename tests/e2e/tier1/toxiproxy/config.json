@@ -1,0 +1,20 @@
+[
+  {
+    "name": "keycloak",
+    "listen": "0.0.0.0:18080",
+    "upstream": "keycloak:8080",
+    "enabled": true
+  },
+  {
+    "name": "redis",
+    "listen": "0.0.0.0:16379",
+    "upstream": "redis:6379",
+    "enabled": true
+  },
+  {
+    "name": "opa",
+    "listen": "0.0.0.0:18181",
+    "upstream": "opa:8181",
+    "enabled": true
+  }
+]

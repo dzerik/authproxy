@@ -1,0 +1,44 @@
+# =============================================================================
+# DEV MODE PROFILE: Developer
+# =============================================================================
+# This profile is used in development mode (dev_mode.enabled: true)
+# Switch profiles: http://localhost:8080/login/dev/developer
+# =============================================================================
+
+user:
+  # Unique user identifier
+  id: "dev-user-001"
+
+  # User email
+  email: "developer@example.local"
+
+  # Display name
+  name: "Dev User"
+
+  # Given name
+  given_name: "Dev"
+
+  # Family name
+  family_name: "User"
+
+  # Username
+  preferred_username: "devuser"
+
+  # User roles (from Keycloak realm/client roles)
+  roles:
+    - developer
+    - viewer
+
+  # User groups (from Keycloak groups)
+  groups:
+    - /developers
+    - /team-backend
+
+  # Tenant ID (for multi-tenant applications)
+  tenant_id: "tenant-dev"
+
+  # Additional claims (custom attributes)
+  claims:
+    department: "Engineering"
+    team: "Platform"
+    location: "Moscow"

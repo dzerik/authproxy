@@ -1,0 +1,115 @@
+version: '3.8'
+
+services:
+  auth-portal:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile
+    image: auth-portal:latest
+    container_name: auth-portal
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - TZ=UTC
+      - AUTH_PORTAL_CONFIG=/app/configs/auth-portal.yaml
+      # Keycloak configuration
+      - KC_CLIENT_SECRET=${KC_CLIENT_SECRET:-}
+      # Session encryption
+      - SESSION_SECRET=${SESSION_SECRET:-}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+      # JWT signing (optional)
+      - JWT_SIGNING_KEY=${JWT_SIGNING_KEY:-}
+    volumes:
+      # Configuration
+      - ./configs:/app/configs:ro
+      # TLS certificates (optional)
+      - ./certs:/app/certs:ro
+      # Logs
+      - auth-portal-logs:/var/log/nginx
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - auth-network
+    depends_on:
+      keycloak:
+        condition: service_healthy
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    container_name: keycloak
+    restart: unless-stopped
+    environment:
+      - KEYCLOAK_ADMIN=${KEYCLOAK_ADMIN:-admin}
+      - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      - KC_DB=postgres
+      - KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak
+      - KC_DB_USERNAME=keycloak
+      - KC_DB_PASSWORD=${POSTGRES_PASSWORD:-keycloak}
+      - KC_HOSTNAME_STRICT=false
+      - KC_HTTP_ENABLED=true
+      - KC_HEALTH_ENABLED=true
+    command: start-dev
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    networks:
+      - auth-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=keycloak
+      - POSTGRES_USER=keycloak
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-keycloak}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - auth-network
+
+  # Optional: Redis for session storage
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - auth-network
+    profiles:
+      - redis
+
+volumes:
+  postgres-data:
+  redis-data:
+  auth-portal-logs:
+
+networks:
+  auth-network:
+    driver: bridge

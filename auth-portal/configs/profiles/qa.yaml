@@ -1,0 +1,45 @@
+# =============================================================================
+# DEV MODE PROFILE: QA Engineer
+# =============================================================================
+# This profile is used in development mode (dev_mode.enabled: true)
+# Switch profiles: http://localhost:8080/login/dev/qa
+# =============================================================================
+
+user:
+  # Unique user identifier
+  id: "qa-user-001"
+
+  # User email
+  email: "qa@example.local"
+
+  # Display name
+  name: "QA Engineer"
+
+  # Given name
+  given_name: "QA"
+
+  # Family name
+  family_name: "Engineer"
+
+  # Username
+  preferred_username: "qauser"
+
+  # User roles (from Keycloak realm/client roles)
+  roles:
+    - qa
+    - tester
+    - viewer
+
+  # User groups (from Keycloak groups)
+  groups:
+    - /qa-team
+    - /testers
+
+  # Tenant ID (for multi-tenant applications)
+  tenant_id: "tenant-qa"
+
+  # Additional claims (custom attributes)
+  claims:
+    department: "Quality Assurance"
+    team: "QA"
+    location: "Moscow"

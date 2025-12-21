@@ -1,0 +1,169 @@
+# Infrastructure-only Makefile
+# Manages shared infrastructure for E2E testing
+#
+# Include in main Makefile with:
+#   include Makefile.infra
+
+SHELL := /bin/bash
+.DEFAULT_GOAL := infra-help
+
+# Directories
+SCRIPT_DIR := scripts
+COMPOSE_DIR := compose
+INFRA_COMPOSE := $(COMPOSE_DIR)/docker-compose.infra.yaml
+
+# Detect container runtime
+RUNTIME := $(shell ./scripts/detect-runtime.sh detect 2>/dev/null || echo "docker")
+COMPOSE := $(shell ./scripts/detect-runtime.sh compose 2>/dev/null || echo "docker compose")
+
+# Colors
+GREEN := \033[0;32m
+YELLOW := \033[1;33m
+RED := \033[0;31m
+BLUE := \033[0;34m
+NC := \033[0m
+
+# ============================================================================
+# INFRASTRUCTURE MANAGEMENT
+# ============================================================================
+
+.PHONY: infra-help
+infra-help: ## Show infrastructure management commands
+	@echo ""
+	@echo "$(BLUE)Infrastructure Management Commands$(NC)"
+	@echo "==================================="
+	@echo ""
+	@echo "Runtime: $(RUNTIME)"
+	@echo "Compose: $(COMPOSE)"
+	@echo ""
+	@grep -E '^infra-[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-25s$(NC) %s\n", $$1, $$2}'
+	@echo ""
+
+.PHONY: infra-up
+infra-up: ## Start infrastructure services
+	@echo -e "$(YELLOW)Starting infrastructure...$(NC)"
+	@chmod +x $(SCRIPT_DIR)/infra.sh
+	@$(SCRIPT_DIR)/infra.sh up
+	@echo -e "$(GREEN)Infrastructure ready!$(NC)"
+
+.PHONY: infra-up-chaos
+infra-up-chaos: ## Start infrastructure with ToxiProxy (chaos testing)
+	@echo -e "$(YELLOW)Starting infrastructure with chaos tools...$(NC)"
+	@chmod +x $(SCRIPT_DIR)/infra.sh
+	@$(SCRIPT_DIR)/infra.sh up chaos
+	@echo -e "$(GREEN)Infrastructure with chaos tools ready!$(NC)"
+
+.PHONY: infra-up-mail
+infra-up-mail: ## Start infrastructure with MailHog (email testing)
+	@echo -e "$(YELLOW)Starting infrastructure with mail server...$(NC)"
+	@chmod +x $(SCRIPT_DIR)/infra.sh
+	@$(SCRIPT_DIR)/infra.sh up mail
+
+.PHONY: infra-down
+infra-down: ## Stop infrastructure services
+	@echo -e "$(YELLOW)Stopping infrastructure...$(NC)"
+	@$(SCRIPT_DIR)/infra.sh down
+
+.PHONY: infra-destroy
+infra-destroy: ## Destroy infrastructure (removes volumes)
+	@echo -e "$(RED)Destroying infrastructure...$(NC)"
+	@$(SCRIPT_DIR)/infra.sh destroy
+
+.PHONY: infra-status
+infra-status: ## Show infrastructure status
+	@$(SCRIPT_DIR)/infra.sh status
+
+.PHONY: infra-health
+infra-health: ## Show health of all infrastructure services
+	@$(SCRIPT_DIR)/infra.sh health
+
+.PHONY: infra-logs
+infra-logs: ## Follow infrastructure logs
+	@$(SCRIPT_DIR)/infra.sh logs
+
+.PHONY: infra-logs-keycloak
+infra-logs-keycloak: ## Follow Keycloak logs
+	@$(SCRIPT_DIR)/infra.sh logs infra-keycloak
+
+.PHONY: infra-logs-redis
+infra-logs-redis: ## Follow Redis logs
+	@$(SCRIPT_DIR)/infra.sh logs infra-redis
+
+.PHONY: infra-logs-opa
+infra-logs-opa: ## Follow OPA logs
+	@$(SCRIPT_DIR)/infra.sh logs infra-opa
+
+.PHONY: infra-wait
+infra-wait: ## Wait for infrastructure to be ready
+	@chmod +x $(SCRIPT_DIR)/wait-for-infra.sh
+	@$(SCRIPT_DIR)/wait-for-infra.sh
+
+.PHONY: infra-clean
+infra-clean: ## Clean orphaned resources
+	@$(SCRIPT_DIR)/infra.sh clean
+
+.PHONY: infra-restart
+infra-restart: infra-down infra-up ## Restart infrastructure
+
+# ============================================================================
+# QUICK ACCESS
+# ============================================================================
+
+.PHONY: infra-shell-keycloak
+infra-shell-keycloak: ## Open shell in Keycloak container
+	@$(RUNTIME) exec -it infra-keycloak /bin/bash
+
+.PHONY: infra-shell-postgres
+infra-shell-postgres: ## Open psql in PostgreSQL container
+	@$(RUNTIME) exec -it infra-postgres psql -U keycloak
+
+.PHONY: infra-shell-redis
+infra-shell-redis: ## Open Redis CLI
+	@$(RUNTIME) exec -it infra-redis redis-cli -a $${REDIS_PASSWORD:-redis}
+
+.PHONY: infra-shell-opa
+infra-shell-opa: ## Open OPA REPL
+	@$(RUNTIME) exec -it infra-opa ./opa run /policies
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+.PHONY: infra-env
+infra-env: ## Create .env file from example
+	@if [ ! -f $(COMPOSE_DIR)/.env ]; then \
+		cp $(COMPOSE_DIR)/.env.example $(COMPOSE_DIR)/.env; \
+		echo -e "$(GREEN)Created $(COMPOSE_DIR)/.env$(NC)"; \
+	else \
+		echo -e "$(YELLOW)$(COMPOSE_DIR)/.env already exists$(NC)"; \
+	fi
+
+.PHONY: infra-show-env
+infra-show-env: ## Show current environment configuration
+	@echo ""
+	@echo "$(BLUE)Current Environment Configuration$(NC)"
+	@echo "=================================="
+	@echo ""
+	@if [ -f $(COMPOSE_DIR)/.env ]; then \
+		cat $(COMPOSE_DIR)/.env | grep -v '^#' | grep -v '^$$'; \
+	else \
+		echo "Using default values (no .env file)"; \
+	fi
+	@echo ""
+
+# ============================================================================
+# CI/CD TARGETS
+# ============================================================================
+
+.PHONY: infra-ci-up
+infra-ci-up: infra-env infra-up infra-wait ## CI: Start and wait for infrastructure
+	@echo -e "$(GREEN)Infrastructure ready for testing$(NC)"
+
+.PHONY: infra-ci-down
+infra-ci-down: infra-down ## CI: Stop infrastructure
+	@echo -e "$(GREEN)Infrastructure stopped$(NC)"
+
+.PHONY: infra-ci-clean
+infra-ci-clean: infra-destroy infra-clean ## CI: Full cleanup
+	@echo -e "$(GREEN)Full cleanup complete$(NC)"
