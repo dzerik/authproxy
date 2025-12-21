@@ -23,6 +23,7 @@ import (
 	"github.com/dzerik/auth-portal/internal/service/session"
 	"github.com/dzerik/auth-portal/internal/ui"
 	"github.com/dzerik/auth-portal/pkg/logger"
+	"github.com/dzerik/auth-portal/pkg/tracing"
 )
 
 var (
@@ -109,8 +110,36 @@ func main() {
 	// Create metrics
 	m := metrics.New()
 
+	// Initialize tracing
+	var tp *tracing.TracerProvider
+	if cfg.Observability.Tracing.Enabled {
+		tracingCfg := tracing.Config{
+			Enabled:        true,
+			ServiceName:    "auth-portal",
+			ServiceVersion: Version,
+			Environment:    getEnvironment(cfg),
+			Endpoint:       cfg.Observability.Tracing.Endpoint,
+			Protocol:       cfg.Observability.Tracing.Protocol,
+			Insecure:       cfg.Observability.Tracing.Insecure,
+			SamplingRatio:  cfg.Observability.Tracing.SamplingRatio,
+			Headers:        cfg.Observability.Tracing.Headers,
+		}
+
+		var err error
+		tp, err = tracing.Init(context.Background(), tracingCfg)
+		if err != nil {
+			logger.Error("failed to initialize tracing", zap.Error(err))
+			// Continue without tracing
+		} else {
+			logger.Info("tracing initialized",
+				zap.String("endpoint", tracingCfg.Endpoint),
+				zap.String("protocol", tracingCfg.Protocol),
+			)
+		}
+	}
+
 	// Create and start server
-	srv, healthHandler, err := NewServer(cfg, m)
+	srv, healthHandler, err := NewServer(cfg, m, tp)
 	if err != nil {
 		logger.Error("failed to create server", zap.Error(err))
 		os.Exit(1)
@@ -151,11 +180,28 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Shutdown tracing
+	if tp != nil {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := tp.Shutdown(shutdownCtx); err != nil {
+			logger.Error("tracing shutdown error", zap.Error(err))
+		}
+	}
+
 	logger.Info("server stopped")
 }
 
+// getEnvironment returns the environment name based on config.
+func getEnvironment(cfg *config.Config) string {
+	if cfg.DevMode.Enabled {
+		return "development"
+	}
+	return "production"
+}
+
 // NewServer creates a new HTTP server with chi router and all handlers.
-func NewServer(cfg *config.Config, m *metrics.Metrics) (*http.Server, *handler.HealthHandler, error) {
+func NewServer(cfg *config.Config, m *metrics.Metrics, tp *tracing.TracerProvider) (*http.Server, *handler.HealthHandler, error) {
 	// Load templates
 	templates, err := ui.LoadTemplates()
 	if err != nil {
@@ -192,7 +238,13 @@ func NewServer(cfg *config.Config, m *metrics.Metrics) (*http.Server, *handler.H
 	// Global middleware stack
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
-	r.Use(logger.RequestLogger) // Zap-based request logging
+
+	// Add tracing middleware if enabled
+	if tp != nil {
+		r.Use(tracing.Middleware)
+	}
+
+	r.Use(logger.RequestLogger)  // Zap-based request logging
 	r.Use(logger.RecoveryLogger) // Zap-based panic recovery
 	r.Use(chimw.CleanPath)
 	r.Use(chimw.Timeout(60 * time.Second))

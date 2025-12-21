@@ -116,6 +116,11 @@ func setDefaults(v *viper.Viper) {
 	// Observability defaults
 	v.SetDefault("observability.metrics.enabled", true)
 	v.SetDefault("observability.metrics.path", "/metrics")
+	v.SetDefault("observability.tracing.enabled", false)
+	v.SetDefault("observability.tracing.endpoint", "localhost:4317")
+	v.SetDefault("observability.tracing.protocol", "grpc")
+	v.SetDefault("observability.tracing.insecure", true)
+	v.SetDefault("observability.tracing.sampling_ratio", 1.0)
 	v.SetDefault("observability.health.path", "/health")
 	v.SetDefault("observability.ready.path", "/ready")
 
@@ -212,6 +217,15 @@ func applyDefaults(cfg *Config) {
 	// Observability defaults
 	if cfg.Observability.Metrics.Path == "" {
 		cfg.Observability.Metrics.Path = "/metrics"
+	}
+	if cfg.Observability.Tracing.Endpoint == "" {
+		cfg.Observability.Tracing.Endpoint = "localhost:4317"
+	}
+	if cfg.Observability.Tracing.Protocol == "" {
+		cfg.Observability.Tracing.Protocol = "grpc"
+	}
+	if cfg.Observability.Tracing.SamplingRatio == 0 {
+		cfg.Observability.Tracing.SamplingRatio = 1.0
 	}
 	if cfg.Observability.Health.Path == "" {
 		cfg.Observability.Health.Path = "/health"

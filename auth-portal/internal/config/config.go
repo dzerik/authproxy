@@ -183,8 +183,19 @@ type RateLimitConfig struct {
 // ObservabilityConfig represents observability configuration
 type ObservabilityConfig struct {
 	Metrics MetricsConfig `yaml:"metrics" mapstructure:"metrics"`
+	Tracing TracingConfig `yaml:"tracing" mapstructure:"tracing"`
 	Health  HealthConfig  `yaml:"health" mapstructure:"health"`
 	Ready   ReadyConfig   `yaml:"ready" mapstructure:"ready"`
+}
+
+// TracingConfig represents distributed tracing configuration
+type TracingConfig struct {
+	Enabled       bool              `yaml:"enabled" mapstructure:"enabled"`
+	Endpoint      string            `yaml:"endpoint" mapstructure:"endpoint"`
+	Protocol      string            `yaml:"protocol" mapstructure:"protocol"`         // grpc or http
+	Insecure      bool              `yaml:"insecure" mapstructure:"insecure"`         // disable TLS
+	SamplingRatio float64           `yaml:"sampling_ratio" mapstructure:"sampling_ratio"` // 0.0 to 1.0
+	Headers       map[string]string `yaml:"headers" mapstructure:"headers"`           // additional headers
 }
 
 // MetricsConfig represents metrics configuration
