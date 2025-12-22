@@ -118,6 +118,11 @@ func (m *ManagementServer) handleRoot(w http.ResponseWriter, r *http.Request) {
   <li><a href="/schema/services">/schema/services</a> - Services config schema</li>
   <li><a href="/schema/rules">/schema/rules</a> - Authorization rules schema</li>
 </ul>
+<h2>Cache Management</h2>
+<ul>
+  <li><a href="/cache/stats">/cache/stats</a> - Cache statistics (GET)</li>
+  <li>POST /cache/invalidate - Clear L1 and L2 caches</li>
+</ul>
 <h2>Actions</h2>
 <ul>
   <li>POST /healthcheck/fail - Force unhealthy status</li>
@@ -544,4 +549,64 @@ func (m *ManagementServer) handleSchemaByType(w http.ResponseWriter, schemaType 
 	w.Header().Set("Content-Type", "application/schema+json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(data)
+}
+
+// CacheInvalidateAdminResponse contains cache invalidation result for admin endpoint.
+type CacheInvalidateAdminResponse struct {
+	Success bool           `json:"success"`
+	Message string         `json:"message"`
+	Stats   map[string]any `json:"stats,omitempty"`
+}
+
+// CacheStatsAdminResponse contains cache statistics for admin endpoint.
+type CacheStatsAdminResponse struct {
+	Enabled bool           `json:"enabled"`
+	Stats   map[string]any `json:"stats,omitempty"`
+}
+
+// handleCacheInvalidate handles POST /cache/invalidate - clears L1 and L2 caches.
+func (m *ManagementServer) handleCacheInvalidate(w http.ResponseWriter, r *http.Request) {
+	if m.cacheService == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":   "cache service not available",
+			"message": "cache is not configured or disabled",
+		})
+		return
+	}
+
+	// Get stats before clearing
+	statsBefore := m.cacheService.Stats()
+
+	// Clear all caches
+	m.cacheService.Clear(r.Context())
+
+	logger.Info("cache invalidated via admin endpoint",
+		logger.String("remote_addr", r.RemoteAddr),
+	)
+
+	resp := CacheInvalidateAdminResponse{
+		Success: true,
+		Message: "all caches cleared (L1 and L2)",
+		Stats:   statsBefore,
+	}
+
+	m.writeJSON(w, http.StatusOK, resp)
+}
+
+// handleCacheStats handles GET /cache/stats - returns cache statistics.
+func (m *ManagementServer) handleCacheStats(w http.ResponseWriter, r *http.Request) {
+	if m.cacheService == nil {
+		resp := CacheStatsAdminResponse{
+			Enabled: false,
+		}
+		m.writeJSON(w, http.StatusOK, resp)
+		return
+	}
+
+	resp := CacheStatsAdminResponse{
+		Enabled: m.cacheService.Enabled(),
+		Stats:   m.cacheService.Stats(),
+	}
+
+	m.writeJSON(w, http.StatusOK, resp)
 }

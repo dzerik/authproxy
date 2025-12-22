@@ -2,6 +2,7 @@ package idp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -12,6 +13,28 @@ import (
 	"github.com/dzerik/auth-portal/internal/model"
 	"golang.org/x/oauth2"
 )
+
+// BoolOrString handles JSON fields that can be either boolean or string
+// Keycloak sometimes returns email_verified as string "true"/"false"
+type BoolOrString bool
+
+// UnmarshalJSON implements custom unmarshaling for bool/string values
+func (b *BoolOrString) UnmarshalJSON(data []byte) error {
+	var boolVal bool
+	if err := json.Unmarshal(data, &boolVal); err == nil {
+		*b = BoolOrString(boolVal)
+		return nil
+	}
+
+	var strVal string
+	if err := json.Unmarshal(data, &strVal); err == nil {
+		*b = BoolOrString(strVal == "true")
+		return nil
+	}
+
+	*b = false
+	return nil
+}
 
 // OIDCProvider implements Provider interface for OIDC/Keycloak
 type OIDCProvider struct {
@@ -33,11 +56,15 @@ func NewOIDCProvider(cfg *config.KeycloakConfig) (*OIDCProvider, error) {
 	}
 
 	// Configure OAuth2
+	endpoint := provider.Endpoint()
+	// Force Basic Auth for client authentication (Keycloak default)
+	endpoint.AuthStyle = oauth2.AuthStyleInHeader
+
 	oauth2Config := &oauth2.Config{
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
 		RedirectURL:  cfg.RedirectURL,
-		Endpoint:     provider.Endpoint(),
+		Endpoint:     endpoint,
 		Scopes:       cfg.Scopes,
 	}
 
@@ -134,10 +161,10 @@ func (p *OIDCProvider) UserInfo(ctx context.Context, accessToken string) (*model
 
 	// Parse claims
 	var claims struct {
-		Sub               string   `json:"sub"`
-		Email             string   `json:"email"`
-		EmailVerified     bool     `json:"email_verified"`
-		Name              string   `json:"name"`
+		Sub               string       `json:"sub"`
+		Email             string       `json:"email"`
+		EmailVerified     BoolOrString `json:"email_verified"`
+		Name              string       `json:"name"`
 		PreferredUsername string   `json:"preferred_username"`
 		GivenName         string   `json:"given_name"`
 		FamilyName        string   `json:"family_name"`

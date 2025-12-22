@@ -135,8 +135,23 @@ func (s *Service) Clear(ctx context.Context) {
 	}
 }
 
-// Stats returns cache statistics.
-func (s *Service) Stats() map[string]CacheStats {
+// Stats returns cache statistics as any for interface compatibility.
+func (s *Service) Stats() map[string]any {
+	stats := make(map[string]any)
+
+	if s.l1 != nil {
+		stats["l1"] = s.l1.Stats()
+	}
+
+	if s.l2 != nil && s.l2.Enabled() {
+		stats["l2"] = s.l2.Stats()
+	}
+
+	return stats
+}
+
+// StatsTyped returns cache statistics with typed CacheStats.
+func (s *Service) StatsTyped() map[string]CacheStats {
 	stats := make(map[string]CacheStats)
 
 	if s.l1 != nil {

@@ -5,6 +5,9 @@
 #   # Start infrastructure first
 #   docker compose -f docker-compose.infra.yaml up -d
 #
+#   # Then start authz-service (if needed)
+#   docker compose -f docker-compose.authz.yaml up -d --build
+#
 #   # Then start auth-portal
 #   docker compose -f docker-compose.portal.yaml up -d --build
 
@@ -24,27 +27,35 @@ services:
     environment:
       TZ: UTC
       AUTH_PORTAL_CONFIG: /app/configs/auth-portal.yaml
-      # Dev mode for testing
-      DEV_MODE: ${DEV_MODE:-true}
+      # Dev mode for testing (set to false to use Keycloak)
+      DEV_MODE: ${DEV_MODE:-false}
       # Keycloak configuration
       KC_CLIENT_SECRET: ${KC_CLIENT_SECRET:-test-client-secret}
       # Session
       SESSION_STORE: cookie
       SESSION_SECRET: ${SESSION_SECRET:-e2e-session-secret-32bytes!}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-abcdefghijklmnopqrstuvwxyz!@#$%^}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-abcdefghijklmnopqrstuvwxyz123456}
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
       # Tracing
       TRACING_ENABLED: "true"
       TRACING_OTLP_ENDPOINT: "infra-jaeger:4317"
     ports:
-      - "8880:8080"     # Main HTTP (avoiding conflict with authz)
-      - "8881:8081"     # Backend direct access
+      - "${PORTAL_PORT:-8880}:80"       # Main HTTP via nginx (proxy to services)
+      - "${PORTAL_METRICS_PORT:-8881}:8081"  # Backend/metrics direct access
+    extra_hosts:
+      - "localhost:10.89.3.1"  # Allow container to reach host services (Keycloak on :8180)
     volumes:
       - ../configs-portal:/app/configs:ro
+    # Note: authz-service is in a separate compose file
+    # Start it with: make authz-up before portal-up
     networks:
       - infra-backend
       - infra-frontend
+      - infra-external
+      - app-services
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8081/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost/health"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -55,4 +66,9 @@ networks:
   infra-backend:
     external: true
   infra-frontend:
+    external: true
+  infra-external:
+    external: true
+  # Application services network (portal <-> authz)
+  app-services:
     external: true

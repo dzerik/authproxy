@@ -1,12 +1,11 @@
-#!/command/execlineb -P
-
+#!/bin/sh
 # Auth-Portal Go backend service
+
+# Set default config path if not provided
+export AUTH_PORTAL_CONFIG="${AUTH_PORTAL_CONFIG:-/app/configs/auth-portal.yaml}"
 
 # Change to app directory
 cd /app
-
-# Set up environment
-s6-env AUTH_PORTAL_CONFIG=${AUTH_PORTAL_CONFIG:-/app/configs/auth-portal.yaml}
 
 # Execute auth-portal
 exec /app/auth-portal

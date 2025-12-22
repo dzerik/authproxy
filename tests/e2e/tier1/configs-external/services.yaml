@@ -7,11 +7,24 @@ version: "1.0.0"
 jwt:
   issuers:
     - name: keycloak
-      issuer_url: "http://keycloak:8080/realms/test"
+      issuer_url: "http://infra-keycloak:8080/realms/test"
       audience:
         - "authz-service-external"
         - "external-service"
         - "authz-service"
+        - "auth-portal"
+      algorithms:
+        - RS256
+        - RS384
+        - RS512
+    # External access via localhost (for E2E testing from host)
+    - name: keycloak-external
+      issuer_url: "http://localhost:8180/realms/test"
+      audience:
+        - "authz-service-external"
+        - "external-service"
+        - "authz-service"
+        - "auth-portal"
       algorithms:
         - RS256
         - RS384
@@ -214,20 +227,46 @@ request_body:
 proxy:
   enabled: true
   listeners:
-    - name: partner-gateway
+    - name: api-gateway
       port: 8088
       mode: reverse_proxy
       upstreams:
+        user-service:
+          url: "http://infra-mock-user:8080"
+          timeout: 15s
+        admin-service:
+          url: "http://infra-mock-admin:8080"
+          timeout: 30s
         external-api:
-          url: "http://mock-external-api:8080"
+          url: "http://infra-mock-external:8080"
           timeout: 15s
       routes:
+        # Same routes as internal for E2E comparison testing
+        - path_prefix: "/api/v1/users"
+          upstream: "user-service"
+          methods: [GET, POST, PUT, DELETE]
+        - path_prefix: "/admin"
+          upstream: "admin-service"
+          methods: [GET, POST, PUT, DELETE]
         - path_prefix: "/partner/api"
           upstream: "external-api"
           methods: [GET, POST, PUT, DELETE]
         - path_prefix: "/health"
-          upstream: "external-api"
+          upstream: "user-service"
           methods: [GET]
+        # Mock service routes (direct access to WireMock stubs)
+        - path_prefix: "/mock/user"
+          upstream: "user-service"
+          strip_prefix: "/mock/user"
+          methods: [GET, POST, PUT, DELETE]
+        - path_prefix: "/mock/admin"
+          upstream: "admin-service"
+          strip_prefix: "/mock/admin"
+          methods: [GET, POST, PUT, DELETE]
+        - path_prefix: "/mock/external"
+          upstream: "external-api"
+          strip_prefix: "/mock/external"
+          methods: [GET, POST, PUT, DELETE]
       headers:
         add:
           X-Forwarded-By: "authz-external"
@@ -244,7 +283,8 @@ proxy:
         initial_backoff: 100ms
         max_backoff: 1s
         retry_on: [502, 503, 504]
-      require_auth: true
+      # Let builtin engine handle authorization decisions
+      require_auth: false
 
   defaults:
     timeout: 30s

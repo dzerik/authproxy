@@ -69,7 +69,7 @@ http {
     {{- if .Upstream }}
     # Upstream for {{ .Name }}
     upstream {{ .Name | replace "-" "_" }}_backend {
-        server {{ .Upstream }};
+        server {{ .Upstream | extractHost }};
         keepalive 16;
     }
     {{- end }}
@@ -100,11 +100,11 @@ http {
         location / {
             proxy_pass http://auth_portal;
             proxy_http_version 1.1;
-            proxy_set_header Host $host;
+            proxy_set_header Host $http_host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_set_header X-Forwarded-Host $host;
+            proxy_set_header X-Forwarded-Host $http_host;
             proxy_set_header X-Forwarded-Port $server_port;
             proxy_set_header Connection "";
             proxy_connect_timeout 5s;
@@ -126,13 +126,14 @@ http {
             internal;
             proxy_pass http://auth_portal/auth;
             proxy_http_version 1.1;
-            proxy_set_header Host $host;
+            proxy_set_header Host $http_host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_set_header X-Forwarded-Uri $request_uri;
-            proxy_set_header X-Forwarded-Host $host;
+            proxy_set_header X-Forwarded-Host $http_host;
             proxy_set_header X-Forwarded-Method $request_method;
+            proxy_set_header Cookie $http_cookie;
             proxy_set_header Content-Length "";
             proxy_set_header Connection "";
             proxy_pass_request_body off;
@@ -180,6 +181,7 @@ http {
             auth_request_set $auth_roles $upstream_http_x_auth_request_roles;
             auth_request_set $auth_groups $upstream_http_x_auth_request_groups;
             auth_request_set $auth_tenant $upstream_http_x_auth_request_tenant;
+            auth_request_set $auth_access_token $upstream_http_x_auth_request_access_token;
 
             # Error handling for auth failures
             error_page 401 = @auth_redirect;
@@ -191,10 +193,16 @@ http {
             {{- end }}
 
             {{- if .Upstream }}
-            proxy_pass http://{{ .Name | replace "-" "_" }}_backend;
+            {{- $path := .Upstream | extractPath }}
+            {{- if $path }}
+            proxy_pass http://{{ .Name | replace "-" "_" }}_backend{{ $path }}/;
+            {{- else }}
+            proxy_pass http://{{ .Name | replace "-" "_" }}_backend/;
+            {{- end }}
+            proxy_redirect ~^https?://[^/]+/(.*)$ {{ .Location }}$1;
             {{- end }}
             proxy_http_version 1.1;
-            proxy_set_header Host $host;
+            proxy_set_header Host $http_host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
@@ -207,6 +215,8 @@ http {
             proxy_set_header X-Auth-Request-Roles $auth_roles;
             proxy_set_header X-Auth-Request-Groups $auth_groups;
             proxy_set_header X-Auth-Request-Tenant $auth_tenant;
+            # Pass Authorization header for backend services that validate tokens
+            proxy_set_header Authorization "Bearer $auth_access_token";
             {{- end }}
 
             {{- if .Headers.Add }}

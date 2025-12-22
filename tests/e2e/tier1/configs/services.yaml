@@ -7,9 +7,21 @@ version: "1.0.0"
 jwt:
   issuers:
     - name: keycloak
-      issuer_url: "http://keycloak:8080/realms/test"
+      issuer_url: "http://infra-keycloak:8080/realms/test"
       audience:
         - "authz-service"
+        - "auth-portal"
+        - "account"
+      algorithms:
+        - RS256
+        - RS384
+        - RS512
+    # External access via localhost (for E2E testing from host)
+    - name: keycloak-external
+      issuer_url: "http://localhost:8180/realms/test"
+      audience:
+        - "authz-service"
+        - "auth-portal"
         - "account"
       algorithms:
         - RS256
@@ -27,18 +39,18 @@ jwt:
 # Token exchange configuration (RFC 8693)
 token_exchange:
   enabled: true
-  token_url: "http://keycloak:8080/realms/test/protocol/openid-connect/token"
+  token_url: "http://infra-keycloak:8080/realms/test/protocol/openid-connect/token"
   client_id: "authz-service"
   client_secret: "test-secret"
   timeout: 10s
 
 # Policy engine configuration
 policy:
-  engine: opa_sidecar
+  engine: opa-sidecar
 
   opa:
-    url: "http://opa:8181"
-    policy_path: "/v1/data/authz/allow"
+    url: "http://infra-opa:8181"
+    policy_path: "/v1/data/authz"
     timeout: 50ms
     retry:
       max_attempts: 3
@@ -69,8 +81,8 @@ cache:
     backend: redis
     redis:
       addresses:
-        - "redis:6379"
-      password: ""
+        - "infra-redis:6379"
+      password: "redis"
       db: 0
       pool_size: 10
       read_timeout: 3s
@@ -226,11 +238,14 @@ proxy:
       mode: reverse_proxy
       upstreams:
         user-service:
-          url: "http://mock-user-service:8080"
+          url: "http://infra-mock-user:8080"
           timeout: 15s
         admin-service:
-          url: "http://mock-admin-service:8080"
+          url: "http://infra-mock-admin:8080"
           timeout: 30s
+        external-api:
+          url: "http://infra-mock-external:8080"
+          timeout: 15s
       routes:
         - path_prefix: "/api/v1/users"
           upstream: "user-service"
@@ -241,6 +256,19 @@ proxy:
         - path_prefix: "/health"
           upstream: "user-service"
           methods: [GET]
+        # Mock service routes (direct access to WireMock stubs)
+        - path_prefix: "/mock/user"
+          upstream: "user-service"
+          strip_prefix: "/mock/user"
+          methods: [GET, POST, PUT, DELETE]
+        - path_prefix: "/mock/admin"
+          upstream: "admin-service"
+          strip_prefix: "/mock/admin"
+          methods: [GET, POST, PUT, DELETE]
+        - path_prefix: "/mock/external"
+          upstream: "external-api"
+          strip_prefix: "/mock/external"
+          methods: [GET, POST, PUT, DELETE]
       headers:
         add:
           X-Forwarded-By: "authz-internal"
@@ -256,7 +284,8 @@ proxy:
         initial_backoff: 100ms
         max_backoff: 1s
         retry_on: [502, 503, 504]
-      require_auth: true
+      # Let OPA handle authorization decisions (including public endpoints like /health)
+      require_auth: false
 
   defaults:
     timeout: 30s
@@ -284,8 +313,7 @@ egress:
         authz-external:
           url: "http://authz-service-external:8080"
           auth:
-            type: token_exchange
-            target_audience: "authz-service-external"
+            type: none  # E2E testing - forward tokens as-is
       timeout: 15s
       routes:
         - path_prefix: "/partner"
@@ -302,8 +330,8 @@ egress:
   token_store:
     type: redis
     redis:
-      address: "redis:6379"
-      password: ""
+      address: "infra-redis:6379"
+      password: "redis"
       db: 1
       key_prefix: "egress:tokens:"
 

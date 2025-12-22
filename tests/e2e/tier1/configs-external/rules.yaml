@@ -130,6 +130,64 @@ rule_sets:
           - service
       effect: allow
 
+  # Mock services rules (WireMock stubs for testing)
+  mock-rules:
+    - name: mock-user-access
+      description: "Access to User mock service"
+      priority: 700
+      enabled: true
+      conditions:
+        paths:
+          - "/mock/user/**"
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+        roles:
+          - admin
+          - user
+          - developer
+          - viewer
+          - service
+      effect: allow
+
+    - name: mock-admin-access
+      description: "Access to Admin mock service"
+      priority: 699
+      enabled: true
+      conditions:
+        paths:
+          - "/mock/admin/**"
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+        roles:
+          - admin
+          - developer
+          - service
+      effect: allow
+
+    - name: mock-external-access
+      description: "Access to External mock service"
+      priority: 698
+      enabled: true
+      conditions:
+        paths:
+          - "/mock/external/**"
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+        roles:
+          - admin
+          - external
+          - service
+      effect: allow
+
   # Agent delegation rules
   delegated-agent-rules:
     - name: delegated-read
@@ -159,8 +217,196 @@ rule_sets:
           - agent
       effect: allow
 
-# Global rules
+# Global rules (applied to all requests)
 rules:
+  # Health endpoints - highest priority
+  - name: public-health
+    description: "Allow health endpoints"
+    priority: 1000
+    enabled: true
+    conditions:
+      paths:
+        - "/health"
+        - "/health/*"
+        - "/healthz"
+        - "/ready"
+        - "/live"
+      methods:
+        - GET
+    effect: allow
+
+  - name: public-metrics
+    description: "Allow metrics endpoint"
+    priority: 999
+    enabled: true
+    conditions:
+      paths:
+        - "/metrics"
+      methods:
+        - GET
+    effect: allow
+
+  # API rules for testing
+  - name: api-users-admin
+    description: "Admins can list users"
+    priority: 100
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/users"
+      methods:
+        - GET
+      roles:
+        - admin
+    effect: allow
+
+  - name: api-users-manage
+    description: "Admins can manage users"
+    priority: 99
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/users/*"
+      methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+      roles:
+        - admin
+    effect: allow
+
+  - name: api-users-me-read
+    description: "Users can read their profile"
+    priority: 98
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/users/me"
+      methods:
+        - GET
+      roles:
+        - user
+        - admin
+        - developer
+    effect: allow
+
+  - name: api-users-me-write
+    description: "Users can update their profile"
+    priority: 97
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/users/me"
+      methods:
+        - PUT
+        - PATCH
+      roles:
+        - user
+        - admin
+        - developer
+    effect: allow
+
+  - name: api-v1-read
+    description: "Viewers can read API"
+    priority: 50
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/*"
+      methods:
+        - GET
+      roles:
+        - viewer
+    effect: allow
+
+  - name: api-v1-write
+    description: "Admins and developers can write to API"
+    priority: 49
+    enabled: true
+    conditions:
+      paths:
+        - "/api/v1/*"
+      methods:
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+      roles:
+        - admin
+        - developer
+        - service
+    effect: allow
+
+  - name: admin-access
+    description: "Admins can access admin endpoints"
+    priority: 80
+    enabled: true
+    conditions:
+      paths:
+        - "/admin/*"
+      roles:
+        - admin
+    effect: allow
+
+  # Mock services access
+  - name: mock-user-access
+    description: "Access to User mock service"
+    priority: 700
+    enabled: true
+    conditions:
+      paths:
+        - "/mock/user/**"
+      methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+      roles:
+        - admin
+        - user
+        - developer
+        - viewer
+        - service
+    effect: allow
+
+  - name: mock-admin-access
+    description: "Access to Admin mock service"
+    priority: 699
+    enabled: true
+    conditions:
+      paths:
+        - "/mock/admin/**"
+      methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+      roles:
+        - admin
+        - developer
+        - service
+    effect: allow
+
+  - name: mock-external-access
+    description: "Access to External mock service"
+    priority: 698
+    enabled: true
+    conditions:
+      paths:
+        - "/mock/external/**"
+      methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+      roles:
+        - admin
+        - external
+        - service
+    effect: allow
+
+  # Deny unauthenticated partner access
   - name: deny-unauthenticated
     description: "Deny unauthenticated access"
     priority: 1

@@ -27,19 +27,41 @@ type PolicyService interface {
 	Reload(ctx context.Context) error
 }
 
+// CacheService defines the interface for cache operations.
+type CacheService interface {
+	Clear(ctx context.Context)
+	Stats() map[string]any
+	Enabled() bool
+}
+
 // Handler contains HTTP handlers for the authorization service.
 type Handler struct {
 	jwtService    JWTService
 	policyService PolicyService
+	cacheService  CacheService
 	version       string
 }
 
 // NewHandler creates a new HTTP handler.
-func NewHandler(jwtService JWTService, policyService PolicyService, version string) *Handler {
-	return &Handler{
+func NewHandler(jwtService JWTService, policyService PolicyService, version string, opts ...HandlerOption) *Handler {
+	h := &Handler{
 		jwtService:    jwtService,
 		policyService: policyService,
 		version:       version,
+	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
+}
+
+// HandlerOption is a functional option for configuring the Handler.
+type HandlerOption func(*Handler)
+
+// WithCacheService sets the cache service for the handler.
+func WithCacheService(cs CacheService) HandlerOption {
+	return func(h *Handler) {
+		h.cacheService = cs
 	}
 }
 
@@ -334,11 +356,12 @@ func (h *Handler) TokenExchange(w http.ResponseWriter, r *http.Request) {
 }
 
 // CacheInvalidate handles cache invalidation requests.
+// POST /admin/cache/invalidate - clears L1 and L2 caches
 func (h *Handler) CacheInvalidate(w http.ResponseWriter, r *http.Request) {
-	_ = r.Context() // Reserved for future cache invalidation implementation
+	ctx := r.Context()
 	requestID := getRequestID(r)
 
-	// Parse request body
+	// Parse request body (optional)
 	var req CacheInvalidateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		// If no body, invalidate all
@@ -350,12 +373,27 @@ func (h *Handler) CacheInvalidate(w http.ResponseWriter, r *http.Request) {
 		logger.String("pattern", req.Pattern),
 	)
 
-	// TODO: Implement cache invalidation
-	// This would call the cache service to invalidate entries
+	// Check if cache service is available
+	if h.cacheService == nil {
+		h.writeError(w, http.StatusServiceUnavailable, "CACHE_NOT_AVAILABLE", "cache service not configured", requestID)
+		return
+	}
+
+	// Clear all caches
+	h.cacheService.Clear(ctx)
+
+	// Get stats after clearing
+	stats := h.cacheService.Stats()
+
+	logger.Info("cache invalidation completed",
+		logger.String("request_id", requestID),
+		logger.Any("stats", stats),
+	)
 
 	resp := &CacheInvalidateResponse{
 		Success: true,
-		Message: "cache invalidation triggered",
+		Message: "cache invalidation completed (L1 and L2 cleared)",
+		Stats:   stats,
 	}
 	h.writeJSON(w, http.StatusOK, resp)
 }

@@ -1,5 +1,4 @@
-#!/command/execlineb -P
-
+#!/bin/sh
 # Nginx service
 
 # Run nginx in foreground

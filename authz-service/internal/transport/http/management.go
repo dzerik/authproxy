@@ -55,6 +55,7 @@ type ManagementServer struct {
 	loader          *config.Loader
 	app             AppInfo
 	listenerManager *ListenerManager
+	cacheService    CacheService
 	log             logger.Logger
 	buildInfo       BuildInfo
 
@@ -97,6 +98,11 @@ func (m *ManagementServer) SetListenerManager(lm *ListenerManager) {
 	m.listenerManager = lm
 }
 
+// SetCacheService sets the cache service for cache management endpoints.
+func (m *ManagementServer) SetCacheService(cs CacheService) {
+	m.cacheService = cs
+}
+
 // setupAdminServer configures the admin server on :15000.
 func (m *ManagementServer) setupAdminServer() {
 	r := chi.NewRouter()
@@ -122,6 +128,10 @@ func (m *ManagementServer) setupAdminServer() {
 	r.Post("/healthcheck/ok", m.handleHealthOk)
 	r.Post("/drain", m.handleDrain)
 	r.Post("/quitquitquit", m.handleQuit)
+
+	// Cache management
+	r.Post("/cache/invalidate", m.handleCacheInvalidate)
+	r.Get("/cache/stats", m.handleCacheStats)
 
 	// Schema endpoints
 	r.Get("/schema", m.handleSchemaList)

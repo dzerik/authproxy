@@ -14,15 +14,19 @@ allow if {
 }
 
 # Check if a rule matches the input
+# Supports both direct path/method (for testing) and request.path/request.method (from authz-service)
 rule_matches(rule, inp) if {
-    # Path matching
-    path_matches(rule, inp.path)
+    # Path matching - use request.path if available, otherwise path
+    path := object.get(object.get(inp, "request", {}), "path", object.get(inp, "path", ""))
+    path_matches(rule, path)
 
-    # Method matching (if specified)
-    method_matches(rule, inp.method)
+    # Method matching - use request.method if available, otherwise method
+    method := object.get(object.get(inp, "request", {}), "method", object.get(inp, "method", ""))
+    method_matches(rule, method)
 
-    # Role matching (if specified)
-    role_matches(rule, inp.token)
+    # Role matching (if specified) - use empty object if token is undefined
+    token := object.get(inp, "token", {})
+    role_matches(rule, token)
 }
 
 # Path matching helpers
@@ -79,11 +83,25 @@ has_role(token, role) if {
     role in token.roles
 }
 
+# Helper to get path from input (supports both direct and nested)
+get_path(inp) := path if {
+    path := inp.request.path
+} else := path if {
+    path := inp.path
+} else := ""
+
+# Helper to get method from input (supports both direct and nested)
+get_method(inp) := method if {
+    method := inp.request.method
+} else := method if {
+    method := inp.method
+} else := ""
+
 # Additional decision details for debugging
 decision := {
     "allow": allow,
-    "path": input.path,
-    "method": input.method,
+    "path": get_path(input),
+    "method": get_method(input),
     "matched_rules": matched_rules,
     "user": get_user(input.token),
     "roles": get_roles(input.token),

@@ -26,6 +26,7 @@ type Server struct {
 	egressService   *egress.Service
 	rateLimiter     *ratelimit.Limiter
 	tracingProvider *tracing.Provider
+	cacheService    CacheService
 	cfg             config.HTTPServerConfig
 	endpoints       config.EndpointsConfig
 	proxyEnabled    bool
@@ -49,6 +50,13 @@ func WithTracingProvider(provider *tracing.Provider) ServerOption {
 	}
 }
 
+// WithServerCacheService sets the cache service for admin handlers.
+func WithServerCacheService(cs CacheService) ServerOption {
+	return func(s *Server) {
+		s.cacheService = cs
+	}
+}
+
 // ServerConfig holds all configuration needed for the HTTP server.
 type ServerConfig struct {
 	HTTP          config.HTTPServerConfig
@@ -68,20 +76,25 @@ func NewServer(
 	version string,
 	opts ...ServerOption,
 ) (*Server, error) {
-	handler := NewHandler(jwtService, policyService, version)
-
 	server := &Server{
-		handler:       handler,
 		cfg:           cfg.HTTP,
 		endpoints:     cfg.Endpoints,
 		proxyEnabled:  cfg.Proxy.Enabled && cfg.Proxy.Mode == "reverse_proxy",
 		egressEnabled: cfg.Egress.Enabled,
 	}
 
-	// Apply functional options
+	// Apply functional options first to populate cacheService
 	for _, opt := range opts {
 		opt(server)
 	}
+
+	// Create handler with optional cache service
+	var handlerOpts []HandlerOption
+	if server.cacheService != nil {
+		handlerOpts = append(handlerOpts, WithCacheService(server.cacheService))
+	}
+	handler := NewHandler(jwtService, policyService, version, handlerOpts...)
+	server.handler = handler
 
 	// Create reverse proxy if enabled
 	if server.proxyEnabled {

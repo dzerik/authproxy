@@ -109,6 +109,33 @@ func templateFuncs() template.FuncMap {
 
 		// Printf
 		"printf": fmt.Sprintf,
+
+		// Strip URL scheme (http://, https://)
+		"stripScheme": func(s string) string {
+			s = strings.TrimPrefix(s, "http://")
+			s = strings.TrimPrefix(s, "https://")
+			return s
+		},
+
+		// Extract host from URL (host:port without path)
+		"extractHost": func(s string) string {
+			s = strings.TrimPrefix(s, "http://")
+			s = strings.TrimPrefix(s, "https://")
+			if idx := strings.Index(s, "/"); idx != -1 {
+				return s[:idx]
+			}
+			return s
+		},
+
+		// Extract path from URL (everything after host:port)
+		"extractPath": func(s string) string {
+			s = strings.TrimPrefix(s, "http://")
+			s = strings.TrimPrefix(s, "https://")
+			if idx := strings.Index(s, "/"); idx != -1 {
+				return s[idx:]
+			}
+			return ""
+		},
 	}
 }
 

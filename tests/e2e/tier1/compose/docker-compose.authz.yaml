@@ -17,20 +17,32 @@ services:
 
   authz-service:
     build:
-      context: ../../../../
+      context: ../../../../authz-service
       dockerfile: deployments/docker/Dockerfile
     image: authz-service:e2e
     container_name: authz-service
+    extra_hosts:
+      - "localhost:10.89.3.1"  # Allow container to reach host services (Keycloak on :8180)
     environment:
       AUTHZ_ENV_NAME: tier1-internal
       AUTHZ_SERVER_HTTP_ADDR: ":8080"
       AUTHZ_LOGGING_LEVEL: ${AUTHZ_LOG_LEVEL:-debug}
       AUTHZ_LOGGING_FORMAT: json
-      # JWT Configuration
+      # JWT Configuration - accepts tokens from auth-portal
+      # Internal issuer (container-to-container)
       AUTHZ_JWT_ISSUERS_0_NAME: keycloak
       AUTHZ_JWT_ISSUERS_0_ISSUER_URL: "http://infra-keycloak:8080/realms/test"
       AUTHZ_JWT_ISSUERS_0_AUDIENCE_0: "authz-service"
-      AUTHZ_JWT_ISSUERS_0_AUDIENCE_1: "account"
+      AUTHZ_JWT_ISSUERS_0_AUDIENCE_1: "auth-portal"
+      AUTHZ_JWT_ISSUERS_0_AUDIENCE_2: "account"
+      # External issuer (for E2E testing from host)
+      # issuer_url matches token's iss claim, but jwks_url uses internal container network
+      AUTHZ_JWT_ISSUERS_1_NAME: keycloak-external
+      AUTHZ_JWT_ISSUERS_1_ISSUER_URL: "http://localhost:8180/realms/test"
+      AUTHZ_JWT_ISSUERS_1_JWKS_URL: "http://infra-keycloak:8080/realms/test/protocol/openid-connect/certs"
+      AUTHZ_JWT_ISSUERS_1_AUDIENCE_0: "authz-service"
+      AUTHZ_JWT_ISSUERS_1_AUDIENCE_1: "auth-portal"
+      AUTHZ_JWT_ISSUERS_1_AUDIENCE_2: "account"
       # Cache
       AUTHZ_CACHE_L1_ENABLED: "true"
       AUTHZ_CACHE_L1_MAX_SIZE: "10000"
@@ -39,26 +51,30 @@ services:
       AUTHZ_CACHE_L2_REDIS_ADDRESSES_0: "infra-redis:6379"
       AUTHZ_CACHE_L2_REDIS_PASSWORD: ${REDIS_PASSWORD:-redis}
       # Policy
-      AUTHZ_POLICY_ENGINE: "opa_sidecar"
+      AUTHZ_POLICY_ENGINE: "opa-sidecar"
       AUTHZ_POLICY_OPA_URL: "http://infra-opa:8181"
-      AUTHZ_POLICY_OPA_POLICY_PATH: "/v1/data/authz/allow"
-      # Tracing
-      AUTHZ_TRACING_ENABLED: "true"
-      AUTHZ_TRACING_OTLP_ENDPOINT: "infra-jaeger:4317"
+      AUTHZ_POLICY_OPA_POLICY_PATH: "/v1/data/authz"
+      # Tracing (disabled due to OTel schema version conflict)
+      AUTHZ_TRACING_ENABLED: "false"
       # Metrics
       AUTHZ_METRICS_ENABLED: "true"
+      # Admin endpoints
+      AUTHZ_ENDPOINTS_CACHE_INVALIDATE: "/admin/cache/invalidate"
+      AUTHZ_ENDPOINTS_POLICY_RELOAD: "/admin/policy/reload"
     ports:
-      - "8080:8080"     # Main HTTP
-      - "8088:8088"     # gRPC
-      - "15000:15000"   # Admin
-      - "15020:15020"   # Health
-      - "15021:15021"   # Ready
+      - "${AUTHZ_HTTP_PORT:-8080}:8080"     # Main HTTP
+      - "${AUTHZ_GRPC_PORT:-8088}:8088"     # gRPC
+      - "${AUTHZ_ADMIN_PORT:-15000}:15000"  # Admin
+      - "${AUTHZ_HEALTH_PORT:-15020}:15020" # Health
+      - "${AUTHZ_READY_PORT:-15021}:15021"  # Ready
     volumes:
       - ../configs:/etc/authz:ro
       - ../certs:/certs:ro
     networks:
       - infra-backend
       - infra-frontend
+      - infra-external
+      - app-services
       - app-partner
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:15020/healthz/ready"]
@@ -73,20 +89,31 @@ services:
 
   authz-service-external:
     build:
-      context: ../../../../
+      context: ../../../../authz-service
       dockerfile: deployments/docker/Dockerfile
     image: authz-service:e2e
     container_name: authz-service-external
+    extra_hosts:
+      - "localhost:10.89.3.1"  # Allow container to reach host services (Keycloak on :8180)
     environment:
-      AUTHZ_ENV_NAME: tier1-external
+      AUTHZ_ENV_NAME: tier1-external-builtin
       AUTHZ_SERVER_HTTP_ADDR: ":8080"
       AUTHZ_LOGGING_LEVEL: ${AUTHZ_LOG_LEVEL:-debug}
       AUTHZ_LOGGING_FORMAT: json
-      # JWT
+      # JWT - Internal issuer
       AUTHZ_JWT_ISSUERS_0_NAME: keycloak
       AUTHZ_JWT_ISSUERS_0_ISSUER_URL: "http://infra-keycloak:8080/realms/test"
       AUTHZ_JWT_ISSUERS_0_AUDIENCE_0: "external-service"
       AUTHZ_JWT_ISSUERS_0_AUDIENCE_1: "authz-service"
+      AUTHZ_JWT_ISSUERS_0_AUDIENCE_2: "auth-portal"
+      # JWT - External issuer (for E2E testing from host)
+      # issuer_url matches token's iss claim, but jwks_url uses internal container network
+      AUTHZ_JWT_ISSUERS_1_NAME: keycloak-external
+      AUTHZ_JWT_ISSUERS_1_ISSUER_URL: "http://localhost:8180/realms/test"
+      AUTHZ_JWT_ISSUERS_1_JWKS_URL: "http://infra-keycloak:8080/realms/test/protocol/openid-connect/certs"
+      AUTHZ_JWT_ISSUERS_1_AUDIENCE_0: "external-service"
+      AUTHZ_JWT_ISSUERS_1_AUDIENCE_1: "authz-service"
+      AUTHZ_JWT_ISSUERS_1_AUDIENCE_2: "auth-portal"
       # Cache
       AUTHZ_CACHE_L1_ENABLED: "true"
       AUTHZ_CACHE_L2_ENABLED: "true"
@@ -94,15 +121,17 @@ services:
       AUTHZ_CACHE_L2_REDIS_PASSWORD: ${REDIS_PASSWORD:-redis}
       # Policy - builtin for external
       AUTHZ_POLICY_ENGINE: "builtin"
-      # Tracing
-      AUTHZ_TRACING_ENABLED: "true"
-      AUTHZ_TRACING_OTLP_ENDPOINT: "infra-jaeger:4317"
+      # Tracing (disabled due to OTel schema version conflict)
+      AUTHZ_TRACING_ENABLED: "false"
+      # Admin endpoints
+      AUTHZ_ENDPOINTS_CACHE_INVALIDATE: "/admin/cache/invalidate"
+      AUTHZ_ENDPOINTS_POLICY_RELOAD: "/admin/policy/reload"
     ports:
-      - "9080:8080"     # Main HTTP
-      - "9088:8088"     # gRPC
-      - "25000:15000"   # Admin
-      - "25020:15020"   # Health
-      - "25021:15021"   # Ready
+      - "${AUTHZ_EXT_HTTP_PORT:-9080}:8080"     # Main HTTP
+      - "${AUTHZ_EXT_GRPC_PORT:-9088}:8088"     # gRPC
+      - "${AUTHZ_EXT_ADMIN_PORT:-25000}:15000"  # Admin
+      - "${AUTHZ_EXT_HEALTH_PORT:-25020}:15020" # Health
+      - "${AUTHZ_EXT_READY_PORT:-25021}:15021"  # Ready
     volumes:
       - ../configs-external:/etc/authz:ro
       - ../certs:/certs:ro
@@ -110,6 +139,7 @@ services:
       - app-partner
       - infra-external
       - infra-backend
+      - infra-frontend
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:15020/healthz/ready"]
       interval: 5s
@@ -125,7 +155,10 @@ networks:
     external: true
   infra-external:
     external: true
-  # Application-specific network
+  # Application-specific networks
+  app-services:
+    name: app-services
+    driver: bridge
   app-partner:
     name: app-partner
     driver: bridge

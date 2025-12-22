@@ -25,21 +25,21 @@
         "description": "Users can read their own profile",
         "path_prefix": "/api/v1/users/me",
         "methods": ["GET"],
-        "required_roles": ["user"]
+        "required_roles": ["user", "developer"]
       },
       {
         "name": "user_profile_update",
         "description": "Users can update their own profile",
         "path_prefix": "/api/v1/users/me",
         "methods": ["PUT", "PATCH"],
-        "required_roles": ["user"]
+        "required_roles": ["user", "developer"]
       },
       {
         "name": "users_list",
-        "description": "Admins can list all users",
+        "description": "Admins and developers can list all users",
         "path_exact": "/api/v1/users",
         "methods": ["GET"],
-        "required_roles": ["admin"]
+        "required_roles": ["admin", "developer"]
       },
       {
         "name": "users_manage",
@@ -53,14 +53,21 @@
         "description": "Authenticated users can read API v1",
         "path_prefix": "/api/v1",
         "methods": ["GET"],
-        "required_roles": ["user", "admin", "service"]
+        "required_roles": ["user", "admin", "developer", "viewer", "service"]
       },
       {
         "name": "api_v1_write",
-        "description": "Admins and services can write to API v1",
+        "description": "Admins, developers and services can write to API v1",
         "path_prefix": "/api/v1",
         "methods": ["POST", "PUT", "PATCH", "DELETE"],
-        "required_roles": ["admin", "service"]
+        "required_roles": ["admin", "developer", "service"]
+      },
+      {
+        "name": "viewer_readonly",
+        "description": "Viewers have read-only access",
+        "path_prefix": "/api/v1",
+        "methods": ["GET"],
+        "required_roles": ["viewer"]
       },
       {
         "name": "external_partner_access",
@@ -68,6 +75,13 @@
         "path_prefix": "/partner/api",
         "methods": ["GET", "POST"],
         "required_roles": ["external"]
+      },
+      {
+        "name": "egress_partner_access",
+        "description": "Access to egress partner endpoints",
+        "path_prefix": "/egress/partner",
+        "methods": ["GET", "POST"],
+        "required_roles": ["admin", "external", "service"]
       },
       {
         "name": "agent_actions",
@@ -81,7 +95,7 @@
         "description": "Token exchange endpoint",
         "path_exact": "/oauth/token/exchange",
         "methods": ["POST"],
-        "required_roles": ["user", "service", "external"]
+        "required_roles": ["user", "developer", "service", "external"]
       },
       {
         "name": "service_to_service",
@@ -89,11 +103,41 @@
         "path_prefix": "/internal",
         "methods": ["GET", "POST", "PUT", "DELETE"],
         "required_roles": ["service"]
+      },
+      {
+        "name": "developer_monitoring_access",
+        "description": "Developers can access monitoring endpoints",
+        "path_prefix": "/monitoring",
+        "methods": ["GET"],
+        "required_roles": ["admin", "developer"]
+      },
+      {
+        "name": "mock_user_access",
+        "description": "Access to User mock service",
+        "path_prefix": "/mock/user",
+        "methods": ["GET", "POST", "PUT", "DELETE"],
+        "required_roles": ["admin", "user", "developer", "viewer", "service"]
+      },
+      {
+        "name": "mock_admin_access",
+        "description": "Access to Admin mock service",
+        "path_prefix": "/mock/admin",
+        "methods": ["GET", "POST", "PUT", "DELETE"],
+        "required_roles": ["admin", "developer", "service"]
+      },
+      {
+        "name": "mock_external_access",
+        "description": "Access to External mock service",
+        "path_prefix": "/mock/external",
+        "methods": ["GET", "POST", "PUT", "DELETE"],
+        "required_roles": ["admin", "external", "service"]
       }
     ],
     "allowed_audiences": [
       "authz-service",
       "authz-service-external",
+      "auth-portal",
+      "grafana",
       "external-service",
       "account"
     ],

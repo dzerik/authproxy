@@ -111,9 +111,8 @@ func (h *ForwardAuthHandler) HandleAuth(w http.ResponseWriter, r *http.Request) 
 		w.Header().Set("X-Auth-Request-Tenant", user.TenantID)
 	}
 
-	// Access token for backend services (optional, consider security implications)
-	// Uncomment if backends need to validate tokens themselves
-	// w.Header().Set("X-Auth-Request-Access-Token", sess.AccessToken)
+	// Access token for backend services that need to validate tokens themselves
+	w.Header().Set("X-Auth-Request-Access-Token", sess.AccessToken)
 
 	// Return 200 OK
 	w.WriteHeader(http.StatusOK)

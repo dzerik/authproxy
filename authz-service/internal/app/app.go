@@ -210,6 +210,9 @@ func (a *App) Initialize(ctx context.Context) error {
 		if a.tracingProvider != nil {
 			serverOpts = append(serverOpts, httpTransport.WithTracingProvider(a.tracingProvider))
 		}
+		if a.cacheService != nil {
+			serverOpts = append(serverOpts, httpTransport.WithServerCacheService(a.cacheService))
+		}
 
 		a.httpServer, err = httpTransport.NewServer(
 			serverCfg,
@@ -252,6 +255,9 @@ func (a *App) Initialize(ctx context.Context) error {
 	// Connect listener manager to management server for admin API
 	if a.managementServer != nil {
 		a.managementServer.SetListenerManager(a.listenerManager)
+		if a.cacheService != nil {
+			a.managementServer.SetCacheService(a.cacheService)
+		}
 	}
 
 	// Initialize proxy listeners from services configuration

@@ -71,6 +71,35 @@ func (m *mockPolicyService) Reload(ctx context.Context) error {
 	return nil
 }
 
+type mockCacheService struct {
+	clearFunc   func(ctx context.Context)
+	statsFunc   func() map[string]any
+	enabledFunc func() bool
+}
+
+func (m *mockCacheService) Clear(ctx context.Context) {
+	if m.clearFunc != nil {
+		m.clearFunc(ctx)
+	}
+}
+
+func (m *mockCacheService) Stats() map[string]any {
+	if m.statsFunc != nil {
+		return m.statsFunc()
+	}
+	return map[string]any{
+		"l1": map[string]any{"size": 0, "hits": 0, "misses": 0},
+		"l2": map[string]any{"size": 0, "hits": 0, "misses": 0},
+	}
+}
+
+func (m *mockCacheService) Enabled() bool {
+	if m.enabledFunc != nil {
+		return m.enabledFunc()
+	}
+	return true
+}
+
 // =============================================================================
 // Handler Tests
 // =============================================================================
@@ -891,7 +920,13 @@ func TestHandler_TokenExchange_InvalidSubjectToken(t *testing.T) {
 // =============================================================================
 
 func TestHandler_CacheInvalidate_WithPattern(t *testing.T) {
-	h := NewHandler(nil, nil, "1.0.0")
+	clearCalled := false
+	cacheMock := &mockCacheService{
+		clearFunc: func(ctx context.Context) {
+			clearCalled = true
+		},
+	}
+	h := NewHandler(nil, nil, "1.0.0", WithCacheService(cacheMock))
 
 	body := CacheInvalidateRequest{
 		Pattern: "user:*",
@@ -906,15 +941,18 @@ func TestHandler_CacheInvalidate_WithPattern(t *testing.T) {
 	h.CacheInvalidate(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, clearCalled, "Clear should be called")
 
 	var resp CacheInvalidateResponse
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.True(t, resp.Success)
+	assert.NotNil(t, resp.Stats)
 }
 
 func TestHandler_CacheInvalidate_NoBody(t *testing.T) {
-	h := NewHandler(nil, nil, "1.0.0")
+	cacheMock := &mockCacheService{}
+	h := NewHandler(nil, nil, "1.0.0", WithCacheService(cacheMock))
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/admin/cache/invalidate", nil)
 	req.Header.Set("Content-Type", "application/json")
@@ -931,7 +969,8 @@ func TestHandler_CacheInvalidate_NoBody(t *testing.T) {
 }
 
 func TestHandler_CacheInvalidate_WithKeys(t *testing.T) {
-	h := NewHandler(nil, nil, "1.0.0")
+	cacheMock := &mockCacheService{}
+	h := NewHandler(nil, nil, "1.0.0", WithCacheService(cacheMock))
 
 	body := CacheInvalidateRequest{
 		Keys: []string{"key1", "key2", "key3"},
@@ -950,6 +989,23 @@ func TestHandler_CacheInvalidate_WithKeys(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.True(t, resp.Success)
+}
+
+func TestHandler_CacheInvalidate_NoCacheService(t *testing.T) {
+	h := NewHandler(nil, nil, "1.0.0") // No cache service
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/admin/cache/invalidate", nil)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.CacheInvalidate(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+
+	var resp ErrorResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, "CACHE_NOT_AVAILABLE", resp.Code)
 }
 
 // =============================================================================

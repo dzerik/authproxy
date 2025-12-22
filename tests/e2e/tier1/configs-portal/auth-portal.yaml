@@ -1,121 +1,196 @@
 # Auth-Portal E2E Testing Configuration
-server:
-  port: 8080
-  read_timeout: 30s
-  write_timeout: 30s
+# Matches config.Config structure from internal/config/config.go
 
+# Server configuration
+server:
+  http_port: 8080
+  https_port: 443
+  tls:
+    enabled: false
+
+# Operation mode: portal (show service list) or single-service (redirect to target)
 mode: portal
 
-# Keycloak OIDC Configuration
-keycloak:
-  issuer_url: http://infra-keycloak:8080/realms/test
-  client_id: auth-portal
-  client_secret: ${KC_CLIENT_SECRET}
-  redirect_url: http://localhost:8880/callback
-  # Social login providers (via kc_idp_hint)
-  social_providers:
-    - name: google
-      display_name: Google
-      idp_hint: google
-      icon: google
-    - name: github
-      display_name: GitHub
-      idp_hint: github
-      icon: github
+# Authentication configuration
+auth:
+  keycloak:
+    # Use localhost:8180 so both browser and container use the same hostname
+    # Container reaches host via --add-host localhost:10.89.3.1
+    issuer_url: http://localhost:8180/realms/test
+    client_id: auth-portal
+    client_secret: test-client-secret
+    redirect_url: http://localhost:8880/callback
+    scopes:
+      - openid
+      - profile
+      - email
+      - roles
+    social_providers:
+      - name: google
+        display_name: Google
+        idp_hint: google
+        icon: google
+      - name: github
+        display_name: GitHub
+        idp_hint: github
+        icon: github
 
-# Session Configuration
+# Session configuration
 session:
-  secret: ${SESSION_SECRET}
-  store: cookie
+  store: redis
+  cookie_name: _auth_session
   ttl: 24h
-  cookie:
-    name: _auth_session
-    secure: false  # HTTP for testing
-    http_only: true
-    same_site: lax
+  secure: false  # HTTP for E2E testing
+  same_site: lax
   encryption:
     enabled: true
-    key: ${ENCRYPTION_KEY}
+    key: "test-encryption-key-32-bytes!!!!" # exactly 32 bytes
+  redis:
+    enabled: true
+    addresses:
+      - "infra-redis:6379"
+    password: "redis"
+    db: 0
+    key_prefix: "authportal:session:"
+  cookie:
+    max_size: 4096
 
-# Dev Mode Configuration
+# Token refresh settings
+token:
+  auto_refresh: true
+  refresh_threshold: 5m
+
+# Development mode configuration
 dev_mode:
-  enabled: true
+  enabled: false
   profiles_dir: /app/configs/profiles
   default_profile: developer
-  profiles:
-    developer:
-      id: "dev-user-001"
-      email: "developer@test.local"
-      name: "Developer User"
-      roles:
-        - developer
-        - user
-      groups:
-        - dev-team
-    admin:
-      id: "dev-admin-001"
-      email: "admin@test.local"
-      name: "Admin User"
-      roles:
-        - admin
-        - developer
-        - user
-      groups:
-        - admin-team
-        - dev-team
-    readonly:
-      id: "dev-readonly-001"
-      email: "readonly@test.local"
-      name: "ReadOnly User"
-      roles:
-        - viewer
-      groups:
-        - readonly-team
 
-# Services for portal mode
+# Services available in portal mode
+# Each service requires: name, location, upstream
 services:
-  - name: grafana
-    display_name: "Grafana"
-    description: "Metrics & Dashboards"
-    url: http://localhost:3000
-    icon: chart-line
-    allowed_roles:
-      - admin
-      - developer
-    allowed_groups:
-      - monitoring
+  # === Mock Services via Internal AuthZ (OPA engine) ===
+  - name: mock-user-internal
+    display_name: "User Service (Internal AuthZ)"
+    description: "Mock User API via internal authz-service (OPA)"
+    icon: users
+    location: /internal/mock/user/
+    upstream: http://authz-service:8088/mock/user
+    auth_required: true
+    headers:
+      add:
+        X-Forwarded-User: "{{.User.Email}}"
+        X-User-ID: "{{.User.ID}}"
 
-  - name: jaeger
-    display_name: "Jaeger"
-    description: "Distributed Tracing"
-    url: http://localhost:16686
-    icon: search
-    allowed_roles:
-      - admin
-      - developer
-
-  - name: prometheus
-    display_name: "Prometheus"
-    description: "Metrics Collection"
-    url: http://localhost:9090
-    icon: database
-    allowed_roles:
-      - admin
-
-  - name: keycloak
-    display_name: "Keycloak"
-    description: "Identity Management"
-    url: http://localhost:8180
+  - name: mock-admin-internal
+    display_name: "Admin Service (Internal AuthZ)"
+    description: "Mock Admin API via internal authz-service (OPA)"
     icon: settings
-    allowed_roles:
-      - admin
+    location: /internal/mock/admin/
+    upstream: http://authz-service:8088/mock/admin
+    auth_required: true
+    headers:
+      add:
+        X-Forwarded-User: "{{.User.Email}}"
+        X-User-ID: "{{.User.ID}}"
+        X-User-Roles: "{{.User.Roles}}"
 
-# Observability
-tracing:
-  enabled: true
-  service_name: auth-portal
-  otlp_endpoint: ${TRACING_OTLP_ENDPOINT:-infra-jaeger:4317}
+  - name: mock-external-internal
+    display_name: "External API (Internal AuthZ)"
+    description: "Mock External API via internal authz-service (OPA)"
+    icon: globe
+    location: /internal/mock/external/
+    upstream: http://authz-service:8088/mock/external
+    auth_required: true
+    headers:
+      add:
+        X-Forwarded-User: "{{.User.Email}}"
 
-logging:
-  level: debug
+  # === Mock Services via External AuthZ (Builtin engine) ===
+  - name: mock-user-external
+    display_name: "User Service (External AuthZ)"
+    description: "Mock User API via external authz-service (Builtin)"
+    icon: users
+    location: /external/mock/user/
+    upstream: http://authz-service-external:8088/mock/user
+    auth_required: true
+    headers:
+      add:
+        X-Forwarded-User: "{{.User.Email}}"
+        X-User-ID: "{{.User.ID}}"
+
+  - name: mock-admin-external
+    display_name: "Admin Service (External AuthZ)"
+    description: "Mock Admin API via external authz-service (Builtin)"
+    icon: settings
+    location: /external/mock/admin/
+    upstream: http://authz-service-external:8088/mock/admin
+    auth_required: true
+    headers:
+      add:
+        X-Forwarded-User: "{{.User.Email}}"
+        X-User-ID: "{{.User.ID}}"
+        X-User-Roles: "{{.User.Roles}}"
+
+  - name: mock-external-external
+    display_name: "External API (External AuthZ)"
+    description: "Mock External API via external authz-service (Builtin)"
+    icon: globe
+    location: /external/mock/external/
+    upstream: http://authz-service-external:8088/mock/external
+    auth_required: true
+    headers:
+      add:
+        X-Forwarded-User: "{{.User.Email}}"
+
+# Nginx configuration
+nginx:
+  worker_processes: auto
+  worker_connections: 1024
+  keepalive_timeout: 65
+  client_max_body_size: 100m
+  rate_limit:
+    enabled: false
+  access_log: /var/log/nginx/access.log
+  error_log: /var/log/nginx/error.log
+
+# Observability configuration
+observability:
+  metrics:
+    enabled: true
+    path: /metrics
+  tracing:
+    enabled: false  # Disabled due to OTel schema version conflict
+    endpoint: infra-jaeger:4317
+    protocol: grpc
+    insecure: true
+    sampling_ratio: 1.0
+  health:
+    path: /health
+  ready:
+    path: /ready
+
+# Resilience configuration
+resilience:
+  rate_limit:
+    enabled: false
+    rate: "100-S"
+    trust_forwarded_for: true
+    exclude_paths:
+      - /health
+      - /ready
+      - /metrics
+  circuit_breaker:
+    enabled: false
+    default:
+      max_requests: 5
+      interval: 60s
+      timeout: 30s
+      failure_threshold: 5
+      success_threshold: 2
+
+# Logging configuration
+log:
+  level: ${LOG_LEVEL:-debug}
   format: json
+  development: false

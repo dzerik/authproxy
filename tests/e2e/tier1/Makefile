@@ -161,6 +161,16 @@ token-agent: ## Get agent token
 	@chmod +x $(SCRIPT_DIR)/get-test-token.sh
 	@$(SCRIPT_DIR)/get-test-token.sh agent
 
+.PHONY: token-developer
+token-developer: ## Get developer token
+	@chmod +x $(SCRIPT_DIR)/get-test-token.sh
+	@$(SCRIPT_DIR)/get-test-token.sh developer
+
+.PHONY: token-viewer
+token-viewer: ## Get viewer token
+	@chmod +x $(SCRIPT_DIR)/get-test-token.sh
+	@$(SCRIPT_DIR)/get-test-token.sh viewer
+
 # ==================== Testing ====================
 
 .PHONY: test
@@ -312,14 +322,24 @@ stack-status: ## Show full stack status
 	@echo ""
 	@echo "$(GREEN)═══════════════════════════════════════════════════════════════$(NC)"
 	@echo ""
-	@echo "Endpoints:"
-	@echo "  Keycloak:        http://localhost:8180"
+	@echo "$(YELLOW)Authentication Endpoints:$(NC)"
+	@echo "  Auth Portal:     http://localhost:8880  (Login UI)"
+	@echo "  Keycloak Admin:  http://localhost:8180  (admin/admin)"
+	@echo ""
+	@echo "$(YELLOW)API Endpoints (via authz-service):$(NC)"
 	@echo "  authz-service:   http://localhost:8080"
 	@echo "  authz-external:  http://localhost:9080"
-	@echo "  auth-portal:     http://localhost:8880"
+	@echo ""
+	@echo "$(YELLOW)Monitoring (OIDC via Keycloak):$(NC)"
+	@echo "  Grafana:         http://localhost:3000  (Sign in with Keycloak)"
 	@echo "  Jaeger:          http://localhost:16686"
-	@echo "  Grafana:         http://localhost:3000"
 	@echo "  Prometheus:      http://localhost:9090"
+	@echo ""
+	@echo "$(YELLOW)Test Users:$(NC)"
+	@echo "  admin-user:admin-password  (roles: admin, user)"
+	@echo "  test-user:test-password    (roles: user)"
+	@echo "  developer:developer        (roles: developer, user)"
+	@echo "  viewer:viewer              (roles: viewer)"
 	@echo ""
 
 .PHONY: stack-destroy

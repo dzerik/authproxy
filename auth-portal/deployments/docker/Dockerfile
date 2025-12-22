@@ -59,6 +59,7 @@ RUN apk add --no-cache \
     && rm -rf /var/cache/apk/*
 
 # Copy s6-overlay from s6-base
+COPY --from=s6-base /init /init
 COPY --from=s6-base /command /command
 COPY --from=s6-base /package /package
 COPY --from=s6-base /etc/s6-overlay /etc/s6-overlay
@@ -108,7 +109,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost/health || exit 1
 
 # Use s6-overlay as init
-ENTRYPOINT ["/command/s6-svscan", "/run/service"]
+ENTRYPOINT ["/init"]
 
 # Default command (can be overridden)
 CMD []

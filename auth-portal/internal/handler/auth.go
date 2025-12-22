@@ -334,7 +334,8 @@ func (h *AuthHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	// Get user info
 	user, err := h.idpManager.UserInfo(ctx, tokens.AccessToken)
 	if err != nil {
-		h.renderError(w, "Failed to get user information", http.StatusInternalServerError)
+		// Log actual error for debugging
+		h.renderError(w, "Failed to get user information: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -351,7 +352,7 @@ func (h *AuthHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Save session
 	if err := h.sessionManager.Save(w, r, sess); err != nil {
-		h.renderError(w, "Failed to create session", http.StatusInternalServerError)
+		h.renderError(w, "Failed to create session: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 

@@ -1,12 +1,1 @@
-#!/command/execlineb -P
-
-# Generate nginx configuration from auth-portal config
-
-# Wait for auth-portal to be ready
-foreground { s6-sleep 2 }
-
-# Generate nginx config using auth-portal
-/app/auth-portal -generate-nginx -config ${AUTH_PORTAL_CONFIG:-/app/configs/auth-portal.yaml} -output /etc/nginx/nginx.conf
-
-# Test nginx configuration
-nginx -t -c /etc/nginx/nginx.conf
+/etc/s6-overlay/s6-rc.d/nginx-config/scripts/generate.sh

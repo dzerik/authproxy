@@ -136,9 +136,10 @@ type CacheInvalidateRequest struct {
 
 // CacheInvalidateResponse represents a cache invalidation response.
 type CacheInvalidateResponse struct {
-	Success       bool   `json:"success"`
-	Message       string `json:"message,omitempty"`
-	InvalidatedCount int `json:"invalidated_count,omitempty"`
+	Success          bool           `json:"success"`
+	Message          string         `json:"message,omitempty"`
+	InvalidatedCount int            `json:"invalidated_count,omitempty"`
+	Stats            map[string]any `json:"stats,omitempty"`
 }
 
 // ToPolicyInput converts the request DTO to a PolicyInput domain object.

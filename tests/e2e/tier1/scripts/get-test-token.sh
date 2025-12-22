@@ -39,6 +39,12 @@ get_credentials() {
         user)
             echo "test-user test-password"
             ;;
+        developer)
+            echo "developer developer"
+            ;;
+        viewer)
+            echo "viewer viewer"
+            ;;
         service)
             # Service account (client credentials grant)
             echo "__client_credentials__ __client_credentials__"
@@ -51,7 +57,7 @@ get_credentials() {
             ;;
         *)
             log_error "Unknown user type: $user_type"
-            echo "Available types: admin, user, service, external, agent"
+            echo "Available types: admin, user, developer, viewer, service, external, agent"
             exit 1
             ;;
     esac
@@ -158,6 +164,8 @@ Usage: $0 [user_type] [format]
 User types:
   admin      - Admin user with full permissions
   user       - Regular user with limited permissions
+  developer  - Developer user with monitoring access
+  viewer     - Read-only viewer
   service    - Service account (client credentials)
   external   - External partner user
   agent      - Agent user for delegation chains

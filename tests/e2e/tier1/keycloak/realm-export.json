@@ -53,6 +53,16 @@
         "composite": false
       },
       {
+        "name": "developer",
+        "description": "Developer role with access to monitoring tools",
+        "composite": false
+      },
+      {
+        "name": "viewer",
+        "description": "Read-only viewer role",
+        "composite": false
+      },
+      {
         "name": "offline_access",
         "description": "Offline access",
         "composite": false
@@ -201,6 +211,44 @@
       "realmRoles": ["service", "offline_access", "uma_authorization"],
       "clientRoles": {
         "authz-service": ["uma_protection"]
+      }
+    },
+    {
+      "username": "developer",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Developer",
+      "lastName": "User",
+      "email": "developer@example.com",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "developer",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["developer", "user", "offline_access"],
+      "clientRoles": {
+        "account": ["view-profile"]
+      }
+    },
+    {
+      "username": "viewer",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Viewer",
+      "lastName": "User",
+      "email": "viewer@example.com",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "viewer",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["viewer", "offline_access"],
+      "clientRoles": {
+        "account": ["view-profile"]
       }
     }
   ],
@@ -495,6 +543,100 @@
       "publicClient": false,
       "protocol": "openid-connect",
       "fullScopeAllowed": true,
+      "defaultClientScopes": ["openid", "profile", "email", "roles"],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "auth-portal",
+      "name": "Auth Portal",
+      "description": "Authentication Portal for E2E testing",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "test-client-secret",
+      "redirectUris": [
+        "http://localhost:8880/*",
+        "http://auth-portal:8080/*"
+      ],
+      "webOrigins": [
+        "http://localhost:8880",
+        "http://auth-portal:8080"
+      ],
+      "notBefore": 0,
+      "bearerOnly": false,
+      "consentRequired": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "publicClient": false,
+      "frontchannelLogout": true,
+      "protocol": "openid-connect",
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:8880/*##http://auth-portal:8080/*",
+        "backchannel.logout.session.required": "true",
+        "backchannel.logout.revoke.offline.tokens": "false"
+      },
+      "authenticationFlowBindingOverrides": {},
+      "fullScopeAllowed": true,
+      "nodeReRegistrationTimeout": -1,
+      "defaultClientScopes": ["openid", "profile", "email", "roles"],
+      "optionalClientScopes": ["offline_access"],
+      "protocolMappers": [
+        {
+          "name": "audience-auth-portal",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "auth-portal",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience-authz-service",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "authz-service",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "grafana",
+      "name": "Grafana",
+      "description": "Grafana OIDC client for SSO",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "grafana-secret",
+      "redirectUris": [
+        "http://localhost:3000/*",
+        "http://infra-grafana:3000/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000",
+        "http://infra-grafana:3000"
+      ],
+      "notBefore": 0,
+      "bearerOnly": false,
+      "consentRequired": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "publicClient": false,
+      "frontchannelLogout": true,
+      "protocol": "openid-connect",
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:3000/*##http://infra-grafana:3000/*"
+      },
+      "authenticationFlowBindingOverrides": {},
+      "fullScopeAllowed": true,
+      "nodeReRegistrationTimeout": -1,
       "defaultClientScopes": ["openid", "profile", "email", "roles"],
       "optionalClientScopes": []
     },

@@ -50,6 +50,7 @@ rule_sets:
         roles:
           - user
           - admin
+          - developer
           - service
       effect: allow
 
@@ -66,6 +67,7 @@ rule_sets:
         roles:
           - user
           - admin
+          - developer
       effect: allow
 
     - name: users-list
@@ -109,11 +111,13 @@ rule_sets:
         roles:
           - user
           - admin
+          - developer
+          - viewer
           - service
       effect: allow
 
     - name: api-v1-write
-      description: "Admins and services can write to API"
+      description: "Admins, developers and services can write to API"
       priority: 49
       enabled: true
       conditions:
@@ -126,7 +130,22 @@ rule_sets:
           - DELETE
         roles:
           - admin
+          - developer
           - service
+      effect: allow
+
+    - name: viewer-readonly
+      description: "Viewers have read-only access to public endpoints"
+      priority: 45
+      enabled: true
+      conditions:
+        paths:
+          - "/api/v1/users"
+          - "/api/v1/users/*"
+        methods:
+          - GET
+        roles:
+          - viewer
       effect: allow
 
   # Admin access rules
@@ -209,6 +228,64 @@ rule_sets:
           - "/partner/api/*"
         roles:
           - external
+      effect: allow
+
+  # Mock services rules (WireMock stubs for testing)
+  mock-rules:
+    - name: mock-user-access
+      description: "Access to User mock service"
+      priority: 600
+      enabled: true
+      conditions:
+        paths:
+          - "/mock/user/**"
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+        roles:
+          - admin
+          - user
+          - developer
+          - viewer
+          - service
+      effect: allow
+
+    - name: mock-admin-access
+      description: "Access to Admin mock service"
+      priority: 599
+      enabled: true
+      conditions:
+        paths:
+          - "/mock/admin/**"
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+        roles:
+          - admin
+          - developer
+          - service
+      effect: allow
+
+    - name: mock-external-access
+      description: "Access to External mock service"
+      priority: 598
+      enabled: true
+      conditions:
+        paths:
+          - "/mock/external/**"
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+        roles:
+          - admin
+          - external
+          - service
       effect: allow
 
   # Agent delegation rules
