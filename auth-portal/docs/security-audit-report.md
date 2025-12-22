@@ -1,9 +1,9 @@
 # Security Audit Report: Auth-Portal
 
 **Дата:** 2025-12-22
-**Версия:** 1.0
+**Версия:** 1.1
 **Аудитор:** Claude Code Security Analysis
-**Статус:** Production Readiness Assessment
+**Статус:** Production Readiness Assessment (Security + Code Quality)
 
 ---
 
@@ -19,7 +19,8 @@
 8. [Аутентификация Portal ↔ Backend](#аутентификация-portal--backend)
 9. [OWASP Top 10 Checklist](#owasp-top-10-checklist)
 10. [Рекомендации по исправлению](#рекомендации-по-исправлению)
-11. [Заключение](#заключение)
+11. [Качество кода и поддерживаемость](#качество-кода-и-поддерживаемость)
+12. [Заключение](#заключение)
 
 ---
 
@@ -39,6 +40,8 @@ Auth-Portal представляет собой зрелое решение дл
 | Input Validation | ⚠️ Требует доработки | Redirect URL validation |
 | Logging | ✅ Хорошо | Нет утечки секретов |
 | Configuration | ✅ Хорошо | Валидация, env vars |
+| **Качество кода** | ✅ Хорошо | 7.5/10, чистая архитектура |
+| **Тестовое покрытие** | ⚠️ Неравномерное | 0-100%, handlers 27.7% |
 
 **Вердикт:** Не готов к Production без исправления критических уязвимостей.
 
@@ -626,6 +629,210 @@ location /metrics {
 - Добавить Domain для session cookie
 - Добавить rate limiting для auth endpoints
 - Валидировать или удалить NginxExtra
+
+---
+
+## Качество кода и поддерживаемость
+
+### Метрики кодовой базы
+
+| Метрика | Значение | Оценка |
+|---------|----------|--------|
+| Строк кода (без тестов) | 7,774 | Компактный |
+| Строк тестов | 11,682 | 1.5x от кода |
+| Количество Go файлов | 50+ | Умеренное |
+| Количество методов | 206 | Умеренное |
+| Интерфейсов | 2 (Store, Provider) | Достаточно |
+| Прямых зависимостей | ~30 | Приемлемо |
+| Общий граф зависимостей | 476 | Высокое |
+
+### Покрытие тестами
+
+| Пакет | Покрытие | Комментарий |
+|-------|----------|-------------|
+| `internal/help` | 100% | ✅ Отлично |
+| `internal/model` | 100% | ✅ Отлично |
+| `internal/service/metrics` | 100% | ✅ Отлично |
+| `internal/schema` | 97% | ✅ Отлично |
+| `internal/service/visibility` | 96.6% | ✅ Отлично |
+| `pkg/resilience/circuitbreaker` | 93.9% | ✅ Хорошо |
+| `pkg/logger` | 90.2% | ✅ Хорошо |
+| `pkg/resilience/ratelimit` | 85.2% | ✅ Хорошо |
+| `internal/ui` | 82.5% | ⚠️ Приемлемо |
+| `internal/service/crypto` | 74.6% | ⚠️ Приемлемо |
+| `internal/config` | 72% | ⚠️ Приемлемо |
+| `pkg/tracing` | 62.1% | ⚠️ Требует внимания |
+| `internal/service/idp` | 59.9% | ⚠️ Требует внимания |
+| `internal/nginx` | 45.7% | ❌ Низкое |
+| `internal/service/session` | 47.1% | ❌ Низкое |
+| `internal/handler` | 27.7% | ❌ Критически низкое |
+| `cmd/auth-portal` | 0% | ❌ Отсутствует |
+
+**Рекомендации по тестированию:**
+1. Добавить интеграционные тесты для `internal/handler`
+2. Покрыть тестами `internal/nginx/generator.go`
+3. Добавить unit tests для `cmd/auth-portal/main.go` (NewServer, helpers)
+
+### Структура проекта
+
+```
+auth-portal/
+├── cmd/auth-portal/          # Точка входа (466 строк main.go)
+├── internal/
+│   ├── config/               # Конфигурация (viper)
+│   ├── handler/              # HTTP handlers
+│   ├── help/                 # CLI help генератор
+│   ├── model/                # Доменные модели
+│   ├── nginx/                # Nginx config генератор
+│   ├── schema/               # JSON Schema генератор
+│   ├── service/
+│   │   ├── crypto/           # Шифрование, JWT
+│   │   ├── idp/              # OAuth2/OIDC провайдеры
+│   │   ├── metrics/          # Prometheus метрики
+│   │   ├── session/          # Session management
+│   │   └── visibility/       # RBAC visibility
+│   └── ui/                   # Templates, static
+├── pkg/
+│   ├── logger/               # Zap wrapper
+│   ├── resilience/           # Circuit breaker, Rate limit
+│   └── tracing/              # OpenTelemetry
+└── nginx/templates/          # Nginx templates
+```
+
+**Оценка структуры:** ✅ Чистая архитектура, хорошее разделение ответственности
+
+### Качество кода
+
+#### Положительные аспекты
+
+| Аспект | Оценка | Детали |
+|--------|--------|--------|
+| **Статический анализ** | ✅ | `go vet` проходит без ошибок |
+| **TODO/FIXME** | ✅ | Отсутствуют нерешённые TODO |
+| **Panic usage** | ✅ | Только в `Must*` функциях (правильный паттерн) |
+| **Error handling** | ✅ | Используется `fmt.Errorf` с `%w` для wrapping |
+| **Interface design** | ✅ | `Store`, `Provider` - чистые интерфейсы |
+| **Dependency injection** | ✅ | Через конструкторы |
+| **Structured logging** | ✅ | zap с полями |
+| **Sentinel errors** | ✅ | `ErrSessionNotFound`, `ErrSessionExpired` |
+
+#### Требуют улучшения
+
+| Аспект | Оценка | Рекомендация |
+|--------|--------|--------------|
+| **Test assertions** | ⚠️ | Используется stdlib `testing`, рекомендуется `testify` |
+| **Table-driven tests** | ✅ | Используются правильно |
+| **main.go complexity** | ⚠️ | 466 строк, можно разбить на модули |
+| **auth.go complexity** | ⚠️ | 523 строки, 21 метод - на грани |
+| **Cyclomatic complexity** | ⚠️ | `HandleCallback` ~10, `NewServer` ~15 |
+
+### Соответствие Guidelines
+
+| Правило | Соответствие | Комментарий |
+|---------|--------------|-------------|
+| snake_case для файлов | ✅ | `forward_auth.go`, `circuit_breaker.go` |
+| lowercase для пакетов | ✅ | `visibility`, `session`, `idp` |
+| Interfaces без I-prefix | ✅ | `Store`, `Provider` |
+| Constructors `New*()` | ✅ | `NewManager()`, `NewFilter()` |
+| Options `With*()` | ⚠️ | Не используется (нет functional options) |
+| Lifecycle `Start/Stop` | ⚠️ | Только в TracerProvider |
+| testify assertions | ❌ | Не используется, plain `t.Errorf()` |
+
+### Архитектурные паттерны
+
+```mermaid
+graph TB
+    subgraph "Dependency Flow"
+        main["cmd/main.go"]
+        handlers["internal/handler"]
+        services["internal/service/*"]
+        models["internal/model"]
+        config["internal/config"]
+        pkg["pkg/*"]
+    end
+
+    main --> handlers
+    main --> config
+    main --> pkg
+    handlers --> services
+    handlers --> models
+    handlers --> config
+    services --> models
+    services --> config
+    services --> pkg
+```
+
+**Оценка:** ✅ Правильный поток зависимостей (нет циклов), чистые границы между слоями
+
+### Рекомендации по улучшению кода
+
+#### Приоритет 1: Тестирование
+
+```go
+// Перейти с:
+if result != expected {
+    t.Errorf("got %v, want %v", result, expected)
+}
+
+// На testify:
+import "github.com/stretchr/testify/assert"
+
+assert.Equal(t, expected, result)
+require.NoError(t, err)
+```
+
+#### Приоритет 2: Декомпозиция main.go
+
+```go
+// Разбить NewServer на:
+func setupMiddleware(r chi.Router, cfg *config.Config, m *metrics.Metrics, tp *tracing.TracerProvider)
+func setupAuthRoutes(r chi.Router, authHandler *handler.AuthHandler, sessionMgr *session.Manager)
+func setupPortalRoutes(r chi.Router, portalHandler *handler.PortalHandler, authHandler *handler.AuthHandler, sessionMgr *session.Manager)
+func setupAdminRoutes(r chi.Router, cfg *config.Config)
+```
+
+#### Приоритет 3: Functional Options
+
+```go
+// Добавить для гибкой конфигурации:
+type SessionManagerOption func(*Manager)
+
+func WithStore(store Store) SessionManagerOption {
+    return func(m *Manager) {
+        m.store = store
+    }
+}
+
+func NewManager(cfg *config.SessionConfig, opts ...SessionManagerOption) (*Manager, error) {
+    // ...
+}
+```
+
+### Техдолг
+
+| Элемент | Приоритет | Оценка трудозатрат |
+|---------|-----------|-------------------|
+| Добавить testify | Средний | 2-4 часа |
+| Покрыть handlers тестами | Высокий | 8-16 часов |
+| Покрыть nginx тестами | Средний | 4-8 часов |
+| Разбить main.go | Низкий | 2-4 часа |
+| Добавить functional options | Низкий | 4-8 часов |
+| Исправить schema_test.go | Низкий | 30 минут |
+
+### Заключение по качеству кода
+
+**Общая оценка: 7.5/10**
+
+Кодовая база демонстрирует зрелые практики разработки:
+- Чистая архитектура с правильным разделением слоёв
+- Хорошее покрытие тестами для критичных компонентов
+- Правильные паттерны обработки ошибок и логирования
+- Отсутствие циклических зависимостей
+
+Основные области для улучшения:
+- Покрытие тестами HTTP handlers (27.7%)
+- Переход на testify для более выразительных assertions
+- Декомпозиция крупных файлов (main.go, auth.go)
 
 ---
 
