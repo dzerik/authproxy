@@ -10,13 +10,15 @@ import (
 	"github.com/dzerik/auth-portal/internal/config"
 	"github.com/dzerik/auth-portal/internal/model"
 	"github.com/dzerik/auth-portal/internal/service/session"
+	"github.com/dzerik/auth-portal/internal/service/visibility"
 )
 
 // PortalHandler handles portal routes
 type PortalHandler struct {
-	sessionManager *session.Manager
-	config         *config.Config
-	templates      *template.Template
+	sessionManager   *session.Manager
+	config           *config.Config
+	templates        *template.Template
+	visibilityFilter *visibility.Filter
 }
 
 // NewPortalHandler creates a new portal handler
@@ -26,9 +28,10 @@ func NewPortalHandler(
 	templates *template.Template,
 ) *PortalHandler {
 	return &PortalHandler{
-		sessionManager: sessionMgr,
-		config:         cfg,
-		templates:      templates,
+		sessionManager:   sessionMgr,
+		config:           cfg,
+		templates:        templates,
+		visibilityFilter: visibility.NewFilter(),
 	}
 }
 
@@ -94,13 +97,14 @@ func (h *PortalHandler) HandleServices(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// getServicesForUser returns services available to the user
-// Note: Auth portal doesn't filter by roles/groups - it shows all services
-// Authorization is handled by the backend services themselves
+// getServicesForUser returns services available to the user based on their roles and groups.
+// Services with visibility config are filtered; services without it are visible to all.
 func (h *PortalHandler) getServicesForUser(user *model.User) []ServiceView {
-	var services []ServiceView
+	// Filter services based on user's roles and groups
+	visibleServices := h.visibilityFilter.FilterServices(h.config.Services, user)
 
-	for _, svc := range h.config.Services {
+	var services []ServiceView
+	for _, svc := range visibleServices {
 		// Build the service URL
 		url := svc.Location
 		if url == "" && svc.Upstream != "" {

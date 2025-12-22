@@ -224,6 +224,8 @@ type ServiceConfig struct {
 	Headers HeadersConfig `yaml:"headers" mapstructure:"headers" jsonschema:"description=HTTP header manipulation rules"`
 	// NginxExtra contains additional nginx configuration
 	NginxExtra string `yaml:"nginx_extra" mapstructure:"nginx_extra" jsonschema:"description=Additional nginx configuration for this location"`
+	// Visibility controls which users can see this service in the portal
+	Visibility *VisibilityConfig `yaml:"visibility,omitempty" mapstructure:"visibility" jsonschema:"description=Role/group-based visibility control for this service in the portal"`
 }
 
 // HeadersConfig represents header manipulation configuration
@@ -232,6 +234,16 @@ type HeadersConfig struct {
 	Add map[string]string `yaml:"add" mapstructure:"add" jsonschema:"description=Headers to add to proxied requests (supports {{.User.*}} templates)"`
 	// Remove contains headers to remove from requests
 	Remove []string `yaml:"remove" mapstructure:"remove" jsonschema:"description=Headers to remove from proxied requests"`
+}
+
+// VisibilityConfig controls which users can see the service in the portal
+type VisibilityConfig struct {
+	// Roles specifies which roles can see this service
+	Roles []string `yaml:"roles" mapstructure:"roles" jsonschema:"description=List of roles that can see this service (user must have at least one if mode=any or all if mode=all)"`
+	// Groups specifies which groups can see this service
+	Groups []string `yaml:"groups" mapstructure:"groups" jsonschema:"description=List of groups that can see this service (user must be in at least one if mode=any or all if mode=all)"`
+	// Mode specifies how to combine role/group requirements: 'any' (OR) or 'all' (AND)
+	Mode string `yaml:"mode" mapstructure:"mode" jsonschema:"default=any,enum=any,enum=all,description=How to combine role and group requirements: any (OR) or all (AND)"`
 }
 
 // DevModeConfig represents development mode configuration

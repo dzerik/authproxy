@@ -70,6 +70,7 @@ dev_mode:
 # Each service requires: name, location, upstream
 services:
   # === Mock Services via Internal AuthZ (OPA engine) ===
+  # User service - visible to anyone with 'user' or 'viewer' role
   - name: mock-user-internal
     display_name: "User Service (Internal AuthZ)"
     description: "Mock User API via internal authz-service (OPA)"
@@ -77,11 +78,15 @@ services:
     location: /internal/mock/user/
     upstream: http://authz-service:8088/mock/user
     auth_required: true
+    visibility:
+      roles: [user, viewer, admin]
+      mode: any
     headers:
       add:
         X-Forwarded-User: "{{.User.Email}}"
         X-User-ID: "{{.User.ID}}"
 
+  # Admin service - visible only to users with 'admin' role
   - name: mock-admin-internal
     display_name: "Admin Service (Internal AuthZ)"
     description: "Mock Admin API via internal authz-service (OPA)"
@@ -89,12 +94,16 @@ services:
     location: /internal/mock/admin/
     upstream: http://authz-service:8088/mock/admin
     auth_required: true
+    visibility:
+      roles: [admin]
+      mode: any
     headers:
       add:
         X-Forwarded-User: "{{.User.Email}}"
         X-User-ID: "{{.User.ID}}"
         X-User-Roles: "{{.User.Roles}}"
 
+  # External API - visible to users with 'partner' or 'admin' role
   - name: mock-external-internal
     display_name: "External API (Internal AuthZ)"
     description: "Mock External API via internal authz-service (OPA)"
@@ -102,11 +111,15 @@ services:
     location: /internal/mock/external/
     upstream: http://authz-service:8088/mock/external
     auth_required: true
+    visibility:
+      roles: [partner, admin]
+      mode: any
     headers:
       add:
         X-Forwarded-User: "{{.User.Email}}"
 
   # === Mock Services via External AuthZ (Builtin engine) ===
+  # User service - visible to anyone with 'user' or 'viewer' role
   - name: mock-user-external
     display_name: "User Service (External AuthZ)"
     description: "Mock User API via external authz-service (Builtin)"
@@ -114,11 +127,15 @@ services:
     location: /external/mock/user/
     upstream: http://authz-service-external:8088/mock/user
     auth_required: true
+    visibility:
+      roles: [user, viewer, admin]
+      mode: any
     headers:
       add:
         X-Forwarded-User: "{{.User.Email}}"
         X-User-ID: "{{.User.ID}}"
 
+  # Admin service - visible only to users with 'admin' role
   - name: mock-admin-external
     display_name: "Admin Service (External AuthZ)"
     description: "Mock Admin API via external authz-service (Builtin)"
@@ -126,12 +143,16 @@ services:
     location: /external/mock/admin/
     upstream: http://authz-service-external:8088/mock/admin
     auth_required: true
+    visibility:
+      roles: [admin]
+      mode: any
     headers:
       add:
         X-Forwarded-User: "{{.User.Email}}"
         X-User-ID: "{{.User.ID}}"
         X-User-Roles: "{{.User.Roles}}"
 
+  # External API - visible to users with 'partner' or 'admin' role
   - name: mock-external-external
     display_name: "External API (External AuthZ)"
     description: "Mock External API via external authz-service (Builtin)"
@@ -139,6 +160,9 @@ services:
     location: /external/mock/external/
     upstream: http://authz-service-external:8088/mock/external
     auth_required: true
+    visibility:
+      roles: [partner, admin]
+      mode: any
     headers:
       add:
         X-Forwarded-User: "{{.User.Email}}"

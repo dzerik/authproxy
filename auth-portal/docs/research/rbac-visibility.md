@@ -412,8 +412,8 @@ flowchart LR
     end
 
     subgraph API["API"]
-        Services[/api/services]
-        User[/api/user]
+        Services["/api/services"]
+        User["/api/user"]
     end
 
     Portal -->|fetch| Services
