@@ -3,10 +3,11 @@ package nginx
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/dzerik/auth-portal/internal/config"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestTemplateFuncs(t *testing.T) {
@@ -16,162 +17,113 @@ func TestTemplateFuncs(t *testing.T) {
 		defFunc := funcs["default"].(func(interface{}, interface{}) interface{})
 
 		// Return default when value is nil
-		if result := defFunc("default", nil); result != "default" {
-			t.Errorf("default(\"default\", nil) = %v, want \"default\"", result)
-		}
+		result := defFunc("default", nil)
+		assert.Equal(t, "default", result)
 
 		// Return default when value is empty string
-		if result := defFunc("default", ""); result != "default" {
-			t.Errorf("default(\"default\", \"\") = %v, want \"default\"", result)
-		}
+		result = defFunc("default", "")
+		assert.Equal(t, "default", result)
 
 		// Return default when value is 0
-		if result := defFunc("default", 0); result != "default" {
-			t.Errorf("default(\"default\", 0) = %v, want \"default\"", result)
-		}
+		result = defFunc("default", 0)
+		assert.Equal(t, "default", result)
 
 		// Return value when value is set
-		if result := defFunc("default", "actual"); result != "actual" {
-			t.Errorf("default(\"default\", \"actual\") = %v, want \"actual\"", result)
-		}
+		result = defFunc("default", "actual")
+		assert.Equal(t, "actual", result)
 
 		// Return value when value is non-zero number
-		if result := defFunc(10, 42); result != 42 {
-			t.Errorf("default(10, 42) = %v, want 42", result)
-		}
+		result = defFunc(10, 42)
+		assert.Equal(t, 42, result)
 	})
 
 	t.Run("replace", func(t *testing.T) {
 		replaceFunc := funcs["replace"].(func(string, string, string) string)
 
 		result := replaceFunc("-", "_", "my-service-name")
-		if result != "my_service_name" {
-			t.Errorf("replace(\"-\", \"_\", \"my-service-name\") = %s, want \"my_service_name\"", result)
-		}
+		assert.Equal(t, "my_service_name", result)
 
 		result = replaceFunc("old", "new", "old value old")
-		if result != "new value new" {
-			t.Errorf("replace(\"old\", \"new\", \"old value old\") = %s, want \"new value new\"", result)
-		}
+		assert.Equal(t, "new value new", result)
 	})
 
 	t.Run("join", func(t *testing.T) {
 		joinFunc := funcs["join"].(func(string, []string) string)
 
 		result := joinFunc(",", []string{"a", "b", "c"})
-		if result != "a,b,c" {
-			t.Errorf("join(\",\", [\"a\", \"b\", \"c\"]) = %s, want \"a,b,c\"", result)
-		}
+		assert.Equal(t, "a,b,c", result)
 
 		result = joinFunc(" ", []string{"hello", "world"})
-		if result != "hello world" {
-			t.Errorf("join(\" \", [\"hello\", \"world\"]) = %s, want \"hello world\"", result)
-		}
+		assert.Equal(t, "hello world", result)
 
 		result = joinFunc(",", []string{})
-		if result != "" {
-			t.Errorf("join(\",\", []) = %s, want \"\"", result)
-		}
+		assert.Equal(t, "", result)
 	})
 
 	t.Run("contains", func(t *testing.T) {
 		containsFunc := funcs["contains"].(func(string, string) bool)
 
-		if !containsFunc("hello world", "world") {
-			t.Error("contains(\"hello world\", \"world\") should be true")
-		}
-
-		if containsFunc("hello world", "foo") {
-			t.Error("contains(\"hello world\", \"foo\") should be false")
-		}
-
-		if !containsFunc("hello", "") {
-			t.Error("contains(\"hello\", \"\") should be true")
-		}
+		assert.True(t, containsFunc("hello world", "world"))
+		assert.False(t, containsFunc("hello world", "foo"))
+		assert.True(t, containsFunc("hello", ""))
 	})
 
 	t.Run("hasPrefix", func(t *testing.T) {
 		hasPrefixFunc := funcs["hasPrefix"].(func(string, string) bool)
 
-		if !hasPrefixFunc("hello world", "hello") {
-			t.Error("hasPrefix(\"hello world\", \"hello\") should be true")
-		}
-
-		if hasPrefixFunc("hello world", "world") {
-			t.Error("hasPrefix(\"hello world\", \"world\") should be false")
-		}
+		assert.True(t, hasPrefixFunc("hello world", "hello"))
+		assert.False(t, hasPrefixFunc("hello world", "world"))
 	})
 
 	t.Run("hasSuffix", func(t *testing.T) {
 		hasSuffixFunc := funcs["hasSuffix"].(func(string, string) bool)
 
-		if !hasSuffixFunc("hello world", "world") {
-			t.Error("hasSuffix(\"hello world\", \"world\") should be true")
-		}
-
-		if hasSuffixFunc("hello world", "hello") {
-			t.Error("hasSuffix(\"hello world\", \"hello\") should be false")
-		}
+		assert.True(t, hasSuffixFunc("hello world", "world"))
+		assert.False(t, hasSuffixFunc("hello world", "hello"))
 	})
 
 	t.Run("lower", func(t *testing.T) {
 		lowerFunc := funcs["lower"].(func(string) string)
 
 		result := lowerFunc("HELLO World")
-		if result != "hello world" {
-			t.Errorf("lower(\"HELLO World\") = %s, want \"hello world\"", result)
-		}
+		assert.Equal(t, "hello world", result)
 	})
 
 	t.Run("upper", func(t *testing.T) {
 		upperFunc := funcs["upper"].(func(string) string)
 
 		result := upperFunc("hello World")
-		if result != "HELLO WORLD" {
-			t.Errorf("upper(\"hello World\") = %s, want \"HELLO WORLD\"", result)
-		}
+		assert.Equal(t, "HELLO WORLD", result)
 	})
 
 	t.Run("trim", func(t *testing.T) {
 		trimFunc := funcs["trim"].(func(string) string)
 
 		result := trimFunc("  hello world  ")
-		if result != "hello world" {
-			t.Errorf("trim(\"  hello world  \") = %s, want \"hello world\"", result)
-		}
+		assert.Equal(t, "hello world", result)
 
 		result = trimFunc("\t\nhello\n\t")
-		if result != "hello" {
-			t.Errorf("trim(\"\\t\\nhello\\n\\t\") = %s, want \"hello\"", result)
-		}
+		assert.Equal(t, "hello", result)
 	})
 
 	t.Run("quote", func(t *testing.T) {
 		quoteFunc := funcs["quote"].(func(string) string)
 
 		result := quoteFunc("hello")
-		if result != "\"hello\"" {
-			t.Errorf("quote(\"hello\") = %s, want \"\\\"hello\\\"\"", result)
-		}
+		assert.Equal(t, "\"hello\"", result)
 
 		result = quoteFunc("hello \"world\"")
-		if !strings.Contains(result, "\\\"") {
-			t.Errorf("quote should escape inner quotes: %s", result)
-		}
+		assert.Contains(t, result, "\\\"")
 	})
 
 	t.Run("printf", func(t *testing.T) {
 		printfFunc := funcs["printf"].(func(string, ...interface{}) string)
 
 		result := printfFunc("Hello, %s!", "World")
-		if result != "Hello, World!" {
-			t.Errorf("printf(\"Hello, %%s!\", \"World\") = %s, want \"Hello, World!\"", result)
-		}
+		assert.Equal(t, "Hello, World!", result)
 
 		result = printfFunc("%d + %d = %d", 1, 2, 3)
-		if result != "1 + 2 = 3" {
-			t.Errorf("printf(\"%%d + %%d = %%d\", 1, 2, 3) = %s, want \"1 + 2 = 3\"", result)
-		}
+		assert.Equal(t, "1 + 2 = 3", result)
 	})
 }
 
@@ -189,28 +141,16 @@ func TestNewGenerator(t *testing.T) {
 
 	t.Run("valid config", func(t *testing.T) {
 		g, err := NewGenerator(cfg, "/tmp/nginx")
-		if err != nil {
-			t.Fatalf("NewGenerator failed: %v", err)
-		}
-		if g == nil {
-			t.Fatal("NewGenerator returned nil")
-		}
-		if g.config != cfg {
-			t.Error("config not set correctly")
-		}
-		if g.outputDir != "/tmp/nginx" {
-			t.Errorf("outputDir = %s, want /tmp/nginx", g.outputDir)
-		}
+		require.NoError(t, err)
+		require.NotNil(t, g)
+		assert.Equal(t, cfg, g.config)
+		assert.Equal(t, "/tmp/nginx", g.outputDir)
 	})
 
 	t.Run("empty output dir", func(t *testing.T) {
 		g, err := NewGenerator(cfg, "")
-		if err != nil {
-			t.Fatalf("NewGenerator failed: %v", err)
-		}
-		if g.outputDir != "" {
-			t.Errorf("outputDir = %s, want empty", g.outputDir)
-		}
+		require.NoError(t, err)
+		assert.Equal(t, "", g.outputDir)
 	})
 }
 
@@ -236,14 +176,10 @@ func TestGenerator_Generate(t *testing.T) {
 	}
 
 	g, err := NewGenerator(cfg, "")
-	if err != nil {
-		t.Fatalf("NewGenerator failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	content, err := g.Generate()
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Check that essential parts are present
 	checks := []struct {
@@ -263,9 +199,7 @@ func TestGenerator_Generate(t *testing.T) {
 
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) {
-			if !strings.Contains(content, check.expected) {
-				t.Errorf("Generated config should contain %q", check.expected)
-			}
+			assert.Contains(t, content, check.expected)
 		})
 	}
 }
@@ -298,57 +232,37 @@ func TestGenerator_Generate_WithServices(t *testing.T) {
 	}
 
 	g, err := NewGenerator(cfg, "")
-	if err != nil {
-		t.Fatalf("NewGenerator failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	content, err := g.Generate()
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Check service-specific configurations
 	t.Run("service with auth", func(t *testing.T) {
-		if !strings.Contains(content, "service_one_backend") {
-			t.Error("should contain service_one_backend upstream")
-		}
-		if !strings.Contains(content, "location /one/") {
-			t.Error("should contain /one/ location")
-		}
-		if !strings.Contains(content, "auth_request /_auth") {
-			t.Error("should contain auth_request for authenticated service")
-		}
+		assert.Contains(t, content, "service_one_backend")
+		assert.Contains(t, content, "location /one/")
+		assert.Contains(t, content, "auth_request /_auth")
 	})
 
 	t.Run("service with rewrite", func(t *testing.T) {
-		if !strings.Contains(content, "rewrite ^/one/(.*) /$1 break") {
-			t.Error("should contain rewrite rule")
-		}
+		assert.Contains(t, content, "rewrite ^/one/(.*) /$1 break")
 	})
 
 	t.Run("service with custom headers", func(t *testing.T) {
-		if !strings.Contains(content, "proxy_set_header X-Custom") {
-			t.Error("should contain custom header")
-		}
+		assert.Contains(t, content, "proxy_set_header X-Custom")
 	})
 
 	t.Run("service with removed headers", func(t *testing.T) {
 		// Check for Cookie header removal (set to empty)
-		if !strings.Contains(content, "proxy_set_header Cookie \"\"") {
-			t.Error("should contain Cookie header removal")
-		}
+		assert.Contains(t, content, "proxy_set_header Cookie \"\"")
 	})
 
 	t.Run("service with nginx extra", func(t *testing.T) {
-		if !strings.Contains(content, "proxy_buffering off") {
-			t.Error("should contain nginx extra config")
-		}
+		assert.Contains(t, content, "proxy_buffering off")
 	})
 
 	t.Run("public service without auth", func(t *testing.T) {
-		if !strings.Contains(content, "location /public/") {
-			t.Error("should contain /public/ location")
-		}
+		assert.Contains(t, content, "location /public/")
 	})
 }
 
@@ -365,14 +279,10 @@ func TestGenerator_Generate_WithTLS(t *testing.T) {
 	}
 
 	g, err := NewGenerator(cfg, "")
-	if err != nil {
-		t.Fatalf("NewGenerator failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	content, err := g.Generate()
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	checks := []string{
 		"listen 443 ssl http2",
@@ -382,9 +292,7 @@ func TestGenerator_Generate_WithTLS(t *testing.T) {
 	}
 
 	for _, check := range checks {
-		if !strings.Contains(content, check) {
-			t.Errorf("TLS config should contain %q", check)
-		}
+		assert.Contains(t, content, check)
 	}
 }
 
@@ -403,24 +311,14 @@ func TestGenerator_Generate_WithRateLimit(t *testing.T) {
 	}
 
 	g, err := NewGenerator(cfg, "")
-	if err != nil {
-		t.Fatalf("NewGenerator failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	content, err := g.Generate()
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if !strings.Contains(content, "limit_req_zone") {
-		t.Error("should contain limit_req_zone")
-	}
-	if !strings.Contains(content, "zone=auth_limit:20m") {
-		t.Error("should contain zone size 20m")
-	}
-	if !strings.Contains(content, "rate=100r/s") {
-		t.Error("should contain rate 100r/s")
-	}
+	assert.Contains(t, content, "limit_req_zone")
+	assert.Contains(t, content, "zone=auth_limit:20m")
+	assert.Contains(t, content, "rate=100r/s")
 }
 
 func TestGenerator_Generate_WithMetrics(t *testing.T) {
@@ -437,18 +335,12 @@ func TestGenerator_Generate_WithMetrics(t *testing.T) {
 	}
 
 	g, err := NewGenerator(cfg, "")
-	if err != nil {
-		t.Fatalf("NewGenerator failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	content, err := g.Generate()
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if !strings.Contains(content, "location /custom-metrics") {
-		t.Error("should contain custom metrics path")
-	}
+	assert.Contains(t, content, "location /custom-metrics")
 }
 
 func TestGenerator_GenerateToFile(t *testing.T) {
@@ -460,30 +352,21 @@ func TestGenerator_GenerateToFile(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	g, err := NewGenerator(cfg, tmpDir)
-	if err != nil {
-		t.Fatalf("NewGenerator failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	outputPath := filepath.Join(tmpDir, "nginx.conf")
 	err = g.GenerateToFile(outputPath)
-	if err != nil {
-		t.Fatalf("GenerateToFile failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Check file exists
-	if _, err := os.Stat(outputPath); os.IsNotExist(err) {
-		t.Error("output file should exist")
-	}
+	_, err = os.Stat(outputPath)
+	assert.False(t, os.IsNotExist(err))
 
 	// Check file content
 	content, err := os.ReadFile(outputPath)
-	if err != nil {
-		t.Fatalf("failed to read output file: %v", err)
-	}
+	require.NoError(t, err)
 
-	if !strings.Contains(string(content), "worker_processes") {
-		t.Error("file should contain valid nginx config")
-	}
+	assert.Contains(t, string(content), "worker_processes")
 }
 
 func TestGenerator_GenerateToFile_CreatesDirectory(t *testing.T) {
@@ -496,25 +379,19 @@ func TestGenerator_GenerateToFile_CreatesDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 	nestedDir := filepath.Join(tmpDir, "nested", "dir")
 	g, err := NewGenerator(cfg, nestedDir)
-	if err != nil {
-		t.Fatalf("NewGenerator failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	outputPath := filepath.Join(nestedDir, "nginx.conf")
 	err = g.GenerateToFile(outputPath)
-	if err != nil {
-		t.Fatalf("GenerateToFile failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Check nested directory was created
-	if _, err := os.Stat(nestedDir); os.IsNotExist(err) {
-		t.Error("nested directory should be created")
-	}
+	_, err = os.Stat(nestedDir)
+	assert.False(t, os.IsNotExist(err))
 
 	// Check file exists
-	if _, err := os.Stat(outputPath); os.IsNotExist(err) {
-		t.Error("output file should exist")
-	}
+	_, err = os.Stat(outputPath)
+	assert.False(t, os.IsNotExist(err))
 }
 
 func TestGenerator_GetOutputPath(t *testing.T) {
@@ -522,41 +399,26 @@ func TestGenerator_GetOutputPath(t *testing.T) {
 
 	t.Run("with custom output dir", func(t *testing.T) {
 		g, err := NewGenerator(cfg, "/custom/path")
-		if err != nil {
-			t.Fatalf("NewGenerator failed: %v", err)
-		}
+		require.NoError(t, err)
 
 		path := g.GetOutputPath()
-		expected := "/custom/path/nginx.conf"
-		if path != expected {
-			t.Errorf("GetOutputPath() = %s, want %s", path, expected)
-		}
+		assert.Equal(t, "/custom/path/nginx.conf", path)
 	})
 
 	t.Run("with empty output dir", func(t *testing.T) {
 		g, err := NewGenerator(cfg, "")
-		if err != nil {
-			t.Fatalf("NewGenerator failed: %v", err)
-		}
+		require.NoError(t, err)
 
 		path := g.GetOutputPath()
-		expected := "/etc/nginx/nginx.conf"
-		if path != expected {
-			t.Errorf("GetOutputPath() = %s, want %s", path, expected)
-		}
+		assert.Equal(t, "/etc/nginx/nginx.conf", path)
 	})
 }
 
 func TestTemplateData_AuthRequired(t *testing.T) {
 	data := TemplateData{Config: &config.Config{}}
 
-	if !data.AuthRequired(true) {
-		t.Error("AuthRequired(true) should return true")
-	}
-
-	if data.AuthRequired(false) {
-		t.Error("AuthRequired(false) should return false")
-	}
+	assert.True(t, data.AuthRequired(true))
+	assert.False(t, data.AuthRequired(false))
 }
 
 func TestGenerator_MustGenerate(t *testing.T) {
@@ -567,19 +429,12 @@ func TestGenerator_MustGenerate(t *testing.T) {
 	}
 
 	g, err := NewGenerator(cfg, "")
-	if err != nil {
-		t.Fatalf("NewGenerator failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Should not panic with valid config
 	content := g.MustGenerate()
-	if content == "" {
-		t.Error("MustGenerate should return non-empty content")
-	}
-
-	if !strings.Contains(content, "worker_processes") {
-		t.Error("MustGenerate should return valid nginx config")
-	}
+	assert.NotEmpty(t, content)
+	assert.Contains(t, content, "worker_processes")
 }
 
 func TestGenerator_Generate_DefaultValues(t *testing.T) {
@@ -587,14 +442,10 @@ func TestGenerator_Generate_DefaultValues(t *testing.T) {
 	cfg := &config.Config{}
 
 	g, err := NewGenerator(cfg, "")
-	if err != nil {
-		t.Fatalf("NewGenerator failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	content, err := g.Generate()
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Check default values are applied
 	defaults := []struct {
@@ -611,9 +462,7 @@ func TestGenerator_Generate_DefaultValues(t *testing.T) {
 
 	for _, d := range defaults {
 		t.Run(d.name, func(t *testing.T) {
-			if !strings.Contains(content, d.expected) {
-				t.Errorf("config should contain default %s: %s", d.name, d.expected)
-			}
+			assert.Contains(t, content, d.expected)
 		})
 	}
 }
@@ -629,18 +478,12 @@ func TestGenerator_Generate_CustomLogFormat(t *testing.T) {
 	}
 
 	g, err := NewGenerator(cfg, "")
-	if err != nil {
-		t.Fatalf("NewGenerator failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	content, err := g.Generate()
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if !strings.Contains(content, "log_format custom") {
-		t.Error("should contain custom log format")
-	}
+	assert.Contains(t, content, "log_format custom")
 }
 
 func BenchmarkGenerator_Generate(b *testing.B) {

@@ -1,8 +1,12 @@
 package config
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidationError_Error(t *testing.T) {
@@ -12,17 +16,13 @@ func TestValidationError_Error(t *testing.T) {
 	}
 
 	expected := "test.field: test message"
-	if err.Error() != expected {
-		t.Errorf("Error() = %s, want %s", err.Error(), expected)
-	}
+	assert.Equal(t, expected, err.Error())
 }
 
 func TestValidationErrors_Error(t *testing.T) {
 	t.Run("empty errors", func(t *testing.T) {
 		var errs ValidationErrors
-		if errs.Error() != "" {
-			t.Errorf("Error() = %s, want empty string", errs.Error())
-		}
+		assert.Equal(t, "", errs.Error())
 	})
 
 	t.Run("single error", func(t *testing.T) {
@@ -30,9 +30,7 @@ func TestValidationErrors_Error(t *testing.T) {
 			{Field: "field1", Message: "message1"},
 		}
 		result := errs.Error()
-		if !strings.Contains(result, "field1: message1") {
-			t.Errorf("Error() should contain 'field1: message1', got %s", result)
-		}
+		assert.Contains(t, result, "field1: message1")
 	})
 
 	t.Run("multiple errors", func(t *testing.T) {
@@ -41,12 +39,8 @@ func TestValidationErrors_Error(t *testing.T) {
 			{Field: "field2", Message: "message2"},
 		}
 		result := errs.Error()
-		if !strings.Contains(result, "field1: message1") {
-			t.Errorf("Error() should contain 'field1: message1', got %s", result)
-		}
-		if !strings.Contains(result, "field2: message2") {
-			t.Errorf("Error() should contain 'field2: message2', got %s", result)
-		}
+		assert.Contains(t, result, "field1: message1")
+		assert.Contains(t, result, "field2: message2")
 	})
 }
 
@@ -75,11 +69,10 @@ func TestValidate_Mode(t *testing.T) {
 			err := Validate(cfg)
 			hasErr := err != nil && containsField(err, "mode")
 
-			if tt.expectErr && !hasErr {
-				t.Error("expected mode validation error")
-			}
-			if !tt.expectErr && hasErr {
-				t.Errorf("unexpected mode validation error: %v", err)
+			if tt.expectErr {
+				assert.True(t, hasErr, "expected mode validation error")
+			} else {
+				assert.False(t, hasErr, "unexpected mode validation error: %v", err)
 			}
 		})
 	}
@@ -92,9 +85,8 @@ func TestValidate_SingleService(t *testing.T) {
 		cfg.SingleService.TargetURL = ""
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "single_service.target_url") {
-			t.Error("expected single_service.target_url validation error")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "single_service.target_url"), "expected single_service.target_url validation error")
 	})
 
 	t.Run("single-service mode with target_url", func(t *testing.T) {
@@ -103,9 +95,7 @@ func TestValidate_SingleService(t *testing.T) {
 		cfg.SingleService.TargetURL = "https://app.example.com"
 
 		err := Validate(cfg)
-		if containsField(err, "single_service.target_url") {
-			t.Error("unexpected single_service.target_url validation error")
-		}
+		assert.False(t, containsField(err, "single_service.target_url"), "unexpected single_service.target_url validation error")
 	})
 
 	t.Run("portal mode without target_url is valid", func(t *testing.T) {
@@ -114,9 +104,7 @@ func TestValidate_SingleService(t *testing.T) {
 		cfg.SingleService.TargetURL = ""
 
 		err := Validate(cfg)
-		if containsField(err, "single_service.target_url") {
-			t.Error("single_service.target_url should not be required in portal mode")
-		}
+		assert.False(t, containsField(err, "single_service.target_url"), "single_service.target_url should not be required in portal mode")
 	})
 }
 
@@ -126,9 +114,8 @@ func TestValidate_Auth(t *testing.T) {
 		cfg.Auth.Keycloak.IssuerURL = ""
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "auth.keycloak.issuer_url") {
-			t.Error("expected auth.keycloak.issuer_url validation error")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "auth.keycloak.issuer_url"), "expected auth.keycloak.issuer_url validation error")
 	})
 
 	t.Run("invalid issuer_url", func(t *testing.T) {
@@ -136,9 +123,8 @@ func TestValidate_Auth(t *testing.T) {
 		cfg.Auth.Keycloak.IssuerURL = "://invalid-url"
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "auth.keycloak.issuer_url") {
-			t.Error("expected auth.keycloak.issuer_url validation error")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "auth.keycloak.issuer_url"), "expected auth.keycloak.issuer_url validation error")
 	})
 
 	t.Run("missing client_id", func(t *testing.T) {
@@ -146,9 +132,8 @@ func TestValidate_Auth(t *testing.T) {
 		cfg.Auth.Keycloak.ClientID = ""
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "auth.keycloak.client_id") {
-			t.Error("expected auth.keycloak.client_id validation error")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "auth.keycloak.client_id"), "expected auth.keycloak.client_id validation error")
 	})
 
 	t.Run("missing client_secret", func(t *testing.T) {
@@ -156,9 +141,8 @@ func TestValidate_Auth(t *testing.T) {
 		cfg.Auth.Keycloak.ClientSecret = ""
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "auth.keycloak.client_secret") {
-			t.Error("expected auth.keycloak.client_secret validation error")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "auth.keycloak.client_secret"), "expected auth.keycloak.client_secret validation error")
 	})
 
 	t.Run("missing redirect_url", func(t *testing.T) {
@@ -166,9 +150,8 @@ func TestValidate_Auth(t *testing.T) {
 		cfg.Auth.Keycloak.RedirectURL = ""
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "auth.keycloak.redirect_url") {
-			t.Error("expected auth.keycloak.redirect_url validation error")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "auth.keycloak.redirect_url"), "expected auth.keycloak.redirect_url validation error")
 	})
 
 	t.Run("dev mode skips auth validation", func(t *testing.T) {
@@ -181,9 +164,7 @@ func TestValidate_Auth(t *testing.T) {
 		cfg.Auth.Keycloak.RedirectURL = ""
 
 		err := Validate(cfg)
-		if containsField(err, "auth.keycloak") {
-			t.Error("auth validation should be skipped in dev mode")
-		}
+		assert.False(t, containsField(err, "auth.keycloak"), "auth validation should be skipped in dev mode")
 	})
 }
 
@@ -217,11 +198,10 @@ func TestValidate_SessionStore(t *testing.T) {
 			err := Validate(cfg)
 			hasErr := containsField(err, "session.store")
 
-			if tt.expectErr && !hasErr {
-				t.Error("expected session.store validation error")
-			}
-			if !tt.expectErr && hasErr {
-				t.Errorf("unexpected session.store validation error: %v", err)
+			if tt.expectErr {
+				assert.True(t, hasErr, "expected session.store validation error")
+			} else {
+				assert.False(t, hasErr, "unexpected session.store validation error: %v", err)
 			}
 		})
 	}
@@ -235,9 +215,8 @@ func TestValidate_Encryption(t *testing.T) {
 		cfg.Session.Encryption.Key = ""
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "session.encryption.key") {
-			t.Error("expected session.encryption.key validation error")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "session.encryption.key"), "expected session.encryption.key validation error")
 	})
 
 	t.Run("wrong key length", func(t *testing.T) {
@@ -247,21 +226,18 @@ func TestValidate_Encryption(t *testing.T) {
 		cfg.Session.Encryption.Key = "short-key"
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "session.encryption.key") {
-			t.Error("expected session.encryption.key validation error for wrong length")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "session.encryption.key"), "expected session.encryption.key validation error for wrong length")
 	})
 
 	t.Run("valid 32-byte key", func(t *testing.T) {
 		cfg := validConfig()
 		cfg.Session.Store = "cookie"
 		cfg.Session.Encryption.Enabled = true
-		cfg.Session.Encryption.Key = "12345678901234567890123456789012" // 32 bytes
+		cfg.Session.Encryption.Key = "abcdefghijklmnopqrstuvwxyz!@#$%^" // 32 bytes, not valid base64
 
 		err := Validate(cfg)
-		if containsField(err, "session.encryption.key") {
-			t.Errorf("unexpected session.encryption.key validation error: %v", err)
-		}
+		assert.False(t, containsField(err, "session.encryption.key"), "unexpected session.encryption.key validation error: %v", err)
 	})
 
 	t.Run("encryption disabled skips key validation", func(t *testing.T) {
@@ -271,9 +247,75 @@ func TestValidate_Encryption(t *testing.T) {
 		cfg.Session.Encryption.Key = ""
 
 		err := Validate(cfg)
-		if containsField(err, "session.encryption.key") {
-			t.Error("encryption.key should not be required when disabled")
+		assert.False(t, containsField(err, "session.encryption.key"), "encryption.key should not be required when disabled")
+	})
+
+	t.Run("valid base64-encoded 32-byte key", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Session.Store = "cookie"
+		cfg.Session.Encryption.Enabled = true
+		// Generate a proper 32-byte key and encode as base64 (44 chars)
+		key := make([]byte, 32)
+		for i := range key {
+			key[i] = byte(i)
 		}
+		cfg.Session.Encryption.Key = base64.StdEncoding.EncodeToString(key)
+
+		err := Validate(cfg)
+		assert.False(t, containsField(err, "session.encryption.key"), "base64-encoded 32-byte key should be valid: %v", err)
+	})
+
+	t.Run("invalid base64-encoded key - wrong length after decoding", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Session.Store = "cookie"
+		cfg.Session.Encryption.Enabled = true
+		// 24-byte key encoded as base64 (decodes to 24 bytes, not 32)
+		key := make([]byte, 24)
+		cfg.Session.Encryption.Key = base64.StdEncoding.EncodeToString(key)
+
+		err := Validate(cfg)
+		require.Error(t, err)
+		assert.True(t, containsField(err, "session.encryption.key"), "base64 key decoding to wrong length should fail validation")
+	})
+}
+
+func TestValidateEncryptionKeyLength(t *testing.T) {
+	t.Run("raw 32-byte string", func(t *testing.T) {
+		// Use string with chars not valid in base64 to force raw interpretation
+		keyStr := "abcdefghijklmnopqrstuvwxyz!@#$%^" // 32 chars, !@#$%^ not valid base64
+		length, err := validateEncryptionKeyLength(keyStr)
+		require.NoError(t, err)
+		assert.Equal(t, 32, length)
+	})
+
+	t.Run("base64-encoded 32-byte key", func(t *testing.T) {
+		key := make([]byte, 32)
+		for i := range key {
+			key[i] = byte(i)
+		}
+		keyStr := base64.StdEncoding.EncodeToString(key) // 44 chars
+
+		length, err := validateEncryptionKeyLength(keyStr)
+		require.NoError(t, err)
+		assert.Equal(t, 32, length)
+	})
+
+	t.Run("base64-encoded 24-byte key", func(t *testing.T) {
+		key := make([]byte, 24)
+		keyStr := base64.StdEncoding.EncodeToString(key)
+
+		length, err := validateEncryptionKeyLength(keyStr)
+		require.NoError(t, err)
+		assert.Equal(t, 24, length)
+	})
+
+	t.Run("invalid base64 falls back to string length", func(t *testing.T) {
+		// String with characters not valid in base64
+		keyStr := "not-valid-base64!@#$%^&*()_+====" // 32 chars but not valid base64
+
+		length, err := validateEncryptionKeyLength(keyStr)
+		require.NoError(t, err)
+		assert.Equal(t, 32, length, "expected length 32 (raw string)")
 	})
 }
 
@@ -285,9 +327,8 @@ func TestValidate_JWTStore(t *testing.T) {
 		cfg.Session.JWT.PrivateKey = ""
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "session.jwt.signing_key") {
-			t.Error("expected session.jwt.signing_key validation error")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "session.jwt.signing_key"), "expected session.jwt.signing_key validation error")
 	})
 
 	t.Run("valid with signing_key", func(t *testing.T) {
@@ -297,9 +338,7 @@ func TestValidate_JWTStore(t *testing.T) {
 		cfg.Session.JWT.Algorithm = "HS256"
 
 		err := Validate(cfg)
-		if containsField(err, "session.jwt.signing_key") {
-			t.Errorf("unexpected session.jwt.signing_key validation error: %v", err)
-		}
+		assert.False(t, containsField(err, "session.jwt.signing_key"), "unexpected session.jwt.signing_key validation error: %v", err)
 	})
 
 	t.Run("valid with private_key", func(t *testing.T) {
@@ -309,9 +348,7 @@ func TestValidate_JWTStore(t *testing.T) {
 		cfg.Session.JWT.Algorithm = "RS256"
 
 		err := Validate(cfg)
-		if containsField(err, "session.jwt.signing_key") {
-			t.Errorf("unexpected validation error when private_key is set: %v", err)
-		}
+		assert.False(t, containsField(err, "session.jwt.signing_key"), "unexpected validation error when private_key is set: %v", err)
 	})
 
 	t.Run("invalid algorithm", func(t *testing.T) {
@@ -321,9 +358,8 @@ func TestValidate_JWTStore(t *testing.T) {
 		cfg.Session.JWT.Algorithm = "invalid"
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "session.jwt.algorithm") {
-			t.Error("expected session.jwt.algorithm validation error")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "session.jwt.algorithm"), "expected session.jwt.algorithm validation error")
 	})
 }
 
@@ -335,9 +371,8 @@ func TestValidate_RedisStore(t *testing.T) {
 		cfg.Session.Encryption.Enabled = false
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "session.redis.addresses") {
-			t.Error("expected session.redis.addresses validation error")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "session.redis.addresses"), "expected session.redis.addresses validation error")
 	})
 
 	t.Run("empty addresses", func(t *testing.T) {
@@ -347,9 +382,8 @@ func TestValidate_RedisStore(t *testing.T) {
 		cfg.Session.Encryption.Enabled = false
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "session.redis.addresses") {
-			t.Error("expected session.redis.addresses validation error")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "session.redis.addresses"), "expected session.redis.addresses validation error")
 	})
 
 	t.Run("valid addresses", func(t *testing.T) {
@@ -359,9 +393,7 @@ func TestValidate_RedisStore(t *testing.T) {
 		cfg.Session.Encryption.Enabled = false
 
 		err := Validate(cfg)
-		if containsField(err, "session.redis.addresses") {
-			t.Errorf("unexpected session.redis.addresses validation error: %v", err)
-		}
+		assert.False(t, containsField(err, "session.redis.addresses"), "unexpected session.redis.addresses validation error: %v", err)
 	})
 }
 
@@ -373,9 +405,8 @@ func TestValidate_Services(t *testing.T) {
 		}
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "services[0].name") {
-			t.Error("expected services[0].name validation error")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "services[0].name"), "expected services[0].name validation error")
 	})
 
 	t.Run("duplicate service name", func(t *testing.T) {
@@ -386,9 +417,8 @@ func TestValidate_Services(t *testing.T) {
 		}
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "services[1].name") {
-			t.Error("expected duplicate name validation error")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "services[1].name"), "expected duplicate name validation error")
 	})
 
 	t.Run("missing service location", func(t *testing.T) {
@@ -398,9 +428,8 @@ func TestValidate_Services(t *testing.T) {
 		}
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "services[0].location") {
-			t.Error("expected services[0].location validation error")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "services[0].location"), "expected services[0].location validation error")
 	})
 
 	t.Run("duplicate service location", func(t *testing.T) {
@@ -411,9 +440,8 @@ func TestValidate_Services(t *testing.T) {
 		}
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "services[1].location") {
-			t.Error("expected duplicate location validation error")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "services[1].location"), "expected duplicate location validation error")
 	})
 
 	t.Run("missing service upstream", func(t *testing.T) {
@@ -423,9 +451,8 @@ func TestValidate_Services(t *testing.T) {
 		}
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "services[0].upstream") {
-			t.Error("expected services[0].upstream validation error")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "services[0].upstream"), "expected services[0].upstream validation error")
 	})
 
 	t.Run("invalid service upstream URL", func(t *testing.T) {
@@ -435,9 +462,8 @@ func TestValidate_Services(t *testing.T) {
 		}
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "services[0].upstream") {
-			t.Error("expected services[0].upstream validation error for invalid URL")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "services[0].upstream"), "expected services[0].upstream validation error for invalid URL")
 	})
 
 	t.Run("valid services", func(t *testing.T) {
@@ -448,9 +474,7 @@ func TestValidate_Services(t *testing.T) {
 		}
 
 		err := Validate(cfg)
-		if containsField(err, "services") {
-			t.Errorf("unexpected services validation error: %v", err)
-		}
+		assert.False(t, containsField(err, "services"), "unexpected services validation error: %v", err)
 	})
 }
 
@@ -461,9 +485,8 @@ func TestValidate_DevMode(t *testing.T) {
 		cfg.DevMode.ProfilesDir = ""
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "dev_mode.profiles_dir") {
-			t.Error("expected dev_mode.profiles_dir validation error")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "dev_mode.profiles_dir"), "expected dev_mode.profiles_dir validation error")
 	})
 
 	t.Run("dev mode with profiles_dir", func(t *testing.T) {
@@ -472,9 +495,7 @@ func TestValidate_DevMode(t *testing.T) {
 		cfg.DevMode.ProfilesDir = "./profiles"
 
 		err := Validate(cfg)
-		if containsField(err, "dev_mode.profiles_dir") {
-			t.Errorf("unexpected dev_mode.profiles_dir validation error: %v", err)
-		}
+		assert.False(t, containsField(err, "dev_mode.profiles_dir"), "unexpected dev_mode.profiles_dir validation error: %v", err)
 	})
 
 	t.Run("dev mode disabled without profiles_dir is valid", func(t *testing.T) {
@@ -483,9 +504,7 @@ func TestValidate_DevMode(t *testing.T) {
 		cfg.DevMode.ProfilesDir = ""
 
 		err := Validate(cfg)
-		if containsField(err, "dev_mode.profiles_dir") {
-			t.Error("dev_mode.profiles_dir should not be required when disabled")
-		}
+		assert.False(t, containsField(err, "dev_mode.profiles_dir"), "dev_mode.profiles_dir should not be required when disabled")
 	})
 }
 
@@ -497,9 +516,8 @@ func TestValidate_TLS(t *testing.T) {
 		cfg.Server.TLS.Key = "/path/to/key.pem"
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "server.tls.cert") {
-			t.Error("expected server.tls.cert validation error")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "server.tls.cert"), "expected server.tls.cert validation error")
 	})
 
 	t.Run("TLS enabled without key", func(t *testing.T) {
@@ -509,9 +527,8 @@ func TestValidate_TLS(t *testing.T) {
 		cfg.Server.TLS.Key = ""
 
 		err := Validate(cfg)
-		if err == nil || !containsField(err, "server.tls.key") {
-			t.Error("expected server.tls.key validation error")
-		}
+		require.Error(t, err)
+		assert.True(t, containsField(err, "server.tls.key"), "expected server.tls.key validation error")
 	})
 
 	t.Run("TLS enabled with autocert skips cert/key validation", func(t *testing.T) {
@@ -522,9 +539,8 @@ func TestValidate_TLS(t *testing.T) {
 		cfg.Server.TLS.Key = ""
 
 		err := Validate(cfg)
-		if containsField(err, "server.tls.cert") || containsField(err, "server.tls.key") {
-			t.Error("cert/key should not be required when autocert is enabled")
-		}
+		assert.False(t, containsField(err, "server.tls.cert"), "cert should not be required when autocert is enabled")
+		assert.False(t, containsField(err, "server.tls.key"), "key should not be required when autocert is enabled")
 	})
 
 	t.Run("TLS disabled skips cert/key validation", func(t *testing.T) {
@@ -534,18 +550,15 @@ func TestValidate_TLS(t *testing.T) {
 		cfg.Server.TLS.Key = ""
 
 		err := Validate(cfg)
-		if containsField(err, "server.tls.cert") || containsField(err, "server.tls.key") {
-			t.Error("cert/key should not be required when TLS is disabled")
-		}
+		assert.False(t, containsField(err, "server.tls.cert"), "cert should not be required when TLS is disabled")
+		assert.False(t, containsField(err, "server.tls.key"), "key should not be required when TLS is disabled")
 	})
 }
 
 func TestValidate_FullyValid(t *testing.T) {
 	cfg := validConfig()
 	err := Validate(cfg)
-	if err != nil {
-		t.Errorf("valid config should pass validation: %v", err)
-	}
+	require.NoError(t, err, "valid config should pass validation")
 }
 
 // Helper functions
@@ -572,7 +585,7 @@ func validConfig() *Config {
 			SameSite:   "lax",
 			Encryption: EncryptionConfig{
 				Enabled: true,
-				Key:     "12345678901234567890123456789012",
+				Key:     "abcdefghijklmnopqrstuvwxyz!@#$%^", // 32 bytes, not valid base64
 			},
 			Cookie: CookieStoreConfig{
 				MaxSize: 4096,
@@ -594,4 +607,177 @@ func containsField(err error, field string) bool {
 	}
 	errStr := err.Error()
 	return strings.Contains(errStr, field)
+}
+
+// HIGH-05 security fix tests
+func TestValidateNginxExtra(t *testing.T) {
+	tests := []struct {
+		name           string
+		nginxExtra     string
+		expectedFound  []string
+		expectedEmpty  bool
+	}{
+		{
+			name:          "safe config - proxy headers",
+			nginxExtra:    "proxy_set_header X-Custom-Header 'value';",
+			expectedEmpty: true,
+		},
+		{
+			name:          "safe config - timeouts",
+			nginxExtra:    "proxy_read_timeout 30s;\nproxy_connect_timeout 10s;",
+			expectedEmpty: true,
+		},
+		{
+			name:          "safe config - buffering",
+			nginxExtra:    "proxy_buffering off;",
+			expectedEmpty: true,
+		},
+		{
+			name:          "dangerous - proxy_pass",
+			nginxExtra:    "proxy_pass http://malicious.example.com;",
+			expectedFound: []string{"proxy_pass"},
+		},
+		{
+			name:          "dangerous - lua_code_cache",
+			nginxExtra:    "lua_code_cache off;",
+			expectedFound: []string{"lua_*"},
+		},
+		{
+			name:          "dangerous - content_by_lua_block",
+			nginxExtra:    "content_by_lua_block { ngx.say('hello') }",
+			expectedFound: []string{"content_by_lua"},
+		},
+		{
+			name:          "dangerous - access_by_lua",
+			nginxExtra:    "access_by_lua 'some code';",
+			expectedFound: []string{"access_by_lua"},
+		},
+		{
+			name:          "dangerous - root directive",
+			nginxExtra:    "root /etc/passwd;",
+			expectedFound: []string{"root"},
+		},
+		{
+			name:          "dangerous - alias directive",
+			nginxExtra:    "alias /etc/;",
+			expectedFound: []string{"alias"},
+		},
+		{
+			name:          "dangerous - include directive",
+			nginxExtra:    "include /etc/nginx/conf.d/*.conf;",
+			expectedFound: []string{"include"},
+		},
+		{
+			name:          "dangerous - error_page to external",
+			nginxExtra:    "error_page 500 https://evil.com/error;",
+			expectedFound: []string{"error_page (external redirect)"},
+		},
+		{
+			name:          "dangerous - error_page to protocol-relative",
+			nginxExtra:    "error_page 404 //evil.com/not-found;",
+			expectedFound: []string{"error_page (external redirect)"},
+		},
+		{
+			name:          "safe - error_page to local",
+			nginxExtra:    "error_page 500 /error.html;",
+			expectedEmpty: true,
+		},
+		{
+			name:          "dangerous - fastcgi_pass",
+			nginxExtra:    "fastcgi_pass unix:/var/run/php-fpm.sock;",
+			expectedFound: []string{"fastcgi_pass"},
+		},
+		{
+			name:          "dangerous - multiple directives",
+			nginxExtra:    "proxy_pass http://bad.com;\nroot /tmp;\ncontent_by_lua 'code';",
+			expectedFound: []string{"proxy_pass", "root", "content_by_lua"},
+		},
+		{
+			name:          "case insensitive - PROXY_PASS",
+			nginxExtra:    "PROXY_PASS http://somewhere;",
+			expectedFound: []string{"proxy_pass"},
+		},
+		{
+			name:          "dangerous - init_by_lua",
+			nginxExtra:    "init_by_lua 'some_code';",
+			expectedFound: []string{"init_by_lua"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := validateNginxExtra(tt.nginxExtra)
+
+			if tt.expectedEmpty {
+				assert.Empty(t, result, "expected no dangerous directives")
+				return
+			}
+
+			assert.Len(t, result, len(tt.expectedFound), "expected %d dangerous directives, got %d: %v",
+				len(tt.expectedFound), len(result), result)
+
+			for _, expected := range tt.expectedFound {
+				found := false
+				for _, r := range result {
+					if r == expected {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "expected to find '%s' in result, got: %v", expected, result)
+			}
+		})
+	}
+}
+
+func TestValidate_NginxExtra(t *testing.T) {
+	// Test that validation integrates with the main Validate function
+
+	t.Run("service with safe nginx_extra", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Services = []ServiceConfig{
+			{
+				Name:       "test-service",
+				Location:   "/test",
+				Upstream:   "http://localhost:8080",
+				NginxExtra: "proxy_read_timeout 30s;",
+			},
+		}
+		err := Validate(cfg)
+		assert.False(t, containsField(err, "nginx_extra"), "expected no nginx_extra error for safe config, got: %v", err)
+	})
+
+	t.Run("service with dangerous nginx_extra", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Services = []ServiceConfig{
+			{
+				Name:       "test-service",
+				Location:   "/test",
+				Upstream:   "http://localhost:8080",
+				NginxExtra: "proxy_pass http://evil.com;",
+			},
+		}
+		err := Validate(cfg)
+		require.Error(t, err)
+		assert.True(t, containsField(err, "nginx_extra"), "expected nginx_extra validation error, got: %v", err)
+		assert.Contains(t, err.Error(), "proxy_pass", "expected error to mention 'proxy_pass'")
+	})
+
+	t.Run("service with multiple dangerous directives", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Services = []ServiceConfig{
+			{
+				Name:       "test-service",
+				Location:   "/test",
+				Upstream:   "http://localhost:8080",
+				NginxExtra: "root /etc;\nalias /var/;",
+			},
+		}
+		err := Validate(cfg)
+		require.Error(t, err)
+		assert.True(t, containsField(err, "nginx_extra"), "expected nginx_extra validation error, got: %v", err)
+		errStr := err.Error()
+		assert.Contains(t, errStr, "root", "expected error to mention 'root'")
+		assert.Contains(t, errStr, "alias", "expected error to mention 'alias'")
+	})
 }

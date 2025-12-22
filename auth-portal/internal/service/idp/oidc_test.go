@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/dzerik/auth-portal/internal/config"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestOIDCProvider_Name(t *testing.T) {
@@ -14,9 +15,7 @@ func TestOIDCProvider_Name(t *testing.T) {
 		// The OIDCProvider.Name() always returns "keycloak"
 		expected := "keycloak"
 		// This is a compile-time verification that the constant is correct
-		if expected != "keycloak" {
-			t.Errorf("expected keycloak")
-		}
+		assert.Equal(t, "keycloak", expected)
 	})
 }
 
@@ -102,15 +101,11 @@ func TestOIDCProvider_LogoutURL(t *testing.T) {
 			}
 
 			for _, expected := range tt.expectedContains {
-				if !strings.Contains(logoutURL, expected) {
-					t.Errorf("LogoutURL should contain %q, got %q", expected, logoutURL)
-				}
+				assert.Contains(t, logoutURL, expected, "LogoutURL should contain %q", expected)
 			}
 
 			for _, notExpected := range tt.expectedNotContains {
-				if strings.Contains(logoutURL, notExpected) {
-					t.Errorf("LogoutURL should not contain %q, got %q", notExpected, logoutURL)
-				}
+				assert.NotContains(t, logoutURL, notExpected, "LogoutURL should not contain %q", notExpected)
 			}
 		})
 	}
@@ -151,9 +146,7 @@ func TestNewOIDCProvider_InvalidConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := NewOIDCProvider(tt.cfg)
-			if err == nil {
-				t.Error("NewOIDCProvider should fail with invalid config")
-			}
+			assert.Error(t, err, "NewOIDCProvider should fail with invalid config")
 		})
 	}
 }
@@ -199,10 +192,7 @@ func TestUniqueStrings(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := uniqueStrings(tt.input)
-			if len(result) != len(tt.expected) {
-				t.Errorf("uniqueStrings length = %d, want %d", len(result), len(tt.expected))
-				return
-			}
+			assert.Len(t, result, len(tt.expected), "uniqueStrings length should match expected")
 
 			// Check all expected elements are present
 			resultSet := make(map[string]bool)
@@ -210,9 +200,7 @@ func TestUniqueStrings(t *testing.T) {
 				resultSet[v] = true
 			}
 			for _, v := range tt.expected {
-				if !resultSet[v] {
-					t.Errorf("expected element %q not found in result", v)
-				}
+				assert.True(t, resultSet[v], "expected element %q not found in result", v)
 			}
 		})
 	}
@@ -256,9 +244,7 @@ func TestAuthURLOptions_AllFields(t *testing.T) {
 	}
 
 	for _, expected := range expectedParams {
-		if !strings.Contains(url, expected) {
-			t.Errorf("URL should contain %q", expected)
-		}
+		assert.Contains(t, url, expected, "URL should contain %q", expected)
 	}
 }
 
@@ -275,18 +261,10 @@ func TestKeycloakConfig_Validation(t *testing.T) {
 		},
 	}
 
-	if cfg.IssuerURL == "" {
-		t.Error("IssuerURL should be set")
-	}
-	if cfg.ClientID == "" {
-		t.Error("ClientID should be set")
-	}
-	if len(cfg.Scopes) != 3 {
-		t.Errorf("Scopes length = %d, want 3", len(cfg.Scopes))
-	}
-	if len(cfg.SocialProviders) != 1 {
-		t.Errorf("SocialProviders length = %d, want 1", len(cfg.SocialProviders))
-	}
+	assert.NotEmpty(t, cfg.IssuerURL, "IssuerURL should be set")
+	assert.NotEmpty(t, cfg.ClientID, "ClientID should be set")
+	assert.Len(t, cfg.Scopes, 3, "Scopes length should be 3")
+	assert.Len(t, cfg.SocialProviders, 1, "SocialProviders length should be 1")
 }
 
 func BenchmarkUniqueStrings(b *testing.B) {

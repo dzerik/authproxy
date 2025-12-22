@@ -13,12 +13,13 @@ import (
 
 // CookieStore stores session data in an encrypted cookie
 type CookieStore struct {
-	cookieName string
-	encryptor  *crypto.Encryptor
-	secure     bool
-	sameSite   http.SameSite
-	ttl        time.Duration
-	maxSize    int
+	cookieName   string
+	cookieDomain string // MED-02 security fix: configurable domain for cross-subdomain sessions
+	encryptor    *crypto.Encryptor
+	secure       bool
+	sameSite     http.SameSite
+	ttl          time.Duration
+	maxSize      int
 }
 
 // NewCookieStore creates a new cookie-based session store
@@ -40,12 +41,13 @@ func NewCookieStore(cfg *config.SessionConfig) (*CookieStore, error) {
 	}
 
 	return &CookieStore{
-		cookieName: cfg.CookieName,
-		encryptor:  encryptor,
-		secure:     cfg.Secure,
-		sameSite:   sameSite,
-		ttl:        cfg.TTL,
-		maxSize:    maxSize,
+		cookieName:   cfg.CookieName,
+		cookieDomain: cfg.CookieDomain,
+		encryptor:    encryptor,
+		secure:       cfg.Secure,
+		sameSite:     sameSite,
+		ttl:          cfg.TTL,
+		maxSize:      maxSize,
 	}, nil
 }
 
@@ -124,6 +126,7 @@ func (s *CookieStore) Save(w http.ResponseWriter, r *http.Request, session *mode
 		Name:     s.cookieName,
 		Value:    encrypted,
 		Path:     "/",
+		Domain:   s.cookieDomain, // MED-02: configurable domain for cross-subdomain sessions
 		Expires:  session.ExpiresAt,
 		MaxAge:   int(time.Until(session.ExpiresAt).Seconds()),
 		Secure:   s.secure,
@@ -140,6 +143,7 @@ func (s *CookieStore) Delete(w http.ResponseWriter, r *http.Request) error {
 		Name:     s.cookieName,
 		Value:    "",
 		Path:     "/",
+		Domain:   s.cookieDomain, // MED-02: must match domain used in Save
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		Secure:   s.secure,

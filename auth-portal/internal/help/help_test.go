@@ -3,6 +3,9 @@ package help
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewGenerator(t *testing.T) {
@@ -16,17 +19,9 @@ func TestNewGenerator(t *testing.T) {
 
 	g := NewGenerator(appInfo, "TEST_PREFIX")
 
-	if g == nil {
-		t.Fatal("NewGenerator returned nil")
-	}
-
-	if g.appInfo.Name != appInfo.Name {
-		t.Errorf("appInfo.Name = %s, want %s", g.appInfo.Name, appInfo.Name)
-	}
-
-	if g.envVarPrefix != "TEST_PREFIX" {
-		t.Errorf("envVarPrefix = %s, want TEST_PREFIX", g.envVarPrefix)
-	}
+	require.NotNil(t, g)
+	assert.Equal(t, appInfo.Name, g.appInfo.Name)
+	assert.Equal(t, "TEST_PREFIX", g.envVarPrefix)
 }
 
 func TestGenerator_PrintVersion(t *testing.T) {
@@ -47,9 +42,7 @@ func TestGenerator_PrintVersion(t *testing.T) {
 	}
 
 	for _, expected := range tests {
-		if !strings.Contains(output, expected) {
-			t.Errorf("PrintVersion should contain %q, got: %s", expected, output)
-		}
+		assert.Contains(t, output, expected)
 	}
 }
 
@@ -71,9 +64,7 @@ func TestGenerator_PrintUsage(t *testing.T) {
 	}
 
 	for _, expected := range tests {
-		if !strings.Contains(output, expected) {
-			t.Errorf("PrintUsage should contain %q, got: %s", expected, output)
-		}
+		assert.Contains(t, output, expected)
 	}
 }
 
@@ -105,9 +96,7 @@ func TestGenerator_PrintExtendedHelp(t *testing.T) {
 	}
 
 	for _, section := range sections {
-		if !strings.Contains(output, section) {
-			t.Errorf("PrintExtendedHelp should contain section %q", section)
-		}
+		assert.Contains(t, output, section)
 	}
 }
 
@@ -124,9 +113,7 @@ func TestGenerator_PrintExtendedHelp_NoDocsURL(t *testing.T) {
 	output := g.PrintExtendedHelp()
 
 	// DOCUMENTATION section should not be present
-	if strings.Contains(output, "DOCUMENTATION\n    https") {
-		t.Error("PrintExtendedHelp should not include DOCUMENTATION section when DocsURL is empty")
-	}
+	assert.NotContains(t, output, "DOCUMENTATION\n    https")
 }
 
 func TestGenerator_PrintExtendedHelp_Options(t *testing.T) {
@@ -152,9 +139,7 @@ func TestGenerator_PrintExtendedHelp_Options(t *testing.T) {
 	}
 
 	for _, opt := range options {
-		if !strings.Contains(output, opt) {
-			t.Errorf("PrintExtendedHelp should contain option %q", opt)
-		}
+		assert.Contains(t, output, opt)
 	}
 }
 
@@ -185,9 +170,7 @@ func TestGenerator_PrintExtendedHelp_EnvVars(t *testing.T) {
 	}
 
 	for _, env := range envVars {
-		if !strings.Contains(output, env) {
-			t.Errorf("PrintExtendedHelp should contain env var %q", env)
-		}
+		assert.Contains(t, output, env)
 	}
 }
 
@@ -209,9 +192,7 @@ func TestGenerator_PrintExtendedHelp_OperationModes(t *testing.T) {
 	}
 
 	for _, mode := range modes {
-		if !strings.Contains(output, mode) {
-			t.Errorf("PrintExtendedHelp should contain mode %q", mode)
-		}
+		assert.Contains(t, output, mode)
 	}
 
 	// Check endpoints
@@ -223,9 +204,7 @@ func TestGenerator_PrintExtendedHelp_OperationModes(t *testing.T) {
 	}
 
 	for _, endpoint := range endpoints {
-		if !strings.Contains(output, endpoint) {
-			t.Errorf("PrintExtendedHelp should contain endpoint %q", endpoint)
-		}
+		assert.Contains(t, output, endpoint)
 	}
 }
 
@@ -247,9 +226,7 @@ func TestGenerator_PrintExtendedHelp_HealthEndpoints(t *testing.T) {
 	}
 
 	for _, endpoint := range healthEndpoints {
-		if !strings.Contains(output, endpoint) {
-			t.Errorf("PrintExtendedHelp should contain health endpoint %q", endpoint)
-		}
+		assert.Contains(t, output, endpoint)
 	}
 }
 
@@ -263,25 +240,15 @@ func TestGenerator_Header(t *testing.T) {
 	output := g.header()
 
 	// Should contain box borders
-	if !strings.Contains(output, "+") {
-		t.Error("header should contain box corners (+)")
-	}
-	if !strings.Contains(output, "-") {
-		t.Error("header should contain horizontal borders (-)")
-	}
-	if !strings.Contains(output, "|") {
-		t.Error("header should contain vertical borders (|)")
-	}
+	assert.Contains(t, output, "+")
+	assert.Contains(t, output, "-")
+	assert.Contains(t, output, "|")
 
 	// Should contain app name in uppercase
-	if !strings.Contains(output, "AUTH-PORTAL") {
-		t.Error("header should contain app name in uppercase")
-	}
+	assert.Contains(t, output, "AUTH-PORTAL")
 
 	// Should contain description
-	if !strings.Contains(output, "Authentication portal") {
-		t.Error("header should contain description")
-	}
+	assert.Contains(t, output, "Authentication portal")
 }
 
 func TestGenerator_Header_LongDescription(t *testing.T) {
@@ -294,9 +261,7 @@ func TestGenerator_Header_LongDescription(t *testing.T) {
 	output := g.header()
 
 	// Long description should be truncated with "..."
-	if !strings.Contains(output, "...") {
-		t.Error("header should truncate long descriptions with ...")
-	}
+	assert.Contains(t, output, "...")
 }
 
 func TestGenerator_Separator(t *testing.T) {
@@ -305,13 +270,8 @@ func TestGenerator_Separator(t *testing.T) {
 
 	sep := g.separator()
 
-	if len(sep) < 80 {
-		t.Error("separator should be at least 80 characters")
-	}
-
-	if !strings.HasPrefix(sep, strings.Repeat("-", 80)) {
-		t.Error("separator should start with 80 dashes")
-	}
+	assert.GreaterOrEqual(t, len(sep), 80)
+	assert.True(t, strings.HasPrefix(sep, strings.Repeat("-", 80)))
 }
 
 func TestGenerator_OptionsSection(t *testing.T) {
@@ -335,9 +295,7 @@ func TestGenerator_OptionsSection(t *testing.T) {
 	}
 
 	for _, opt := range options {
-		if !strings.Contains(output, opt.flag) {
-			t.Errorf("optionsSection should contain flag %q", opt.flag)
-		}
+		assert.Contains(t, output, opt.flag)
 	}
 }
 
@@ -362,15 +320,11 @@ func TestGenerator_ConfigSection(t *testing.T) {
 	}
 
 	for _, section := range configSections {
-		if !strings.Contains(output, section) {
-			t.Errorf("configSection should contain %q", section)
-		}
+		assert.Contains(t, output, section)
 	}
 
 	// Check env var prefix is used
-	if !strings.Contains(output, "AUTH_PORTAL_") {
-		t.Error("configSection should contain env var prefix examples")
-	}
+	assert.Contains(t, output, "AUTH_PORTAL_")
 
 	// Check secrets management
 	secrets := []string{
@@ -382,9 +336,7 @@ func TestGenerator_ConfigSection(t *testing.T) {
 	}
 
 	for _, secret := range secrets {
-		if !strings.Contains(output, secret) {
-			t.Errorf("configSection should document secret %q", secret)
-		}
+		assert.Contains(t, output, secret)
 	}
 }
 
@@ -395,9 +347,7 @@ func TestGenerator_EnvVarsSection(t *testing.T) {
 	output := g.envVarsSection()
 
 	// Check prefix is used
-	if !strings.Contains(output, "MY_APP_") {
-		t.Error("envVarsSection should use the configured prefix")
-	}
+	assert.Contains(t, output, "MY_APP_")
 
 	// Check notes
 	notes := []string{
@@ -408,9 +358,7 @@ func TestGenerator_EnvVarsSection(t *testing.T) {
 	}
 
 	for _, note := range notes {
-		if !strings.Contains(output, note) {
-			t.Errorf("envVarsSection should contain note about %q", note)
-		}
+		assert.Contains(t, output, note)
 	}
 }
 
@@ -430,9 +378,7 @@ func TestGenerator_OperationModesSection(t *testing.T) {
 	}
 
 	for _, mode := range modes {
-		if !strings.Contains(output, mode) {
-			t.Errorf("operationModesSection should contain %q", mode)
-		}
+		assert.Contains(t, output, mode)
 	}
 }
 
@@ -443,9 +389,7 @@ func TestGenerator_NginxSection(t *testing.T) {
 	output := g.nginxSection()
 
 	// Check app name is used in examples
-	if !strings.Contains(output, "my-app") {
-		t.Error("nginxSection should use app name in examples")
-	}
+	assert.Contains(t, output, "my-app")
 
 	// Check nginx generation is documented
 	nginxTopics := []string{
@@ -462,9 +406,7 @@ func TestGenerator_NginxSection(t *testing.T) {
 	}
 
 	for _, topic := range nginxTopics {
-		if !strings.Contains(output, topic) {
-			t.Errorf("nginxSection should contain %q", topic)
-		}
+		assert.Contains(t, output, topic)
 	}
 }
 
@@ -475,9 +417,7 @@ func TestGenerator_ExamplesSection(t *testing.T) {
 	output := g.examplesSection()
 
 	// Check app name is used
-	if strings.Count(output, "auth-portal") < 5 {
-		t.Error("examplesSection should use app name in multiple examples")
-	}
+	assert.GreaterOrEqual(t, strings.Count(output, "auth-portal"), 5)
 
 	// Check example commands
 	examples := []string{
@@ -491,9 +431,7 @@ func TestGenerator_ExamplesSection(t *testing.T) {
 	}
 
 	for _, example := range examples {
-		if !strings.Contains(output, example) {
-			t.Errorf("examplesSection should contain %q", example)
-		}
+		assert.Contains(t, output, example)
 	}
 }
 
@@ -506,21 +444,11 @@ func TestAppInfo(t *testing.T) {
 		DocsURL:     "https://example.com/docs",
 	}
 
-	if info.Name != "test-app" {
-		t.Errorf("Name = %s, want test-app", info.Name)
-	}
-	if info.Description != "A test application" {
-		t.Errorf("Description = %s, want A test application", info.Description)
-	}
-	if info.Version != "2.0.0" {
-		t.Errorf("Version = %s, want 2.0.0", info.Version)
-	}
-	if info.BuildTime != "2024-12-01" {
-		t.Errorf("BuildTime = %s, want 2024-12-01", info.BuildTime)
-	}
-	if info.DocsURL != "https://example.com/docs" {
-		t.Errorf("DocsURL = %s, want https://example.com/docs", info.DocsURL)
-	}
+	assert.Equal(t, "test-app", info.Name)
+	assert.Equal(t, "A test application", info.Description)
+	assert.Equal(t, "2.0.0", info.Version)
+	assert.Equal(t, "2024-12-01", info.BuildTime)
+	assert.Equal(t, "https://example.com/docs", info.DocsURL)
 }
 
 func BenchmarkPrintExtendedHelp(b *testing.B) {

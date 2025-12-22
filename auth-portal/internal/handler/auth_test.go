@@ -5,22 +5,21 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/dzerik/auth-portal/internal/service/state"
 )
 
-func TestNewStateStore(t *testing.T) {
-	store := NewStateStore()
-	if store == nil {
-		t.Fatal("NewStateStore returned nil")
-	}
-	if store.states == nil {
-		t.Error("states map should be initialized")
-	}
-}
+// Tests for state store have been moved to internal/service/state package
+// These tests now use the state package directly
 
-func TestStateStore_SetAndGet(t *testing.T) {
-	store := NewStateStore()
+func TestMemoryStateStore_SetAndGet(t *testing.T) {
+	store := state.NewMemoryStore(10 * time.Minute)
+	defer store.Close()
 
-	state := &OAuthState{
+	s := &state.OAuthState{
 		State:       "test-state-token",
 		Nonce:       "test-nonce",
 		RedirectURL: "https://example.com/callback",
@@ -29,84 +28,66 @@ func TestStateStore_SetAndGet(t *testing.T) {
 	}
 
 	// Set state
-	store.Set(state)
+	err := store.Set(s)
+	require.NoError(t, err, "Set failed")
 
 	// Get state (should succeed and remove it)
 	retrieved, ok := store.Get("test-state-token")
-	if !ok {
-		t.Error("Get should return true for existing state")
-	}
-	if retrieved == nil {
-		t.Fatal("Get should return state")
-	}
-	if retrieved.State != "test-state-token" {
-		t.Errorf("State = %s, want test-state-token", retrieved.State)
-	}
-	if retrieved.Nonce != "test-nonce" {
-		t.Errorf("Nonce = %s, want test-nonce", retrieved.Nonce)
-	}
-	if retrieved.RedirectURL != "https://example.com/callback" {
-		t.Errorf("RedirectURL = %s, want https://example.com/callback", retrieved.RedirectURL)
-	}
-	if retrieved.Provider != "keycloak" {
-		t.Errorf("Provider = %s, want keycloak", retrieved.Provider)
-	}
+	assert.True(t, ok, "Get should return true for existing state")
+	require.NotNil(t, retrieved, "Get should return state")
+	assert.Equal(t, "test-state-token", retrieved.State)
+	assert.Equal(t, "test-nonce", retrieved.Nonce)
+	assert.Equal(t, "https://example.com/callback", retrieved.RedirectURL)
+	assert.Equal(t, "keycloak", retrieved.Provider)
 
 	// Get again (should fail - state was removed)
 	_, ok = store.Get("test-state-token")
-	if ok {
-		t.Error("Get should return false after state was consumed")
-	}
+	assert.False(t, ok, "Get should return false after state was consumed")
 }
 
-func TestStateStore_Get_NotExists(t *testing.T) {
-	store := NewStateStore()
+func TestMemoryStateStore_Get_NotExists(t *testing.T) {
+	store := state.NewMemoryStore(10 * time.Minute)
+	defer store.Close()
 
 	_, ok := store.Get("nonexistent")
-	if ok {
-		t.Error("Get should return false for non-existing state")
-	}
+	assert.False(t, ok, "Get should return false for non-existing state")
 }
 
-func TestStateStore_Validate(t *testing.T) {
-	store := NewStateStore()
+func TestMemoryStateStore_Validate(t *testing.T) {
+	store := state.NewMemoryStore(10 * time.Minute)
+	defer store.Close()
 
-	state := &OAuthState{
+	s := &state.OAuthState{
 		State:     "test-state",
 		CreatedAt: time.Now(),
 	}
 
 	// Set state
-	store.Set(state)
+	store.Set(s)
 
 	// Validate should return true
-	if !store.Validate("test-state") {
-		t.Error("Validate should return true for existing state")
-	}
+	assert.True(t, store.Validate("test-state"), "Validate should return true for existing state")
 
 	// Validate again (state should still exist - Validate doesn't remove)
-	if !store.Validate("test-state") {
-		t.Error("Validate should return true - state should still exist")
-	}
+	assert.True(t, store.Validate("test-state"), "Validate should return true - state should still exist")
 
 	// Non-existing state
-	if store.Validate("nonexistent") {
-		t.Error("Validate should return false for non-existing state")
-	}
+	assert.False(t, store.Validate("nonexistent"), "Validate should return false for non-existing state")
 }
 
-func TestStateStore_Concurrency(t *testing.T) {
-	store := NewStateStore()
+func TestMemoryStateStore_Concurrency(t *testing.T) {
+	store := state.NewMemoryStore(10 * time.Minute)
+	defer store.Close()
 	done := make(chan bool)
 
 	// Concurrent writes
 	for i := 0; i < 10; i++ {
 		go func(i int) {
-			state := &OAuthState{
+			s := &state.OAuthState{
 				State:     "state-" + string(rune('0'+i)),
 				CreatedAt: time.Now(),
 			}
-			store.Set(state)
+			store.Set(s)
 			done <- true
 		}(i)
 	}
@@ -126,7 +107,7 @@ func TestStateStore_Concurrency(t *testing.T) {
 
 func TestOAuthState_Struct(t *testing.T) {
 	now := time.Now()
-	state := &OAuthState{
+	s := &state.OAuthState{
 		State:       "state-123",
 		Nonce:       "nonce-456",
 		RedirectURL: "https://example.com",
@@ -134,21 +115,11 @@ func TestOAuthState_Struct(t *testing.T) {
 		CreatedAt:   now,
 	}
 
-	if state.State != "state-123" {
-		t.Errorf("State = %s, want state-123", state.State)
-	}
-	if state.Nonce != "nonce-456" {
-		t.Errorf("Nonce = %s, want nonce-456", state.Nonce)
-	}
-	if state.RedirectURL != "https://example.com" {
-		t.Errorf("RedirectURL = %s, want https://example.com", state.RedirectURL)
-	}
-	if state.Provider != "google" {
-		t.Errorf("Provider = %s, want google", state.Provider)
-	}
-	if !state.CreatedAt.Equal(now) {
-		t.Error("CreatedAt should equal now")
-	}
+	assert.Equal(t, "state-123", s.State)
+	assert.Equal(t, "nonce-456", s.Nonce)
+	assert.Equal(t, "https://example.com", s.RedirectURL)
+	assert.Equal(t, "google", s.Provider)
+	assert.True(t, s.CreatedAt.Equal(now), "CreatedAt should equal now")
 }
 
 func TestLoginPageData_Struct(t *testing.T) {
@@ -160,18 +131,10 @@ func TestLoginPageData_Struct(t *testing.T) {
 		Error:       "",
 	}
 
-	if data.Title != "Login" {
-		t.Errorf("Title = %s, want Login", data.Title)
-	}
-	if data.RedirectURL != "/portal" {
-		t.Errorf("RedirectURL = %s, want /portal", data.RedirectURL)
-	}
-	if !data.DevMode {
-		t.Error("DevMode should be true")
-	}
-	if len(data.DevProfiles) != 2 {
-		t.Errorf("DevProfiles length = %d, want 2", len(data.DevProfiles))
-	}
+	assert.Equal(t, "Login", data.Title)
+	assert.Equal(t, "/portal", data.RedirectURL)
+	assert.True(t, data.DevMode, "DevMode should be true")
+	assert.Len(t, data.DevProfiles, 2)
 }
 
 func TestErrorPageData_Struct(t *testing.T) {
@@ -181,15 +144,9 @@ func TestErrorPageData_Struct(t *testing.T) {
 		Status:  500,
 	}
 
-	if data.Title != "Error" {
-		t.Errorf("Title = %s, want Error", data.Title)
-	}
-	if data.Message != "Something went wrong" {
-		t.Errorf("Message = %s, want Something went wrong", data.Message)
-	}
-	if data.Status != 500 {
-		t.Errorf("Status = %d, want 500", data.Status)
-	}
+	assert.Equal(t, "Error", data.Title)
+	assert.Equal(t, "Something went wrong", data.Message)
+	assert.Equal(t, 500, data.Status)
 }
 
 func TestExtractPathParam(t *testing.T) {
@@ -211,9 +168,7 @@ func TestExtractPathParam(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := extractPathParam(tt.path, tt.prefix)
-			if result != tt.expected {
-				t.Errorf("extractPathParam(%q, %q) = %q, want %q", tt.path, tt.prefix, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -228,9 +183,7 @@ func TestAuthHandler_buildAbsoluteURL(t *testing.T) {
 
 		url := h.buildAbsoluteURL(req, "/login")
 		expected := "http://example.com/login"
-		if url != expected {
-			t.Errorf("buildAbsoluteURL = %s, want %s", url, expected)
-		}
+		assert.Equal(t, expected, url)
 	})
 
 	t.Run("https from header", func(t *testing.T) {
@@ -240,9 +193,7 @@ func TestAuthHandler_buildAbsoluteURL(t *testing.T) {
 
 		url := h.buildAbsoluteURL(req, "/callback")
 		expected := "https://example.com/callback"
-		if url != expected {
-			t.Errorf("buildAbsoluteURL = %s, want %s", url, expected)
-		}
+		assert.Equal(t, expected, url)
 	})
 
 	t.Run("with port", func(t *testing.T) {
@@ -251,15 +202,14 @@ func TestAuthHandler_buildAbsoluteURL(t *testing.T) {
 
 		url := h.buildAbsoluteURL(req, "/portal")
 		expected := "http://example.com:8080/portal"
-		if url != expected {
-			t.Errorf("buildAbsoluteURL = %s, want %s", url, expected)
-		}
+		assert.Equal(t, expected, url)
 	})
 }
 
-func BenchmarkStateStore_SetGet(b *testing.B) {
-	store := NewStateStore()
-	state := &OAuthState{
+func BenchmarkMemoryStateStore_SetGet(b *testing.B) {
+	store := state.NewMemoryStore(10 * time.Minute)
+	defer store.Close()
+	s := &state.OAuthState{
 		State:       "benchmark-state",
 		Nonce:       "benchmark-nonce",
 		RedirectURL: "https://example.com",
@@ -269,21 +219,174 @@ func BenchmarkStateStore_SetGet(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		store.Set(state)
+		store.Set(s)
 		store.Get("benchmark-state")
 	}
 }
 
-func BenchmarkStateStore_Validate(b *testing.B) {
-	store := NewStateStore()
-	state := &OAuthState{
+func BenchmarkMemoryStateStore_Validate(b *testing.B) {
+	store := state.NewMemoryStore(10 * time.Minute)
+	defer store.Close()
+	s := &state.OAuthState{
 		State:     "benchmark-state",
 		CreatedAt: time.Now(),
 	}
-	store.Set(state)
+	store.Set(s)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		store.Validate("benchmark-state")
 	}
+}
+
+// Tests for security fixes
+
+func TestAuthHandler_validateRedirectURL(t *testing.T) {
+	h := &AuthHandler{}
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		// Valid relative URLs
+		{"valid relative path", "/portal", "/portal"},
+		{"valid path with query", "/portal?foo=bar", "/portal?foo=bar"},
+		{"valid nested path", "/service/grafana", "/service/grafana"},
+
+		// Empty URL
+		{"empty string", "", "/portal"},
+
+		// Absolute URLs (Open Redirect prevention)
+		{"http absolute URL", "http://evil.com", "/portal"},
+		{"https absolute URL", "https://evil.com", "/portal"},
+		{"ftp absolute URL", "ftp://evil.com", "/portal"},
+
+		// Protocol-relative URLs (Open Redirect prevention)
+		{"double slash prefix", "//evil.com", "/portal"},
+		{"triple slash prefix", "///evil.com", "/portal"},
+
+		// Path traversal attempts
+		{"path traversal with dots", "/portal/../etc/passwd", "/portal"},
+		{"path traversal in middle", "/service/../../../etc/passwd", "/portal"},
+		{"encoded path traversal", "/portal/%2e%2e/etc/passwd", "/portal"},
+		{"mixed case encoded", "/portal/%2E%2E/etc/passwd", "/portal"},
+
+		// Valid edge cases
+		{"single slash", "/", "/"},
+		{"path with trailing slash", "/portal/", "/portal/"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := h.validateRedirectURL(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestNewAuthHandler(t *testing.T) {
+	t.Run("creates handler with all dependencies", func(t *testing.T) {
+		store := state.NewMemoryStore(10 * time.Minute)
+		defer store.Close()
+
+		handler := NewAuthHandler(nil, nil, nil, nil, store)
+
+		require.NotNil(t, handler)
+		assert.Nil(t, handler.idpManager)
+		assert.Nil(t, handler.sessionManager)
+		assert.Nil(t, handler.config)
+		assert.Nil(t, handler.templates)
+		assert.Equal(t, store, handler.stateStore)
+	})
+}
+
+func TestAuthHandler_renderJSONError(t *testing.T) {
+	h := &AuthHandler{}
+
+	tests := []struct {
+		name       string
+		message    string
+		status     int
+		wantStatus int
+	}{
+		{"bad request", "Invalid input", http.StatusBadRequest, http.StatusBadRequest},
+		{"unauthorized", "Not authenticated", http.StatusUnauthorized, http.StatusUnauthorized},
+		{"internal error", "Server error", http.StatusInternalServerError, http.StatusInternalServerError},
+		{"forbidden", "Access denied", http.StatusForbidden, http.StatusForbidden},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			h.renderJSONError(w, tt.message, tt.status)
+
+			assert.Equal(t, tt.wantStatus, w.Code)
+			assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+			assert.Contains(t, w.Body.String(), tt.message)
+			assert.Contains(t, w.Body.String(), `"status"`)
+		})
+	}
+}
+
+func TestAuthHandler_renderError_noTemplates(t *testing.T) {
+	// When templates are nil, renderError should fall back to JSON
+	h := &AuthHandler{templates: nil}
+
+	w := httptest.NewRecorder()
+	h.renderError(w, "Test error", http.StatusBadRequest)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+	assert.Contains(t, w.Body.String(), "Test error")
+}
+
+func TestAuthHandler_extractNonceFromIDToken(t *testing.T) {
+	h := &AuthHandler{}
+
+	t.Run("valid token with nonce", func(t *testing.T) {
+		// Create a mock JWT: header.payload.signature
+		// Payload: {"nonce": "test-nonce-123"}
+		// Base64URL: eyJub25jZSI6ICJ0ZXN0LW5vbmNlLTEyMyJ9
+		token := "eyJhbGciOiJSUzI1NiJ9.eyJub25jZSI6InRlc3Qtbm9uY2UtMTIzIn0.signature"
+
+		nonce, err := h.extractNonceFromIDToken(token)
+		assert.NoError(t, err, "unexpected error")
+		assert.Equal(t, "test-nonce-123", nonce)
+	})
+
+	t.Run("token without nonce", func(t *testing.T) {
+		// Payload: {"sub": "user123"}
+		// Base64URL: eyJzdWIiOiJ1c2VyMTIzIn0
+		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyMTIzIn0.signature"
+
+		nonce, err := h.extractNonceFromIDToken(token)
+		assert.NoError(t, err, "unexpected error")
+		assert.Empty(t, nonce, "nonce should be empty")
+	})
+
+	t.Run("invalid token format - too few parts", func(t *testing.T) {
+		token := "not.a.valid"
+
+		nonce, err := h.extractNonceFromIDToken(token)
+		assert.NoError(t, err, "unexpected error")
+		// Should return empty on invalid format, not error
+		assert.Empty(t, nonce, "nonce should be empty for invalid token")
+	})
+
+	t.Run("invalid base64 payload", func(t *testing.T) {
+		token := "header.!!!invalid-base64!!!.signature"
+
+		nonce, err := h.extractNonceFromIDToken(token)
+		assert.NoError(t, err, "unexpected error")
+		// Should return empty on decode error, not error
+		assert.Empty(t, nonce, "nonce should be empty for invalid base64")
+	})
+
+	t.Run("empty token", func(t *testing.T) {
+		nonce, err := h.extractNonceFromIDToken("")
+
+		assert.NoError(t, err, "unexpected error")
+		assert.Empty(t, nonce, "nonce should be empty for empty token")
+	})
 }

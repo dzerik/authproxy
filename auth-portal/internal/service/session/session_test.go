@@ -9,6 +9,8 @@ import (
 
 	"github.com/dzerik/auth-portal/internal/config"
 	"github.com/dzerik/auth-portal/internal/model"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewManager_CookieStore(t *testing.T) {
@@ -23,15 +25,9 @@ func TestNewManager_CookieStore(t *testing.T) {
 	}
 
 	m, err := NewManager(cfg)
-	if err != nil {
-		t.Fatalf("NewManager failed: %v", err)
-	}
-	if m == nil {
-		t.Fatal("NewManager returned nil")
-	}
-	if m.StoreName() != "cookie" {
-		t.Errorf("StoreName = %s, want cookie", m.StoreName())
-	}
+	require.NoError(t, err)
+	require.NotNil(t, m)
+	assert.Equal(t, "cookie", m.StoreName())
 }
 
 func TestNewManager_JWTStore(t *testing.T) {
@@ -46,15 +42,9 @@ func TestNewManager_JWTStore(t *testing.T) {
 	}
 
 	m, err := NewManager(cfg)
-	if err != nil {
-		t.Fatalf("NewManager failed: %v", err)
-	}
-	if m == nil {
-		t.Fatal("NewManager returned nil")
-	}
-	if m.StoreName() != "jwt" {
-		t.Errorf("StoreName = %s, want jwt", m.StoreName())
-	}
+	require.NoError(t, err)
+	require.NotNil(t, m)
+	assert.Equal(t, "jwt", m.StoreName())
 }
 
 func TestNewManager_DefaultStore(t *testing.T) {
@@ -69,12 +59,8 @@ func TestNewManager_DefaultStore(t *testing.T) {
 	}
 
 	m, err := NewManager(cfg)
-	if err != nil {
-		t.Fatalf("NewManager failed: %v", err)
-	}
-	if m.StoreName() != "cookie" {
-		t.Errorf("StoreName = %s, want cookie (default)", m.StoreName())
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "cookie", m.StoreName())
 }
 
 func TestNewManager_InvalidConfig(t *testing.T) {
@@ -87,9 +73,7 @@ func TestNewManager_InvalidConfig(t *testing.T) {
 	}
 
 	_, err := NewManager(cfg)
-	if err == nil {
-		t.Error("NewManager should fail when encryption is disabled for cookie store")
-	}
+	assert.Error(t, err)
 }
 
 func TestManager_IsAuthenticated(t *testing.T) {
@@ -104,15 +88,11 @@ func TestManager_IsAuthenticated(t *testing.T) {
 	}
 
 	m, err := NewManager(cfg)
-	if err != nil {
-		t.Fatalf("NewManager failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Request without session cookie
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	if m.IsAuthenticated(req) {
-		t.Error("IsAuthenticated should return false for request without session")
-	}
+	assert.False(t, m.IsAuthenticated(req))
 }
 
 func TestManager_GetOrCreate(t *testing.T) {
@@ -127,22 +107,14 @@ func TestManager_GetOrCreate(t *testing.T) {
 	}
 
 	m, err := NewManager(cfg)
-	if err != nil {
-		t.Fatalf("NewManager failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Request without session - should create new
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	session, created, err := m.GetOrCreate(req)
-	if err != nil {
-		t.Fatalf("GetOrCreate failed: %v", err)
-	}
-	if !created {
-		t.Error("created should be true for new session")
-	}
-	if session == nil {
-		t.Error("session should not be nil")
-	}
+	require.NoError(t, err)
+	assert.True(t, created)
+	require.NotNil(t, session)
 }
 
 func TestFromContext(t *testing.T) {
@@ -157,19 +129,13 @@ func TestFromContext(t *testing.T) {
 	// Context with session
 	ctx := context.WithValue(context.Background(), sessionContextKey, session)
 	retrieved := FromContext(ctx)
-	if retrieved == nil {
-		t.Fatal("FromContext should return session")
-	}
-	if retrieved.ID != "test-session" {
-		t.Errorf("session.ID = %s, want test-session", retrieved.ID)
-	}
+	require.NotNil(t, retrieved)
+	assert.Equal(t, "test-session", retrieved.ID)
 
 	// Context without session
 	ctx = context.Background()
 	retrieved = FromContext(ctx)
-	if retrieved != nil {
-		t.Error("FromContext should return nil for context without session")
-	}
+	assert.Nil(t, retrieved)
 }
 
 func TestFromRequest(t *testing.T) {
@@ -187,19 +153,13 @@ func TestFromRequest(t *testing.T) {
 	req = req.WithContext(ctx)
 
 	retrieved := FromRequest(req)
-	if retrieved == nil {
-		t.Fatal("FromRequest should return session")
-	}
-	if retrieved.ID != "test-session" {
-		t.Errorf("session.ID = %s, want test-session", retrieved.ID)
-	}
+	require.NotNil(t, retrieved)
+	assert.Equal(t, "test-session", retrieved.ID)
 
 	// Request without session
 	req = httptest.NewRequest(http.MethodGet, "/", nil)
 	retrieved = FromRequest(req)
-	if retrieved != nil {
-		t.Error("FromRequest should return nil for request without session")
-	}
+	assert.Nil(t, retrieved)
 }
 
 func TestManager_Middleware(t *testing.T) {
@@ -214,9 +174,7 @@ func TestManager_Middleware(t *testing.T) {
 	}
 
 	m, err := NewManager(cfg)
-	if err != nil {
-		t.Fatalf("NewManager failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Create a handler that checks for session in context
 	var sessionInContext *model.Session
@@ -234,14 +192,10 @@ func TestManager_Middleware(t *testing.T) {
 
 	middleware.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
-	}
+	assert.Equal(t, http.StatusOK, rr.Code)
 
 	// Session should be nil (no cookie)
-	if sessionInContext != nil {
-		t.Error("session should be nil when no session cookie")
-	}
+	assert.Nil(t, sessionInContext)
 }
 
 func TestParseSameSite(t *testing.T) {
@@ -259,35 +213,25 @@ func TestParseSameSite(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			result := parseSameSite(tt.input)
-			if result != tt.expected {
-				t.Errorf("parseSameSite(%q) = %v, want %v", tt.input, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
 func TestErrors(t *testing.T) {
 	t.Run("ErrSessionNotFound", func(t *testing.T) {
-		if ErrSessionNotFound.Error() == "" {
-			t.Error("ErrSessionNotFound should have message")
-		}
+		assert.NotEmpty(t, ErrSessionNotFound.Error())
 	})
 
 	t.Run("ErrSessionExpired", func(t *testing.T) {
-		if ErrSessionExpired.Error() == "" {
-			t.Error("ErrSessionExpired should have message")
-		}
+		assert.NotEmpty(t, ErrSessionExpired.Error())
 	})
 
 	t.Run("ErrSessionInvalid", func(t *testing.T) {
-		if ErrSessionInvalid.Error() == "" {
-			t.Error("ErrSessionInvalid should have message")
-		}
+		assert.NotEmpty(t, ErrSessionInvalid.Error())
 	})
 
 	t.Run("ErrStoreFull", func(t *testing.T) {
-		if ErrStoreFull.Error() == "" {
-			t.Error("ErrStoreFull should have message")
-		}
+		assert.NotEmpty(t, ErrStoreFull.Error())
 	})
 }

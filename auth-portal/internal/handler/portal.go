@@ -9,6 +9,7 @@ import (
 
 	"github.com/dzerik/auth-portal/internal/config"
 	"github.com/dzerik/auth-portal/internal/model"
+	"github.com/dzerik/auth-portal/internal/service/security"
 	"github.com/dzerik/auth-portal/internal/service/session"
 	"github.com/dzerik/auth-portal/internal/service/visibility"
 )
@@ -19,6 +20,25 @@ type PortalHandler struct {
 	config           *config.Config
 	templates        *template.Template
 	visibilityFilter *visibility.Filter
+	securityWarnings []security.Warning
+	adminRoles       []string
+}
+
+// PortalHandlerOption is a functional option for PortalHandler.
+type PortalHandlerOption func(*PortalHandler)
+
+// WithSecurityWarnings sets security warnings to display to admins.
+func WithSecurityWarnings(warnings []security.Warning) PortalHandlerOption {
+	return func(h *PortalHandler) {
+		h.securityWarnings = warnings
+	}
+}
+
+// WithAdminRoles sets the roles that can see security warnings.
+func WithAdminRoles(roles []string) PortalHandlerOption {
+	return func(h *PortalHandler) {
+		h.adminRoles = roles
+	}
 }
 
 // NewPortalHandler creates a new portal handler
@@ -26,21 +46,39 @@ func NewPortalHandler(
 	sessionMgr *session.Manager,
 	cfg *config.Config,
 	templates *template.Template,
+	opts ...PortalHandlerOption,
 ) *PortalHandler {
-	return &PortalHandler{
+	h := &PortalHandler{
 		sessionManager:   sessionMgr,
 		config:           cfg,
 		templates:        templates,
 		visibilityFilter: visibility.NewFilter(),
+		adminRoles:       []string{"admin", "administrator", "portal-admin"},
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
+}
+
+// SecurityWarningView represents a security warning for display in UI.
+type SecurityWarningView struct {
+	Code           string
+	Severity       string
+	Title          string
+	Description    string
+	Service        string
+	Recommendation string
 }
 
 // PortalPageData represents data for the portal page template
 type PortalPageData struct {
-	Title    string
-	User     *model.User
-	Services []ServiceView
-	Error    string
+	Title            string
+	User             *model.User
+	Services         []ServiceView
+	Error            string
+	SecurityWarnings []SecurityWarningView
+	IsAdmin          bool
 }
 
 // ServiceView represents a service for display
@@ -63,10 +101,21 @@ func (h *PortalHandler) HandlePortal(w http.ResponseWriter, r *http.Request) {
 	// Get available services for the user
 	services := h.getServicesForUser(sess.User)
 
+	// Check if user is admin
+	isAdmin := h.isUserAdmin(sess.User)
+
+	// Get security warnings for admins
+	var warnings []SecurityWarningView
+	if isAdmin && len(h.securityWarnings) > 0 {
+		warnings = h.convertWarnings(h.securityWarnings)
+	}
+
 	data := PortalPageData{
-		Title:    "Service Portal",
-		User:     sess.User,
-		Services: services,
+		Title:            "Service Portal",
+		User:             sess.User,
+		Services:         services,
+		SecurityWarnings: warnings,
+		IsAdmin:          isAdmin,
 	}
 
 	if h.templates != nil {
@@ -79,6 +128,37 @@ func (h *PortalHandler) HandlePortal(w http.ResponseWriter, r *http.Request) {
 	// Fallback: JSON response
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(data)
+}
+
+// isUserAdmin checks if the user has any admin role.
+func (h *PortalHandler) isUserAdmin(user *model.User) bool {
+	if user == nil {
+		return false
+	}
+	for _, userRole := range user.Roles {
+		for _, adminRole := range h.adminRoles {
+			if userRole == adminRole {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// convertWarnings converts security.Warning to SecurityWarningView for template.
+func (h *PortalHandler) convertWarnings(warnings []security.Warning) []SecurityWarningView {
+	views := make([]SecurityWarningView, 0, len(warnings))
+	for _, w := range warnings {
+		views = append(views, SecurityWarningView{
+			Code:           w.Code,
+			Severity:       string(w.Severity),
+			Title:          w.Title,
+			Description:    w.Description,
+			Service:        w.Service,
+			Recommendation: w.Recommendation,
+		})
+	}
+	return views
 }
 
 // HandleServices returns the list of available services as JSON

@@ -3,6 +3,8 @@ package model
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestUser_HasRole(t *testing.T) {
@@ -24,19 +26,14 @@ func TestUser_HasRole(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.role, func(t *testing.T) {
-			result := user.HasRole(tt.role)
-			if result != tt.expected {
-				t.Errorf("HasRole(%q) = %v, want %v", tt.role, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, user.HasRole(tt.role))
 		})
 	}
 }
 
 func TestUser_HasRole_EmptyRoles(t *testing.T) {
 	user := &User{}
-	if user.HasRole("admin") {
-		t.Error("HasRole should return false for empty roles")
-	}
+	assert.False(t, user.HasRole("admin"), "HasRole should return false for empty roles")
 }
 
 func TestUser_HasAnyRole(t *testing.T) {
@@ -59,10 +56,7 @@ func TestUser_HasAnyRole(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := user.HasAnyRole(tt.roles...)
-			if result != tt.expected {
-				t.Errorf("HasAnyRole(%v) = %v, want %v", tt.roles, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, user.HasAnyRole(tt.roles...))
 		})
 	}
 }
@@ -87,10 +81,7 @@ func TestUser_HasAllRoles(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := user.HasAllRoles(tt.roles...)
-			if result != tt.expected {
-				t.Errorf("HasAllRoles(%v) = %v, want %v", tt.roles, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, user.HasAllRoles(tt.roles...))
 		})
 	}
 }
@@ -112,10 +103,7 @@ func TestUser_HasGroup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.group, func(t *testing.T) {
-			result := user.HasGroup(tt.group)
-			if result != tt.expected {
-				t.Errorf("HasGroup(%q) = %v, want %v", tt.group, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, user.HasGroup(tt.group))
 		})
 	}
 }
@@ -137,10 +125,7 @@ func TestUser_HasAnyGroup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := user.HasAnyGroup(tt.groups...)
-			if result != tt.expected {
-				t.Errorf("HasAnyGroup(%v) = %v, want %v", tt.groups, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, user.HasAnyGroup(tt.groups...))
 		})
 	}
 }
@@ -160,10 +145,7 @@ func TestUser_RolesString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			user := &User{Roles: tt.roles}
-			result := user.RolesString()
-			if result != tt.expected {
-				t.Errorf("RolesString() = %q, want %q", result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, user.RolesString())
 		})
 	}
 }
@@ -182,10 +164,7 @@ func TestUser_GroupsString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			user := &User{Groups: tt.groups}
-			result := user.GroupsString()
-			if result != tt.expected {
-				t.Errorf("GroupsString() = %q, want %q", result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, user.GroupsString())
 		})
 	}
 }
@@ -230,10 +209,7 @@ func TestUser_DisplayName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tt.user.DisplayName()
-			if result != tt.expected {
-				t.Errorf("DisplayName() = %q, want %q", result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, tt.user.DisplayName())
 		})
 	}
 }
@@ -249,29 +225,19 @@ func TestUser_GetClaim(t *testing.T) {
 
 	t.Run("existing claim", func(t *testing.T) {
 		value, ok := user.GetClaim("custom_claim")
-		if !ok {
-			t.Error("GetClaim should return true for existing claim")
-		}
-		if value != "value" {
-			t.Errorf("GetClaim value = %v, want 'value'", value)
-		}
+		assert.True(t, ok, "GetClaim should return true for existing claim")
+		assert.Equal(t, "value", value)
 	})
 
 	t.Run("non-existing claim", func(t *testing.T) {
 		_, ok := user.GetClaim("nonexistent")
-		if ok {
-			t.Error("GetClaim should return false for non-existing claim")
-		}
+		assert.False(t, ok, "GetClaim should return false for non-existing claim")
 	})
 
 	t.Run("number claim", func(t *testing.T) {
 		value, ok := user.GetClaim("number_claim")
-		if !ok {
-			t.Error("GetClaim should return true for number claim")
-		}
-		if value != 42 {
-			t.Errorf("GetClaim value = %v, want 42", value)
-		}
+		assert.True(t, ok, "GetClaim should return true for number claim")
+		assert.Equal(t, 42, value)
 	})
 }
 
@@ -295,20 +261,14 @@ func TestUser_GetClaimString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := user.GetClaimString(tt.key)
-			if result != tt.expected {
-				t.Errorf("GetClaimString(%q) = %q, want %q", tt.key, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, user.GetClaimString(tt.key))
 		})
 	}
 }
 
 func TestUser_GetClaimString_NilClaims(t *testing.T) {
 	user := &User{}
-	result := user.GetClaimString("any")
-	if result != "" {
-		t.Errorf("GetClaimString with nil claims = %q, want empty", result)
-	}
+	assert.Equal(t, "", user.GetClaimString("any"), "GetClaimString with nil claims should return empty")
 }
 
 func TestUser_Struct(t *testing.T) {
@@ -329,19 +289,9 @@ func TestUser_Struct(t *testing.T) {
 		Claims:        map[string]any{"key": "value"},
 	}
 
-	if user.ID != "user-123" {
-		t.Errorf("ID = %s, want user-123", user.ID)
-	}
-	if user.Email != "test@example.com" {
-		t.Errorf("Email = %s, want test@example.com", user.Email)
-	}
-	if user.Picture != "https://example.com/pic.jpg" {
-		t.Errorf("Picture = %s", user.Picture)
-	}
-	if user.Locale != "en-US" {
-		t.Errorf("Locale = %s, want en-US", user.Locale)
-	}
-	if user.TenantID != "tenant-1" {
-		t.Errorf("TenantID = %s, want tenant-1", user.TenantID)
-	}
+	assert.Equal(t, "user-123", user.ID)
+	assert.Equal(t, "test@example.com", user.Email)
+	assert.Equal(t, "https://example.com/pic.jpg", user.Picture)
+	assert.Equal(t, "en-US", user.Locale)
+	assert.Equal(t, "tenant-1", user.TenantID)
 }

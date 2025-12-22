@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/dzerik/auth-portal/internal/config"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewMockProvider(t *testing.T) {
@@ -17,24 +19,14 @@ func TestNewMockProvider(t *testing.T) {
 		}
 
 		p, err := NewMockProvider(cfg)
-		if err != nil {
-			t.Fatalf("NewMockProvider failed: %v", err)
-		}
-
-		if p == nil {
-			t.Fatal("NewMockProvider returned nil")
-		}
-
-		if p.Name() != "mock" {
-			t.Errorf("Name() = %s, want mock", p.Name())
-		}
+		require.NoError(t, err)
+		require.NotNil(t, p, "NewMockProvider returned nil")
+		assert.Equal(t, "mock", p.Name())
 	})
 
 	t.Run("nil config", func(t *testing.T) {
 		_, err := NewMockProvider(nil)
-		if err == nil {
-			t.Error("NewMockProvider should fail with nil config")
-		}
+		assert.Error(t, err, "NewMockProvider should fail with nil config")
 	})
 
 	t.Run("dev mode disabled", func(t *testing.T) {
@@ -43,9 +35,7 @@ func TestNewMockProvider(t *testing.T) {
 		}
 
 		_, err := NewMockProvider(cfg)
-		if err == nil {
-			t.Error("NewMockProvider should fail when dev mode is disabled")
-		}
+		assert.Error(t, err, "NewMockProvider should fail when dev mode is disabled")
 	})
 }
 
@@ -65,9 +55,7 @@ func TestNewMockProvider_WithProfiles(t *testing.T) {
     - engineering
   tenant_id: "tenant-1"
 `
-	if err := os.WriteFile(filepath.Join(tmpDir, "developer.yaml"), []byte(devProfile), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "developer.yaml"), []byte(devProfile), 0644))
 
 	// Create admin profile
 	adminProfile := `user:
@@ -81,9 +69,7 @@ func TestNewMockProvider_WithProfiles(t *testing.T) {
     - admins
   tenant_id: "tenant-1"
 `
-	if err := os.WriteFile(filepath.Join(tmpDir, "admin.yaml"), []byte(adminProfile), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "admin.yaml"), []byte(adminProfile), 0644))
 
 	cfg := &config.DevModeConfig{
 		Enabled:        true,
@@ -92,33 +78,21 @@ func TestNewMockProvider_WithProfiles(t *testing.T) {
 	}
 
 	p, err := NewMockProvider(cfg)
-	if err != nil {
-		t.Fatalf("NewMockProvider failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Check profiles loaded
 	profiles := p.GetProfiles()
-	if len(profiles) != 2 {
-		t.Errorf("GetProfiles length = %d, want 2", len(profiles))
-	}
+	assert.Len(t, profiles, 2)
 
 	// Check developer profile
 	devP, exists := p.GetProfile("developer")
-	if !exists {
-		t.Error("developer profile should exist")
-	}
-	if devP.User.Email != "developer@test.com" {
-		t.Errorf("developer email = %s, want developer@test.com", devP.User.Email)
-	}
+	assert.True(t, exists, "developer profile should exist")
+	assert.Equal(t, "developer@test.com", devP.User.Email)
 
 	// Check admin profile
 	adminP, exists := p.GetProfile("admin")
-	if !exists {
-		t.Error("admin profile should exist")
-	}
-	if adminP.User.Email != "admin@test.com" {
-		t.Errorf("admin email = %s, want admin@test.com", adminP.User.Email)
-	}
+	assert.True(t, exists, "admin profile should exist")
+	assert.Equal(t, "admin@test.com", adminP.User.Email)
 }
 
 func TestNewMockProvider_InvalidDefaultProfile(t *testing.T) {
@@ -128,9 +102,7 @@ func TestNewMockProvider_InvalidDefaultProfile(t *testing.T) {
   id: "user-1"
   email: "user@test.com"
 `
-	if err := os.WriteFile(filepath.Join(tmpDir, "user.yaml"), []byte(profile), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "user.yaml"), []byte(profile), 0644))
 
 	cfg := &config.DevModeConfig{
 		Enabled:        true,
@@ -139,17 +111,13 @@ func TestNewMockProvider_InvalidDefaultProfile(t *testing.T) {
 	}
 
 	_, err := NewMockProvider(cfg)
-	if err == nil {
-		t.Error("NewMockProvider should fail with invalid default profile")
-	}
+	assert.Error(t, err, "NewMockProvider should fail with invalid default profile")
 }
 
 func TestNewMockProvider_InvalidProfilesPath(t *testing.T) {
 	// Create a file instead of directory
 	tmpFile, err := os.CreateTemp("", "notadir")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer os.Remove(tmpFile.Name())
 	tmpFile.Close()
 
@@ -159,9 +127,7 @@ func TestNewMockProvider_InvalidProfilesPath(t *testing.T) {
 	}
 
 	_, err = NewMockProvider(cfg)
-	if err == nil {
-		t.Error("NewMockProvider should fail when profiles path is not a directory")
-	}
+	assert.Error(t, err, "NewMockProvider should fail when profiles path is not a directory")
 }
 
 func TestMockProvider_AuthURL(t *testing.T) {
@@ -171,19 +137,13 @@ func TestMockProvider_AuthURL(t *testing.T) {
 	}
 
 	p, err := NewMockProvider(cfg)
-	if err != nil {
-		t.Fatalf("NewMockProvider failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	t.Run("with state", func(t *testing.T) {
 		url := p.AuthURL(AuthURLOptions{State: "test-state"})
-		if url == "" {
-			t.Error("AuthURL should not be empty")
-		}
+		assert.NotEmpty(t, url, "AuthURL should not be empty")
 		// Should contain callback and state
-		if url != "/callback?code=mock_default&state=test-state" {
-			t.Errorf("AuthURL = %s, want /callback?code=mock_default&state=test-state", url)
-		}
+		assert.Equal(t, "/callback?code=mock_default&state=test-state", url)
 	})
 
 	t.Run("with IDPHint", func(t *testing.T) {
@@ -196,9 +156,7 @@ func TestMockProvider_AuthURL(t *testing.T) {
 			State:   "test-state",
 			IDPHint: "custom",
 		})
-		if url != "/callback?code=mock_custom&state=test-state" {
-			t.Errorf("AuthURL = %s, want /callback?code=mock_custom&state=test-state", url)
-		}
+		assert.Equal(t, "/callback?code=mock_custom&state=test-state", url)
 	})
 
 	t.Run("with unknown IDPHint", func(t *testing.T) {
@@ -207,9 +165,7 @@ func TestMockProvider_AuthURL(t *testing.T) {
 			IDPHint: "unknown",
 		})
 		// Should fall back to default profile
-		if url != "/callback?code=mock_default&state=test-state" {
-			t.Errorf("AuthURL = %s, want /callback?code=mock_default&state=test-state", url)
-		}
+		assert.Equal(t, "/callback?code=mock_default&state=test-state", url)
 	})
 }
 
@@ -220,53 +176,31 @@ func TestMockProvider_Exchange(t *testing.T) {
 	}
 
 	p, err := NewMockProvider(cfg)
-	if err != nil {
-		t.Fatalf("NewMockProvider failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	t.Run("valid mock code", func(t *testing.T) {
 		tokens, err := p.Exchange(context.Background(), "mock_default")
-		if err != nil {
-			t.Fatalf("Exchange failed: %v", err)
-		}
+		require.NoError(t, err)
 
-		if tokens.AccessToken == "" {
-			t.Error("AccessToken should not be empty")
-		}
-		if tokens.RefreshToken == "" {
-			t.Error("RefreshToken should not be empty")
-		}
-		if tokens.IDToken == "" {
-			t.Error("IDToken should not be empty")
-		}
-		if tokens.TokenType != "Bearer" {
-			t.Errorf("TokenType = %s, want Bearer", tokens.TokenType)
-		}
-		if tokens.ExpiresIn != 3600 {
-			t.Errorf("ExpiresIn = %d, want 3600", tokens.ExpiresIn)
-		}
+		assert.NotEmpty(t, tokens.AccessToken, "AccessToken should not be empty")
+		assert.NotEmpty(t, tokens.RefreshToken, "RefreshToken should not be empty")
+		assert.NotEmpty(t, tokens.IDToken, "IDToken should not be empty")
+		assert.Equal(t, "Bearer", tokens.TokenType)
+		assert.Equal(t, int64(3600), tokens.ExpiresIn)
 	})
 
 	t.Run("code with profile name", func(t *testing.T) {
 		tokens, err := p.Exchange(context.Background(), "mock_default")
-		if err != nil {
-			t.Fatalf("Exchange failed: %v", err)
-		}
+		require.NoError(t, err)
 		// Token should contain profile name
-		if tokens.AccessToken == "" {
-			t.Error("AccessToken should contain profile info")
-		}
+		assert.NotEmpty(t, tokens.AccessToken, "AccessToken should contain profile info")
 	})
 
 	t.Run("short code", func(t *testing.T) {
 		tokens, err := p.Exchange(context.Background(), "abc")
-		if err != nil {
-			t.Fatalf("Exchange failed: %v", err)
-		}
+		require.NoError(t, err)
 		// Should use default profile
-		if tokens.AccessToken == "" {
-			t.Error("AccessToken should not be empty")
-		}
+		assert.NotEmpty(t, tokens.AccessToken, "AccessToken should not be empty")
 	})
 }
 
@@ -289,9 +223,7 @@ func TestMockProvider_UserInfo(t *testing.T) {
     - team-a
   tenant_id: "tenant-1"
 `
-	if err := os.WriteFile(filepath.Join(tmpDir, "test.yaml"), []byte(profile), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "test.yaml"), []byte(profile), 0644))
 
 	cfg := &config.DevModeConfig{
 		Enabled:        true,
@@ -300,55 +232,27 @@ func TestMockProvider_UserInfo(t *testing.T) {
 	}
 
 	p, err := NewMockProvider(cfg)
-	if err != nil {
-		t.Fatalf("NewMockProvider failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Get tokens first
 	tokens, err := p.Exchange(context.Background(), "mock_test")
-	if err != nil {
-		t.Fatalf("Exchange failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Get user info
 	user, err := p.UserInfo(context.Background(), tokens.AccessToken)
-	if err != nil {
-		t.Fatalf("UserInfo failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if user.ID != "test-user-1" {
-		t.Errorf("ID = %s, want test-user-1", user.ID)
-	}
-	if user.Email != "test@example.com" {
-		t.Errorf("Email = %s, want test@example.com", user.Email)
-	}
-	if user.Name != "Test User" {
-		t.Errorf("Name = %s, want Test User", user.Name)
-	}
-	if user.PreferredName != "tester" {
-		t.Errorf("PreferredName = %s, want tester", user.PreferredName)
-	}
-	if user.GivenName != "Test" {
-		t.Errorf("GivenName = %s, want Test", user.GivenName)
-	}
-	if user.FamilyName != "User" {
-		t.Errorf("FamilyName = %s, want User", user.FamilyName)
-	}
-	if user.Picture != "https://example.com/pic.jpg" {
-		t.Errorf("Picture = %s", user.Picture)
-	}
-	if user.Locale != "en" {
-		t.Errorf("Locale = %s, want en", user.Locale)
-	}
-	if len(user.Roles) != 2 {
-		t.Errorf("Roles length = %d, want 2", len(user.Roles))
-	}
-	if len(user.Groups) != 1 {
-		t.Errorf("Groups length = %d, want 1", len(user.Groups))
-	}
-	if user.TenantID != "tenant-1" {
-		t.Errorf("TenantID = %s, want tenant-1", user.TenantID)
-	}
+	assert.Equal(t, "test-user-1", user.ID)
+	assert.Equal(t, "test@example.com", user.Email)
+	assert.Equal(t, "Test User", user.Name)
+	assert.Equal(t, "tester", user.PreferredName)
+	assert.Equal(t, "Test", user.GivenName)
+	assert.Equal(t, "User", user.FamilyName)
+	assert.Equal(t, "https://example.com/pic.jpg", user.Picture)
+	assert.Equal(t, "en", user.Locale)
+	assert.Len(t, user.Roles, 2)
+	assert.Len(t, user.Groups, 1)
+	assert.Equal(t, "tenant-1", user.TenantID)
 }
 
 func TestMockProvider_Refresh(t *testing.T) {
@@ -358,26 +262,16 @@ func TestMockProvider_Refresh(t *testing.T) {
 	}
 
 	p, err := NewMockProvider(cfg)
-	if err != nil {
-		t.Fatalf("NewMockProvider failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	tokens, err := p.Exchange(context.Background(), "mock_default")
-	if err != nil {
-		t.Fatalf("Exchange failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	newTokens, err := p.Refresh(context.Background(), tokens.RefreshToken)
-	if err != nil {
-		t.Fatalf("Refresh failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if newTokens.AccessToken == "" {
-		t.Error("New AccessToken should not be empty")
-	}
-	if newTokens.RefreshToken == "" {
-		t.Error("New RefreshToken should not be empty")
-	}
+	assert.NotEmpty(t, newTokens.AccessToken, "New AccessToken should not be empty")
+	assert.NotEmpty(t, newTokens.RefreshToken, "New RefreshToken should not be empty")
 	// New tokens should be different
 	if newTokens.AccessToken == tokens.AccessToken {
 		t.Log("AccessToken changed (expected due to timestamp)")
@@ -391,23 +285,14 @@ func TestMockProvider_Verify(t *testing.T) {
 	}
 
 	p, err := NewMockProvider(cfg)
-	if err != nil {
-		t.Fatalf("NewMockProvider failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	tokens, err := p.Exchange(context.Background(), "mock_default")
-	if err != nil {
-		t.Fatalf("Exchange failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	user, err := p.Verify(context.Background(), tokens.IDToken)
-	if err != nil {
-		t.Fatalf("Verify failed: %v", err)
-	}
-
-	if user == nil {
-		t.Error("User should not be nil")
-	}
+	require.NoError(t, err)
+	assert.NotNil(t, user, "User should not be nil")
 }
 
 func TestMockProvider_LogoutURL(t *testing.T) {
@@ -417,22 +302,16 @@ func TestMockProvider_LogoutURL(t *testing.T) {
 	}
 
 	p, err := NewMockProvider(cfg)
-	if err != nil {
-		t.Fatalf("NewMockProvider failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	t.Run("with postLogoutRedirectURI", func(t *testing.T) {
 		url := p.LogoutURL("token-hint", "https://example.com/logout")
-		if url != "https://example.com/logout" {
-			t.Errorf("LogoutURL = %s, want https://example.com/logout", url)
-		}
+		assert.Equal(t, "https://example.com/logout", url)
 	})
 
 	t.Run("without postLogoutRedirectURI", func(t *testing.T) {
 		url := p.LogoutURL("token-hint", "")
-		if url != "/login" {
-			t.Errorf("LogoutURL = %s, want /login", url)
-		}
+		assert.Equal(t, "/login", url)
 	})
 }
 
@@ -448,12 +327,8 @@ func TestMockProvider_SetActiveProfile(t *testing.T) {
   id: "user-2"
   email: "user2@test.com"
 `
-	if err := os.WriteFile(filepath.Join(tmpDir, "profile1.yaml"), []byte(profile1), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(tmpDir, "profile2.yaml"), []byte(profile2), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "profile1.yaml"), []byte(profile1), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "profile2.yaml"), []byte(profile2), 0644))
 
 	cfg := &config.DevModeConfig{
 		Enabled:        true,
@@ -462,22 +337,16 @@ func TestMockProvider_SetActiveProfile(t *testing.T) {
 	}
 
 	p, err := NewMockProvider(cfg)
-	if err != nil {
-		t.Fatalf("NewMockProvider failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	t.Run("set valid profile", func(t *testing.T) {
 		err := p.SetActiveProfile("profile2")
-		if err != nil {
-			t.Fatalf("SetActiveProfile failed: %v", err)
-		}
+		require.NoError(t, err)
 	})
 
 	t.Run("set invalid profile", func(t *testing.T) {
 		err := p.SetActiveProfile("nonexistent")
-		if err == nil {
-			t.Error("SetActiveProfile should fail for nonexistent profile")
-		}
+		assert.Error(t, err, "SetActiveProfile should fail for nonexistent profile")
 	})
 }
 
@@ -488,9 +357,7 @@ func TestMockProvider_ReloadProfiles(t *testing.T) {
   id: "user-1"
   email: "user1@test.com"
 `
-	if err := os.WriteFile(filepath.Join(tmpDir, "initial.yaml"), []byte(profile), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "initial.yaml"), []byte(profile), 0644))
 
 	cfg := &config.DevModeConfig{
 		Enabled:        true,
@@ -499,32 +366,22 @@ func TestMockProvider_ReloadProfiles(t *testing.T) {
 	}
 
 	p, err := NewMockProvider(cfg)
-	if err != nil {
-		t.Fatalf("NewMockProvider failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if len(p.GetProfiles()) != 1 {
-		t.Errorf("Initial profiles = %d, want 1", len(p.GetProfiles()))
-	}
+	assert.Len(t, p.GetProfiles(), 1, "Initial profiles should be 1")
 
 	// Add another profile
 	newProfile := `user:
   id: "user-2"
   email: "user2@test.com"
 `
-	if err := os.WriteFile(filepath.Join(tmpDir, "new.yaml"), []byte(newProfile), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "new.yaml"), []byte(newProfile), 0644))
 
 	// Reload profiles
 	err = p.ReloadProfiles()
-	if err != nil {
-		t.Fatalf("ReloadProfiles failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if len(p.GetProfiles()) != 2 {
-		t.Errorf("After reload profiles = %d, want 2", len(p.GetProfiles()))
-	}
+	assert.Len(t, p.GetProfiles(), 2, "After reload profiles should be 2")
 }
 
 func TestMockProvider_extractProfileFromToken(t *testing.T) {
@@ -534,9 +391,7 @@ func TestMockProvider_extractProfileFromToken(t *testing.T) {
 	}
 
 	p, err := NewMockProvider(cfg)
-	if err != nil {
-		t.Fatalf("NewMockProvider failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	tests := []struct {
 		token    string
@@ -554,9 +409,7 @@ func TestMockProvider_extractProfileFromToken(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.token, func(t *testing.T) {
 			result := p.extractProfileFromToken(tt.token)
-			if result != tt.expected {
-				t.Errorf("extractProfileFromToken(%q) = %s, want %s", tt.token, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -576,15 +429,9 @@ func TestProfileUser_Struct(t *testing.T) {
 		TenantID:      "tenant-1",
 	}
 
-	if pu.ID != "user-1" {
-		t.Errorf("ID = %s, want user-1", pu.ID)
-	}
-	if pu.Email != "user@test.com" {
-		t.Errorf("Email = %s, want user@test.com", pu.Email)
-	}
-	if len(pu.Roles) != 2 {
-		t.Errorf("Roles length = %d, want 2", len(pu.Roles))
-	}
+	assert.Equal(t, "user-1", pu.ID)
+	assert.Equal(t, "user@test.com", pu.Email)
+	assert.Len(t, pu.Roles, 2)
 }
 
 func TestProfile_Struct(t *testing.T) {
@@ -595,9 +442,7 @@ func TestProfile_Struct(t *testing.T) {
 		},
 	}
 
-	if profile.User.ID != "user-1" {
-		t.Errorf("User.ID = %s, want user-1", profile.User.ID)
-	}
+	assert.Equal(t, "user-1", profile.User.ID)
 }
 
 func BenchmarkMockProvider_Exchange(b *testing.B) {

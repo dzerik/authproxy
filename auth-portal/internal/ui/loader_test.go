@@ -5,17 +5,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadTemplates(t *testing.T) {
 	tmpl, err := LoadTemplates()
-	if err != nil {
-		t.Fatalf("LoadTemplates failed: %v", err)
-	}
-
-	if tmpl == nil {
-		t.Fatal("LoadTemplates returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, tmpl)
 
 	// Check that expected templates are loaded
 	expectedTemplates := []string{
@@ -26,34 +24,24 @@ func TestLoadTemplates(t *testing.T) {
 	}
 
 	for _, name := range expectedTemplates {
-		if tmpl.Lookup(name) == nil {
-			t.Errorf("template %s should be loaded", name)
-		}
+		assert.NotNil(t, tmpl.Lookup(name))
 	}
 }
 
 func TestLoadTemplates_SliceFunction(t *testing.T) {
 	tmpl, err := LoadTemplates()
-	if err != nil {
-		t.Fatalf("LoadTemplates failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Access the FuncMap is not directly possible, but we can test by executing
 	// Create a test template with slice function
 	testTmpl, err := tmpl.New("test-slice").Parse(`{{slice "hello" 0 3}}`)
-	if err != nil {
-		t.Fatalf("Failed to parse test template: %v", err)
-	}
+	require.NoError(t, err)
 
 	rr := httptest.NewRecorder()
 	err = testTmpl.Execute(rr, nil)
-	if err != nil {
-		t.Fatalf("Failed to execute template: %v", err)
-	}
+	require.NoError(t, err)
 
-	if rr.Body.String() != "hel" {
-		t.Errorf("slice result = %s, want hel", rr.Body.String())
-	}
+	assert.Equal(t, "hel", rr.Body.String())
 }
 
 func TestLoadTemplates_SliceFunctionBoundaries(t *testing.T) {
@@ -73,24 +61,16 @@ func TestLoadTemplates_SliceFunctionBoundaries(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Load fresh templates for each test
 			tmpl, err := LoadTemplates()
-			if err != nil {
-				t.Fatalf("LoadTemplates failed: %v", err)
-			}
+			require.NoError(t, err)
 
 			testTmpl, err := tmpl.New("test-" + tt.name).Parse(tt.template)
-			if err != nil {
-				t.Fatalf("Failed to parse template: %v", err)
-			}
+			require.NoError(t, err)
 
 			rr := httptest.NewRecorder()
 			err = testTmpl.Execute(rr, nil)
-			if err != nil {
-				t.Fatalf("Failed to execute template: %v", err)
-			}
+			require.NoError(t, err)
 
-			if rr.Body.String() != tt.expected {
-				t.Errorf("slice result = %s, want %s", rr.Body.String(), tt.expected)
-			}
+			assert.Equal(t, tt.expected, rr.Body.String())
 		})
 	}
 }
@@ -132,24 +112,16 @@ func TestLoadTemplates_JoinFunction(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Load fresh templates for each test
 			tmpl, err := LoadTemplates()
-			if err != nil {
-				t.Fatalf("LoadTemplates failed: %v", err)
-			}
+			require.NoError(t, err)
 
 			testTmpl, err := tmpl.New("test-" + tt.name).Parse(tt.template)
-			if err != nil {
-				t.Fatalf("Failed to parse template: %v", err)
-			}
+			require.NoError(t, err)
 
 			rr := httptest.NewRecorder()
 			err = testTmpl.Execute(rr, tt.data)
-			if err != nil {
-				t.Fatalf("Failed to execute template: %v", err)
-			}
+			require.NoError(t, err)
 
-			if rr.Body.String() != tt.expected {
-				t.Errorf("join result = %s, want %s", rr.Body.String(), tt.expected)
-			}
+			assert.Equal(t, tt.expected, rr.Body.String())
 		})
 	}
 }
@@ -157,9 +129,7 @@ func TestLoadTemplates_JoinFunction(t *testing.T) {
 func TestStaticFileHandler(t *testing.T) {
 	handler := StaticFileHandler()
 
-	if handler == nil {
-		t.Fatal("StaticFileHandler returned nil")
-	}
+	require.NotNil(t, handler)
 
 	// Test that it returns something for valid path
 	req := httptest.NewRequest(http.MethodGet, "/static/css/style.css", nil)
@@ -180,9 +150,7 @@ func TestStaticFileHandler_NotFoundPath(t *testing.T) {
 
 	handler.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("status = %d, want 404 for nonexistent file", rr.Code)
-	}
+	assert.Equal(t, http.StatusNotFound, rr.Code)
 }
 
 func TestMustLoadTemplates(t *testing.T) {
@@ -194,21 +162,15 @@ func TestMustLoadTemplates(t *testing.T) {
 	}()
 
 	tmpl := MustLoadTemplates()
-	if tmpl == nil {
-		t.Error("MustLoadTemplates returned nil")
-	}
+	assert.NotNil(t, tmpl)
 }
 
 func TestTemplatesFS(t *testing.T) {
 	// Test that templatesFS is accessible
 	entries, err := fs.ReadDir(templatesFS, "templates")
-	if err != nil {
-		t.Fatalf("Failed to read templates directory: %v", err)
-	}
+	require.NoError(t, err)
 
-	if len(entries) == 0 {
-		t.Error("No templates found in embedded filesystem")
-	}
+	assert.NotEmpty(t, entries)
 
 	// List found templates
 	for _, entry := range entries {
@@ -219,9 +181,7 @@ func TestTemplatesFS(t *testing.T) {
 func TestStaticFS(t *testing.T) {
 	// Test that staticFS is accessible
 	entries, err := fs.ReadDir(staticFS, "static")
-	if err != nil {
-		t.Fatalf("Failed to read static directory: %v", err)
-	}
+	require.NoError(t, err)
 
 	// There might be subdirectories
 	for _, entry := range entries {

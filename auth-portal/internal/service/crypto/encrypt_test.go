@@ -3,43 +3,35 @@ package crypto
 import (
 	"bytes"
 	"encoding/base64"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewEncryptor(t *testing.T) {
 	t.Run("valid 32-byte key", func(t *testing.T) {
 		key := make([]byte, 32)
 		enc, err := NewEncryptor(key)
-		if err != nil {
-			t.Errorf("NewEncryptor failed: %v", err)
-		}
-		if enc == nil {
-			t.Error("NewEncryptor returned nil")
-		}
+		require.NoError(t, err)
+		require.NotNil(t, enc)
 	})
 
 	t.Run("key too short", func(t *testing.T) {
 		key := make([]byte, 16)
 		_, err := NewEncryptor(key)
-		if err != ErrInvalidKeySize {
-			t.Errorf("expected ErrInvalidKeySize, got %v", err)
-		}
+		assert.Equal(t, ErrInvalidKeySize, err)
 	})
 
 	t.Run("key too long", func(t *testing.T) {
 		key := make([]byte, 64)
 		_, err := NewEncryptor(key)
-		if err != ErrInvalidKeySize {
-			t.Errorf("expected ErrInvalidKeySize, got %v", err)
-		}
+		assert.Equal(t, ErrInvalidKeySize, err)
 	})
 
 	t.Run("empty key", func(t *testing.T) {
 		_, err := NewEncryptor([]byte{})
-		if err != ErrInvalidKeySize {
-			t.Errorf("expected ErrInvalidKeySize, got %v", err)
-		}
+		assert.Equal(t, ErrInvalidKeySize, err)
 	})
 }
 
@@ -48,12 +40,8 @@ func TestNewEncryptorFromString(t *testing.T) {
 		// Use a string that's not valid base64 to ensure it's used directly
 		keyStr := "abcdefghijklmnopqrstuvwxyz!@#$%^" // 32 bytes, not valid base64
 		enc, err := NewEncryptorFromString(keyStr)
-		if err != nil {
-			t.Errorf("NewEncryptorFromString failed: %v", err)
-		}
-		if enc == nil {
-			t.Error("NewEncryptorFromString returned nil")
-		}
+		require.NoError(t, err)
+		require.NotNil(t, enc)
 	})
 
 	t.Run("base64 encoded key", func(t *testing.T) {
@@ -64,29 +52,21 @@ func TestNewEncryptorFromString(t *testing.T) {
 		keyStr := base64.StdEncoding.EncodeToString(key)
 
 		enc, err := NewEncryptorFromString(keyStr)
-		if err != nil {
-			t.Errorf("NewEncryptorFromString failed: %v", err)
-		}
-		if enc == nil {
-			t.Error("NewEncryptorFromString returned nil")
-		}
+		require.NoError(t, err)
+		require.NotNil(t, enc)
 	})
 
 	t.Run("invalid key size", func(t *testing.T) {
 		keyStr := "short"
 		_, err := NewEncryptorFromString(keyStr)
-		if err == nil {
-			t.Error("expected error for invalid key size")
-		}
+		assert.Error(t, err)
 	})
 }
 
 func TestEncryptor_EncryptDecrypt(t *testing.T) {
 	key := []byte("12345678901234567890123456789012")
 	enc, err := NewEncryptor(key)
-	if err != nil {
-		t.Fatalf("NewEncryptor failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	testCases := []struct {
 		name      string
@@ -104,25 +84,18 @@ func TestEncryptor_EncryptDecrypt(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Encrypt
 			ciphertext, err := enc.Encrypt(tc.plaintext)
-			if err != nil {
-				t.Fatalf("Encrypt failed: %v", err)
-			}
+			require.NoError(t, err)
 
 			// Should be base64 encoded
-			if _, err := base64.URLEncoding.DecodeString(ciphertext); err != nil {
-				t.Errorf("ciphertext is not valid base64: %v", err)
-			}
+			_, err = base64.URLEncoding.DecodeString(ciphertext)
+			require.NoError(t, err, "ciphertext is not valid base64")
 
 			// Decrypt
 			decrypted, err := enc.Decrypt(ciphertext)
-			if err != nil {
-				t.Fatalf("Decrypt failed: %v", err)
-			}
+			require.NoError(t, err)
 
 			// Compare
-			if !bytes.Equal(decrypted, tc.plaintext) {
-				t.Errorf("decrypted != plaintext\ngot: %v\nwant: %v", decrypted, tc.plaintext)
-			}
+			assert.True(t, bytes.Equal(decrypted, tc.plaintext), "decrypted != plaintext\ngot: %v\nwant: %v", decrypted, tc.plaintext)
 		})
 	}
 }
@@ -130,46 +103,32 @@ func TestEncryptor_EncryptDecrypt(t *testing.T) {
 func TestEncryptor_EncryptString(t *testing.T) {
 	key := []byte("12345678901234567890123456789012")
 	enc, err := NewEncryptor(key)
-	if err != nil {
-		t.Fatalf("NewEncryptor failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	plaintext := "Hello, World!"
 	ciphertext, err := enc.EncryptString(plaintext)
-	if err != nil {
-		t.Fatalf("EncryptString failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	decrypted, err := enc.DecryptString(ciphertext)
-	if err != nil {
-		t.Fatalf("DecryptString failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if decrypted != plaintext {
-		t.Errorf("decrypted = %s, want %s", decrypted, plaintext)
-	}
+	assert.Equal(t, plaintext, decrypted)
 }
 
 func TestEncryptor_DecryptErrors(t *testing.T) {
 	key := []byte("12345678901234567890123456789012")
 	enc, err := NewEncryptor(key)
-	if err != nil {
-		t.Fatalf("NewEncryptor failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	t.Run("invalid base64", func(t *testing.T) {
 		_, err := enc.Decrypt("not-valid-base64!!!")
-		if err == nil {
-			t.Error("expected error for invalid base64")
-		}
+		assert.Error(t, err)
 	})
 
 	t.Run("ciphertext too short", func(t *testing.T) {
 		shortData := base64.URLEncoding.EncodeToString([]byte("short"))
 		_, err := enc.Decrypt(shortData)
-		if err != ErrCiphertextTooShort {
-			t.Errorf("expected ErrCiphertextTooShort, got %v", err)
-		}
+		assert.Equal(t, ErrCiphertextTooShort, err)
 	})
 
 	t.Run("wrong key", func(t *testing.T) {
@@ -182,9 +141,7 @@ func TestEncryptor_DecryptErrors(t *testing.T) {
 		otherEnc, _ := NewEncryptor(otherKey)
 
 		_, err := otherEnc.Decrypt(ciphertext)
-		if err != ErrDecryptionFailed {
-			t.Errorf("expected ErrDecryptionFailed, got %v", err)
-		}
+		assert.Equal(t, ErrDecryptionFailed, err)
 	})
 
 	t.Run("tampered ciphertext", func(t *testing.T) {
@@ -197,18 +154,14 @@ func TestEncryptor_DecryptErrors(t *testing.T) {
 		tampered := base64.URLEncoding.EncodeToString(decoded)
 
 		_, err := enc.Decrypt(tampered)
-		if err != ErrDecryptionFailed {
-			t.Errorf("expected ErrDecryptionFailed, got %v", err)
-		}
+		assert.Equal(t, ErrDecryptionFailed, err)
 	})
 }
 
 func TestEncryptor_UniqueCiphertexts(t *testing.T) {
 	key := []byte("12345678901234567890123456789012")
 	enc, err := NewEncryptor(key)
-	if err != nil {
-		t.Fatalf("NewEncryptor failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	plaintext := []byte("same data")
 	ciphertexts := make(map[string]bool)
@@ -216,75 +169,49 @@ func TestEncryptor_UniqueCiphertexts(t *testing.T) {
 	// Encrypt same data multiple times
 	for i := 0; i < 100; i++ {
 		ct, err := enc.Encrypt(plaintext)
-		if err != nil {
-			t.Fatalf("Encrypt failed: %v", err)
-		}
+		require.NoError(t, err)
 
-		if ciphertexts[ct] {
-			t.Error("got duplicate ciphertext - nonce should be unique")
-		}
+		assert.False(t, ciphertexts[ct], "got duplicate ciphertext - nonce should be unique")
 		ciphertexts[ct] = true
 	}
 }
 
 func TestGenerateKey(t *testing.T) {
 	key, err := GenerateKey()
-	if err != nil {
-		t.Fatalf("GenerateKey failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if len(key) != 32 {
-		t.Errorf("key length = %d, want 32", len(key))
-	}
+	assert.Len(t, key, 32)
 
 	// Generate another and check they're different
 	key2, err := GenerateKey()
-	if err != nil {
-		t.Fatalf("GenerateKey failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if bytes.Equal(key, key2) {
-		t.Error("generated keys should be unique")
-	}
+	assert.False(t, bytes.Equal(key, key2), "generated keys should be unique")
 }
 
 func TestGenerateKeyString(t *testing.T) {
 	keyStr, err := GenerateKeyString()
-	if err != nil {
-		t.Fatalf("GenerateKeyString failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Should be valid base64
 	key, err := base64.StdEncoding.DecodeString(keyStr)
-	if err != nil {
-		t.Errorf("generated key string is not valid base64: %v", err)
-	}
+	require.NoError(t, err, "generated key string is not valid base64")
 
-	if len(key) != 32 {
-		t.Errorf("decoded key length = %d, want 32", len(key))
-	}
+	assert.Len(t, key, 32)
 
 	// Should work with NewEncryptorFromString
 	enc, err := NewEncryptorFromString(keyStr)
-	if err != nil {
-		t.Errorf("NewEncryptorFromString failed with generated key: %v", err)
-	}
+	require.NoError(t, err, "NewEncryptorFromString failed with generated key")
 
 	// Test encryption/decryption
 	plaintext := "test data"
 	ciphertext, err := enc.EncryptString(plaintext)
-	if err != nil {
-		t.Fatalf("EncryptString failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	decrypted, err := enc.DecryptString(ciphertext)
-	if err != nil {
-		t.Fatalf("DecryptString failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if decrypted != plaintext {
-		t.Errorf("decrypted = %s, want %s", decrypted, plaintext)
-	}
+	assert.Equal(t, plaintext, decrypted)
 }
 
 func BenchmarkEncrypt(b *testing.B) {
@@ -312,20 +239,14 @@ func BenchmarkDecrypt(b *testing.B) {
 
 func TestErrors(t *testing.T) {
 	t.Run("ErrInvalidKeySize", func(t *testing.T) {
-		if !strings.Contains(ErrInvalidKeySize.Error(), "32 bytes") {
-			t.Error("ErrInvalidKeySize should mention 32 bytes")
-		}
+		assert.Contains(t, ErrInvalidKeySize.Error(), "32 bytes")
 	})
 
 	t.Run("ErrCiphertextTooShort", func(t *testing.T) {
-		if ErrCiphertextTooShort.Error() == "" {
-			t.Error("ErrCiphertextTooShort should have message")
-		}
+		assert.NotEmpty(t, ErrCiphertextTooShort.Error())
 	})
 
 	t.Run("ErrDecryptionFailed", func(t *testing.T) {
-		if ErrDecryptionFailed.Error() == "" {
-			t.Error("ErrDecryptionFailed should have message")
-		}
+		assert.NotEmpty(t, ErrDecryptionFailed.Error())
 	})
 }

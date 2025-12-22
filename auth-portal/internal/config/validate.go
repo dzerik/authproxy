@@ -1,8 +1,10 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -103,11 +105,14 @@ func Validate(cfg *Config) error {
 				Message: "required when encryption is enabled",
 			})
 		}
-		if cfg.Session.Encryption.Enabled && len(cfg.Session.Encryption.Key) != 32 {
-			errs = append(errs, ValidationError{
-				Field:   "session.encryption.key",
-				Message: fmt.Sprintf("must be 32 bytes for AES-256, got %d bytes", len(cfg.Session.Encryption.Key)),
-			})
+		if cfg.Session.Encryption.Enabled && cfg.Session.Encryption.Key != "" {
+			keyLen, keyErr := validateEncryptionKeyLength(cfg.Session.Encryption.Key)
+			if keyErr != nil || keyLen != 32 {
+				errs = append(errs, ValidationError{
+					Field:   "session.encryption.key",
+					Message: fmt.Sprintf("must be 32 bytes for AES-256 (either raw 32-char string or base64-encoded 32 bytes), got %d bytes", keyLen),
+				})
+			}
 		}
 	}
 
@@ -183,6 +188,16 @@ func Validate(cfg *Config) error {
 				Message: fmt.Sprintf("invalid URL: %v", err),
 			})
 		}
+
+		// HIGH-05 security fix: Validate NginxExtra for dangerous directives
+		if svc.NginxExtra != "" {
+			if dangers := validateNginxExtra(svc.NginxExtra); len(dangers) > 0 {
+				errs = append(errs, ValidationError{
+					Field:   prefix + ".nginx_extra",
+					Message: fmt.Sprintf("contains potentially dangerous directives: %s", strings.Join(dangers, ", ")),
+				})
+			}
+		}
 	}
 
 	// Validate dev mode
@@ -213,4 +228,72 @@ func Validate(cfg *Config) error {
 		return errs
 	}
 	return nil
+}
+
+// validateEncryptionKeyLength determines the effective key length for encryption.
+// Mirrors the logic in crypto.NewEncryptorFromString: tries base64 decoding first,
+// falls back to using the string directly as bytes.
+func validateEncryptionKeyLength(keyStr string) (int, error) {
+	// Try base64 decoding first (same logic as crypto.NewEncryptorFromString)
+	decoded, err := base64.StdEncoding.DecodeString(keyStr)
+	if err == nil {
+		return len(decoded), nil
+	}
+	// If not valid base64, use the string directly as bytes
+	return len(keyStr), nil
+}
+
+// dangerousNginxDirectives contains patterns for potentially dangerous nginx directives
+// HIGH-05 security fix: prevent arbitrary config injection via NginxExtra
+var dangerousNginxDirectives = []struct {
+	pattern *regexp.Regexp
+	name    string
+}{
+	// Lua directives that allow code execution
+	{regexp.MustCompile(`(?i)\blua_`), "lua_*"},
+	{regexp.MustCompile(`(?i)\bcontent_by_lua`), "content_by_lua"},
+	{regexp.MustCompile(`(?i)\baccess_by_lua`), "access_by_lua"},
+	{regexp.MustCompile(`(?i)\bset_by_lua`), "set_by_lua"},
+	{regexp.MustCompile(`(?i)\brewrite_by_lua`), "rewrite_by_lua"},
+	{regexp.MustCompile(`(?i)\bheader_filter_by_lua`), "header_filter_by_lua"},
+	{regexp.MustCompile(`(?i)\bbody_filter_by_lua`), "body_filter_by_lua"},
+	{regexp.MustCompile(`(?i)\blog_by_lua`), "log_by_lua"},
+	{regexp.MustCompile(`(?i)\binit_by_lua`), "init_by_lua"},
+	{regexp.MustCompile(`(?i)\binit_worker_by_lua`), "init_worker_by_lua"},
+	{regexp.MustCompile(`(?i)\bssl_certificate_by_lua`), "ssl_certificate_by_lua"},
+	{regexp.MustCompile(`(?i)\bssl_session_fetch_by_lua`), "ssl_session_fetch_by_lua"},
+	{regexp.MustCompile(`(?i)\bssl_session_store_by_lua`), "ssl_session_store_by_lua"},
+
+	// Directives that can change request routing
+	{regexp.MustCompile(`(?i)\bproxy_pass\s`), "proxy_pass"},
+	{regexp.MustCompile(`(?i)\bfastcgi_pass\s`), "fastcgi_pass"},
+	{regexp.MustCompile(`(?i)\buwsgi_pass\s`), "uwsgi_pass"},
+	{regexp.MustCompile(`(?i)\bscgi_pass\s`), "scgi_pass"},
+	{regexp.MustCompile(`(?i)\bmemcached_pass\s`), "memcached_pass"},
+
+	// File access directives
+	{regexp.MustCompile(`(?i)\broot\s`), "root"},
+	{regexp.MustCompile(`(?i)\balias\s`), "alias"},
+
+	// Include directive that can load arbitrary config
+	{regexp.MustCompile(`(?i)\binclude\s`), "include"},
+
+	// Error page redirects to external URLs
+	{regexp.MustCompile(`(?i)\berror_page\s+\d+\s+(https?:|//)`), "error_page (external redirect)"},
+}
+
+// validateNginxExtra checks nginx_extra for dangerous directives that could be security risks.
+// Returns a list of found dangerous directive names.
+func validateNginxExtra(nginxExtra string) []string {
+	var found []string
+	seenNames := make(map[string]bool)
+
+	for _, d := range dangerousNginxDirectives {
+		if d.pattern.MatchString(nginxExtra) && !seenNames[d.name] {
+			found = append(found, d.name)
+			seenNames[d.name] = true
+		}
+	}
+
+	return found
 }

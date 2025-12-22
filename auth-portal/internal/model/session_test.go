@@ -3,6 +3,9 @@ package model
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewSession(t *testing.T) {
@@ -13,24 +16,12 @@ func TestNewSession(t *testing.T) {
 
 	session := NewSession("session-456", user)
 
-	if session == nil {
-		t.Fatal("NewSession returned nil")
-	}
-	if session.ID != "session-456" {
-		t.Errorf("ID = %s, want session-456", session.ID)
-	}
-	if session.User != user {
-		t.Error("User not set correctly")
-	}
-	if session.CreatedAt.IsZero() {
-		t.Error("CreatedAt should be set")
-	}
-	if session.LastAccessAt.IsZero() {
-		t.Error("LastAccessAt should be set")
-	}
-	if session.CreatedAt != session.LastAccessAt {
-		t.Error("CreatedAt and LastAccessAt should be equal on creation")
-	}
+	require.NotNil(t, session, "NewSession returned nil")
+	assert.Equal(t, "session-456", session.ID)
+	assert.Equal(t, user, session.User)
+	assert.False(t, session.CreatedAt.IsZero(), "CreatedAt should be set")
+	assert.False(t, session.LastAccessAt.IsZero(), "LastAccessAt should be set")
+	assert.Equal(t, session.CreatedAt, session.LastAccessAt, "CreatedAt and LastAccessAt should be equal on creation")
 }
 
 func TestSession_IsExpired(t *testing.T) {
@@ -48,24 +39,17 @@ func TestSession_IsExpired(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			session := &Session{ExpiresAt: tt.expiresAt}
-			result := session.IsExpired()
-			if result != tt.expected {
-				t.Errorf("IsExpired() = %v, want %v", result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, session.IsExpired())
 		})
 	}
 }
 
 func TestSession_IsAccessTokenExpired(t *testing.T) {
 	session := &Session{ExpiresAt: time.Now().Add(-time.Hour)}
-	if !session.IsAccessTokenExpired() {
-		t.Error("IsAccessTokenExpired should return true for expired session")
-	}
+	assert.True(t, session.IsAccessTokenExpired(), "should return true for expired session")
 
 	session.ExpiresAt = time.Now().Add(time.Hour)
-	if session.IsAccessTokenExpired() {
-		t.Error("IsAccessTokenExpired should return false for valid session")
-	}
+	assert.False(t, session.IsAccessTokenExpired(), "should return false for valid session")
 }
 
 func TestSession_NeedsRefresh(t *testing.T) {
@@ -109,10 +93,7 @@ func TestSession_NeedsRefresh(t *testing.T) {
 				RefreshToken: tt.refreshToken,
 				ExpiresAt:    tt.expiresAt,
 			}
-			result := session.NeedsRefresh(threshold)
-			if result != tt.expected {
-				t.Errorf("NeedsRefresh(%v) = %v, want %v", threshold, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, session.NeedsRefresh(threshold))
 		})
 	}
 }
@@ -125,28 +106,21 @@ func TestSession_Touch(t *testing.T) {
 	oldLastAccess := session.LastAccessAt
 	session.Touch()
 
-	if session.LastAccessAt.Before(oldLastAccess) {
-		t.Error("Touch should update LastAccessAt to a later time")
-	}
-	if time.Since(session.LastAccessAt) > time.Second {
-		t.Error("Touch should set LastAccessAt to approximately now")
-	}
+	assert.True(t, session.LastAccessAt.After(oldLastAccess), "Touch should update LastAccessAt to a later time")
+	assert.WithinDuration(t, time.Now(), session.LastAccessAt, time.Second, "Touch should set LastAccessAt to approximately now")
 }
 
 func TestSession_RemainingTTL(t *testing.T) {
 	session := &Session{ExpiresAt: time.Now().Add(10 * time.Minute)}
 
 	ttl := session.RemainingTTL()
-	if ttl < 9*time.Minute || ttl > 10*time.Minute {
-		t.Errorf("RemainingTTL() = %v, want approximately 10 minutes", ttl)
-	}
+	assert.GreaterOrEqual(t, ttl, 9*time.Minute)
+	assert.LessOrEqual(t, ttl, 10*time.Minute)
 
 	// Test expired session
 	session.ExpiresAt = time.Now().Add(-5 * time.Minute)
 	ttl = session.RemainingTTL()
-	if ttl > 0 {
-		t.Errorf("RemainingTTL() for expired session = %v, want negative", ttl)
-	}
+	assert.Less(t, ttl, time.Duration(0), "RemainingTTL for expired session should be negative")
 }
 
 func TestSession_SetTokens(t *testing.T) {
@@ -154,20 +128,10 @@ func TestSession_SetTokens(t *testing.T) {
 
 	session.SetTokens("access-token", "refresh-token", "id-token", time.Hour)
 
-	if session.AccessToken != "access-token" {
-		t.Errorf("AccessToken = %s, want access-token", session.AccessToken)
-	}
-	if session.RefreshToken != "refresh-token" {
-		t.Errorf("RefreshToken = %s, want refresh-token", session.RefreshToken)
-	}
-	if session.IDToken != "id-token" {
-		t.Errorf("IDToken = %s, want id-token", session.IDToken)
-	}
-
-	expectedExpiry := time.Now().Add(time.Hour)
-	if session.ExpiresAt.Sub(expectedExpiry) > time.Second {
-		t.Errorf("ExpiresAt = %v, want approximately %v", session.ExpiresAt, expectedExpiry)
-	}
+	assert.Equal(t, "access-token", session.AccessToken)
+	assert.Equal(t, "refresh-token", session.RefreshToken)
+	assert.Equal(t, "id-token", session.IDToken)
+	assert.WithinDuration(t, time.Now().Add(time.Hour), session.ExpiresAt, time.Second)
 }
 
 func TestSession_ToSessionData(t *testing.T) {
@@ -191,39 +155,17 @@ func TestSession_ToSessionData(t *testing.T) {
 
 	data := session.ToSessionData()
 
-	if data == nil {
-		t.Fatal("ToSessionData returned nil")
-	}
-	if data.ID != "session-123" {
-		t.Errorf("ID = %s, want session-123", data.ID)
-	}
-	if data.UserID != "user-456" {
-		t.Errorf("UserID = %s, want user-456", data.UserID)
-	}
-	if data.Email != "test@example.com" {
-		t.Errorf("Email = %s, want test@example.com", data.Email)
-	}
-	if data.Name != "Test User" {
-		t.Errorf("Name = %s, want Test User", data.Name)
-	}
-	if len(data.Roles) != 1 || data.Roles[0] != "admin" {
-		t.Errorf("Roles = %v, want [admin]", data.Roles)
-	}
-	if len(data.Groups) != 1 || data.Groups[0] != "engineering" {
-		t.Errorf("Groups = %v, want [engineering]", data.Groups)
-	}
-	if data.TenantID != "tenant-1" {
-		t.Errorf("TenantID = %s, want tenant-1", data.TenantID)
-	}
-	if data.AccessToken != "access-token" {
-		t.Errorf("AccessToken = %s, want access-token", data.AccessToken)
-	}
-	if data.RefreshToken != "refresh-token" {
-		t.Errorf("RefreshToken = %s, want refresh-token", data.RefreshToken)
-	}
-	if data.IDToken != "id-token" {
-		t.Errorf("IDToken = %s, want id-token", data.IDToken)
-	}
+	require.NotNil(t, data)
+	assert.Equal(t, "session-123", data.ID)
+	assert.Equal(t, "user-456", data.UserID)
+	assert.Equal(t, "test@example.com", data.Email)
+	assert.Equal(t, "Test User", data.Name)
+	assert.Equal(t, []string{"admin"}, data.Roles)
+	assert.Equal(t, []string{"engineering"}, data.Groups)
+	assert.Equal(t, "tenant-1", data.TenantID)
+	assert.Equal(t, "access-token", data.AccessToken)
+	assert.Equal(t, "refresh-token", data.RefreshToken)
+	assert.Equal(t, "id-token", data.IDToken)
 }
 
 func TestSession_ToSessionData_NilUser(t *testing.T) {
@@ -233,9 +175,7 @@ func TestSession_ToSessionData_NilUser(t *testing.T) {
 	}
 
 	data := session.ToSessionData()
-	if data != nil {
-		t.Error("ToSessionData should return nil when User is nil")
-	}
+	assert.Nil(t, data, "ToSessionData should return nil when User is nil")
 }
 
 func TestSessionData_ToSession(t *testing.T) {
@@ -257,45 +197,19 @@ func TestSessionData_ToSession(t *testing.T) {
 
 	session := data.ToSession()
 
-	if session == nil {
-		t.Fatal("ToSession returned nil")
-	}
-	if session.ID != "session-123" {
-		t.Errorf("ID = %s, want session-123", session.ID)
-	}
-	if session.User == nil {
-		t.Fatal("User should not be nil")
-	}
-	if session.User.ID != "user-456" {
-		t.Errorf("User.ID = %s, want user-456", session.User.ID)
-	}
-	if session.User.Email != "test@example.com" {
-		t.Errorf("User.Email = %s, want test@example.com", session.User.Email)
-	}
-	if session.User.Name != "Test User" {
-		t.Errorf("User.Name = %s, want Test User", session.User.Name)
-	}
-	if len(session.User.Roles) != 2 {
-		t.Errorf("User.Roles = %v, want 2 roles", session.User.Roles)
-	}
-	if len(session.User.Groups) != 1 {
-		t.Errorf("User.Groups = %v, want 1 group", session.User.Groups)
-	}
-	if session.User.TenantID != "tenant-1" {
-		t.Errorf("User.TenantID = %s, want tenant-1", session.User.TenantID)
-	}
-	if session.AccessToken != "access-token" {
-		t.Errorf("AccessToken = %s, want access-token", session.AccessToken)
-	}
-	if session.RefreshToken != "refresh-token" {
-		t.Errorf("RefreshToken = %s, want refresh-token", session.RefreshToken)
-	}
-	if session.IDToken != "id-token" {
-		t.Errorf("IDToken = %s, want id-token", session.IDToken)
-	}
-	if session.LastAccessAt.IsZero() {
-		t.Error("LastAccessAt should be set")
-	}
+	require.NotNil(t, session)
+	assert.Equal(t, "session-123", session.ID)
+	require.NotNil(t, session.User)
+	assert.Equal(t, "user-456", session.User.ID)
+	assert.Equal(t, "test@example.com", session.User.Email)
+	assert.Equal(t, "Test User", session.User.Name)
+	assert.Len(t, session.User.Roles, 2)
+	assert.Len(t, session.User.Groups, 1)
+	assert.Equal(t, "tenant-1", session.User.TenantID)
+	assert.Equal(t, "access-token", session.AccessToken)
+	assert.Equal(t, "refresh-token", session.RefreshToken)
+	assert.Equal(t, "id-token", session.IDToken)
+	assert.False(t, session.LastAccessAt.IsZero(), "LastAccessAt should be set")
 }
 
 func TestSession_Struct(t *testing.T) {
@@ -313,12 +227,8 @@ func TestSession_Struct(t *testing.T) {
 		ReturnTo:     "https://app.example.com",
 	}
 
-	if session.TokenType != "Bearer" {
-		t.Errorf("TokenType = %s, want Bearer", session.TokenType)
-	}
-	if session.ReturnTo != "https://app.example.com" {
-		t.Errorf("ReturnTo = %s, want https://app.example.com", session.ReturnTo)
-	}
+	assert.Equal(t, "Bearer", session.TokenType)
+	assert.Equal(t, "https://app.example.com", session.ReturnTo)
 }
 
 func TestSessionData_Struct(t *testing.T) {
@@ -337,10 +247,6 @@ func TestSessionData_Struct(t *testing.T) {
 		CreatedAt:    1234567800,
 	}
 
-	if data.ExpiresAt != 1234567890 {
-		t.Errorf("ExpiresAt = %d, want 1234567890", data.ExpiresAt)
-	}
-	if data.CreatedAt != 1234567800 {
-		t.Errorf("CreatedAt = %d, want 1234567800", data.CreatedAt)
-	}
+	assert.Equal(t, int64(1234567890), data.ExpiresAt)
+	assert.Equal(t, int64(1234567800), data.CreatedAt)
 }

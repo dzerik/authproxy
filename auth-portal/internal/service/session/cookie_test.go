@@ -8,6 +8,8 @@ import (
 
 	"github.com/dzerik/auth-portal/internal/config"
 	"github.com/dzerik/auth-portal/internal/model"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewCookieStore(t *testing.T) {
@@ -24,21 +26,11 @@ func TestNewCookieStore(t *testing.T) {
 		}
 
 		store, err := NewCookieStore(cfg)
-		if err != nil {
-			t.Fatalf("NewCookieStore failed: %v", err)
-		}
-		if store == nil {
-			t.Fatal("NewCookieStore returned nil")
-		}
-		if store.cookieName != "_auth_session" {
-			t.Errorf("cookieName = %s, want _auth_session", store.cookieName)
-		}
-		if !store.secure {
-			t.Error("secure should be true")
-		}
-		if store.sameSite != http.SameSiteStrictMode {
-			t.Errorf("sameSite = %v, want SameSiteStrictMode", store.sameSite)
-		}
+		require.NoError(t, err)
+		require.NotNil(t, store)
+		assert.Equal(t, "_auth_session", store.cookieName)
+		assert.True(t, store.secure)
+		assert.Equal(t, http.SameSiteStrictMode, store.sameSite)
 	})
 
 	t.Run("encryption disabled", func(t *testing.T) {
@@ -49,9 +41,7 @@ func TestNewCookieStore(t *testing.T) {
 		}
 
 		_, err := NewCookieStore(cfg)
-		if err == nil {
-			t.Error("NewCookieStore should fail when encryption is disabled")
-		}
+		assert.Error(t, err)
 	})
 
 	t.Run("invalid encryption key", func(t *testing.T) {
@@ -63,9 +53,7 @@ func TestNewCookieStore(t *testing.T) {
 		}
 
 		_, err := NewCookieStore(cfg)
-		if err == nil {
-			t.Error("NewCookieStore should fail with invalid encryption key")
-		}
+		assert.Error(t, err)
 	})
 
 	t.Run("default max size", func(t *testing.T) {
@@ -80,12 +68,8 @@ func TestNewCookieStore(t *testing.T) {
 		}
 
 		store, err := NewCookieStore(cfg)
-		if err != nil {
-			t.Fatalf("NewCookieStore failed: %v", err)
-		}
-		if store.maxSize != 4096 {
-			t.Errorf("maxSize = %d, want 4096", store.maxSize)
-		}
+		require.NoError(t, err)
+		assert.Equal(t, 4096, store.maxSize)
 	})
 }
 
@@ -98,13 +82,9 @@ func TestCookieStore_Name(t *testing.T) {
 	}
 
 	store, err := NewCookieStore(cfg)
-	if err != nil {
-		t.Fatalf("NewCookieStore failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if store.Name() != "cookie" {
-		t.Errorf("Name() = %s, want cookie", store.Name())
-	}
+	assert.Equal(t, "cookie", store.Name())
 }
 
 func TestCookieStore_Get_NoCookie(t *testing.T) {
@@ -117,15 +97,11 @@ func TestCookieStore_Get_NoCookie(t *testing.T) {
 	}
 
 	store, err := NewCookieStore(cfg)
-	if err != nil {
-		t.Fatalf("NewCookieStore failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	_, err = store.Get(req)
-	if err != ErrSessionNotFound {
-		t.Errorf("Get should return ErrSessionNotFound, got %v", err)
-	}
+	assert.Equal(t, ErrSessionNotFound, err)
 }
 
 func TestCookieStore_Get_EmptyCookie(t *testing.T) {
@@ -138,9 +114,7 @@ func TestCookieStore_Get_EmptyCookie(t *testing.T) {
 	}
 
 	store, err := NewCookieStore(cfg)
-	if err != nil {
-		t.Fatalf("NewCookieStore failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.AddCookie(&http.Cookie{
@@ -149,9 +123,7 @@ func TestCookieStore_Get_EmptyCookie(t *testing.T) {
 	})
 
 	_, err = store.Get(req)
-	if err != ErrSessionNotFound {
-		t.Errorf("Get should return ErrSessionNotFound for empty cookie, got %v", err)
-	}
+	assert.Equal(t, ErrSessionNotFound, err)
 }
 
 func TestCookieStore_Get_InvalidCookie(t *testing.T) {
@@ -164,9 +136,7 @@ func TestCookieStore_Get_InvalidCookie(t *testing.T) {
 	}
 
 	store, err := NewCookieStore(cfg)
-	if err != nil {
-		t.Fatalf("NewCookieStore failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.AddCookie(&http.Cookie{
@@ -175,9 +145,7 @@ func TestCookieStore_Get_InvalidCookie(t *testing.T) {
 	})
 
 	_, err = store.Get(req)
-	if err != ErrSessionInvalid {
-		t.Errorf("Get should return ErrSessionInvalid for invalid cookie, got %v", err)
-	}
+	assert.Equal(t, ErrSessionInvalid, err)
 }
 
 func TestCookieStore_SaveAndGet(t *testing.T) {
@@ -191,9 +159,7 @@ func TestCookieStore_SaveAndGet(t *testing.T) {
 	}
 
 	store, err := NewCookieStore(cfg)
-	if err != nil {
-		t.Fatalf("NewCookieStore failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Create session
 	session := &model.Session{
@@ -214,48 +180,28 @@ func TestCookieStore_SaveAndGet(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	err = store.Save(rr, req, session)
-	if err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Check cookie was set
 	cookies := rr.Result().Cookies()
-	if len(cookies) != 1 {
-		t.Fatalf("expected 1 cookie, got %d", len(cookies))
-	}
+	require.Len(t, cookies, 1)
 
 	cookie := cookies[0]
-	if cookie.Name != "_auth_session" {
-		t.Errorf("cookie name = %s, want _auth_session", cookie.Name)
-	}
-	if cookie.Value == "" {
-		t.Error("cookie value should not be empty")
-	}
-	if !cookie.HttpOnly {
-		t.Error("cookie should be HttpOnly")
-	}
+	assert.Equal(t, "_auth_session", cookie.Name)
+	assert.NotEmpty(t, cookie.Value)
+	assert.True(t, cookie.HttpOnly)
 
 	// Get session back
 	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
 	req2.AddCookie(cookie)
 
 	retrieved, err := store.Get(req2)
-	if err != nil {
-		t.Fatalf("Get failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if retrieved.ID != "session-123" {
-		t.Errorf("session.ID = %s, want session-123", retrieved.ID)
-	}
-	if retrieved.User == nil {
-		t.Fatal("session.User should not be nil")
-	}
-	if retrieved.User.ID != "user-456" {
-		t.Errorf("session.User.ID = %s, want user-456", retrieved.User.ID)
-	}
-	if retrieved.User.Email != "test@example.com" {
-		t.Errorf("session.User.Email = %s, want test@example.com", retrieved.User.Email)
-	}
+	assert.Equal(t, "session-123", retrieved.ID)
+	require.NotNil(t, retrieved.User)
+	assert.Equal(t, "user-456", retrieved.User.ID)
+	assert.Equal(t, "test@example.com", retrieved.User.Email)
 }
 
 func TestCookieStore_Save_NoUser(t *testing.T) {
@@ -268,9 +214,7 @@ func TestCookieStore_Save_NoUser(t *testing.T) {
 	}
 
 	store, err := NewCookieStore(cfg)
-	if err != nil {
-		t.Fatalf("NewCookieStore failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	session := &model.Session{
 		ID:   "session-123",
@@ -281,9 +225,7 @@ func TestCookieStore_Save_NoUser(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	err = store.Save(rr, req, session)
-	if err == nil {
-		t.Error("Save should fail when session has no user")
-	}
+	assert.Error(t, err)
 }
 
 func TestCookieStore_Delete(t *testing.T) {
@@ -298,34 +240,22 @@ func TestCookieStore_Delete(t *testing.T) {
 	}
 
 	store, err := NewCookieStore(cfg)
-	if err != nil {
-		t.Fatalf("NewCookieStore failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	err = store.Delete(rr, req)
-	if err != nil {
-		t.Fatalf("Delete failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Check cookie was cleared
 	cookies := rr.Result().Cookies()
-	if len(cookies) != 1 {
-		t.Fatalf("expected 1 cookie, got %d", len(cookies))
-	}
+	require.Len(t, cookies, 1)
 
 	cookie := cookies[0]
-	if cookie.Name != "_auth_session" {
-		t.Errorf("cookie name = %s, want _auth_session", cookie.Name)
-	}
-	if cookie.Value != "" {
-		t.Error("cookie value should be empty")
-	}
-	if cookie.MaxAge != -1 {
-		t.Errorf("cookie MaxAge = %d, want -1", cookie.MaxAge)
-	}
+	assert.Equal(t, "_auth_session", cookie.Name)
+	assert.Empty(t, cookie.Value)
+	assert.Equal(t, -1, cookie.MaxAge)
 }
 
 func TestCookieStore_ExpiredSession(t *testing.T) {
@@ -339,9 +269,7 @@ func TestCookieStore_ExpiredSession(t *testing.T) {
 	}
 
 	store, err := NewCookieStore(cfg)
-	if err != nil {
-		t.Fatalf("NewCookieStore failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Create session with expired time
 	session := &model.Session{
@@ -358,9 +286,7 @@ func TestCookieStore_ExpiredSession(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	err = store.Save(rr, req, session)
-	if err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Get session - should be expired
 	cookie := rr.Result().Cookies()[0]
@@ -368,9 +294,7 @@ func TestCookieStore_ExpiredSession(t *testing.T) {
 	req2.AddCookie(cookie)
 
 	_, err = store.Get(req2)
-	if err != ErrSessionExpired {
-		t.Errorf("Get should return ErrSessionExpired, got %v", err)
-	}
+	assert.Equal(t, ErrSessionExpired, err)
 }
 
 func BenchmarkCookieStore_SaveAndGet(b *testing.B) {

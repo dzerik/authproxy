@@ -4,6 +4,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestForwardAuthHandler_buildOriginalURL(t *testing.T) {
@@ -78,9 +81,7 @@ func TestForwardAuthHandler_buildOriginalURL(t *testing.T) {
 			tt.setup(req)
 
 			result := h.buildOriginalURL(req)
-			if result != tt.expected {
-				t.Errorf("buildOriginalURL() = %s, want %s", result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -105,13 +106,8 @@ func TestForwardAuthHandler_renderJSONError(t *testing.T) {
 
 			h.renderJSONError(rr, tt.message, tt.status)
 
-			if rr.Code != tt.expectedStatus {
-				t.Errorf("status = %d, want %d", rr.Code, tt.expectedStatus)
-			}
-
-			if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
-				t.Errorf("Content-Type = %s, want application/json", ct)
-			}
+			assert.Equal(t, tt.expectedStatus, rr.Code)
+			assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
 		})
 	}
 }
@@ -124,23 +120,15 @@ func TestForwardAuthHandler_handleUnauthenticated(t *testing.T) {
 
 	h.handleUnauthenticated(rr, req)
 
-	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
-	}
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 
 	wwwAuth := rr.Header().Get("WWW-Authenticate")
-	if wwwAuth == "" {
-		t.Error("WWW-Authenticate header should be set")
-	}
-	if wwwAuth != `Bearer realm="auth-portal"` {
-		t.Errorf("WWW-Authenticate = %s, want Bearer realm=\"auth-portal\"", wwwAuth)
-	}
+	assert.NotEmpty(t, wwwAuth, "WWW-Authenticate header should be set")
+	assert.Equal(t, `Bearer realm="auth-portal"`, wwwAuth)
 }
 
 func TestNewForwardAuthHandler(t *testing.T) {
 	// Test that constructor works with nil values (for basic testing)
 	h := NewForwardAuthHandler(nil, nil, nil)
-	if h == nil {
-		t.Fatal("NewForwardAuthHandler returned nil")
-	}
+	require.NotNil(t, h)
 }

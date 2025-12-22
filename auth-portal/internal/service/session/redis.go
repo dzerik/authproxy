@@ -16,13 +16,14 @@ import (
 
 // RedisStore stores session data in Redis with encrypted values
 type RedisStore struct {
-	client     redis.UniversalClient
-	cookieName string
-	keyPrefix  string
-	encryptor  *crypto.Encryptor
-	secure     bool
-	sameSite   http.SameSite
-	ttl        time.Duration
+	client       redis.UniversalClient
+	cookieName   string
+	cookieDomain string // MED-02 security fix: configurable domain for cross-subdomain sessions
+	keyPrefix    string
+	encryptor    *crypto.Encryptor
+	secure       bool
+	sameSite     http.SameSite
+	ttl          time.Duration
 }
 
 // NewRedisStore creates a new Redis-based session store
@@ -78,13 +79,14 @@ func NewRedisStore(cfg *config.SessionConfig) (*RedisStore, error) {
 	sameSite := parseSameSite(cfg.SameSite)
 
 	return &RedisStore{
-		client:     client,
-		cookieName: cfg.CookieName,
-		keyPrefix:  keyPrefix,
-		encryptor:  encryptor,
-		secure:     cfg.Secure,
-		sameSite:   sameSite,
-		ttl:        cfg.TTL,
+		client:       client,
+		cookieName:   cfg.CookieName,
+		cookieDomain: cfg.CookieDomain,
+		keyPrefix:    keyPrefix,
+		encryptor:    encryptor,
+		secure:       cfg.Secure,
+		sameSite:     sameSite,
+		ttl:          cfg.TTL,
 	}, nil
 }
 
@@ -206,6 +208,7 @@ func (s *RedisStore) Save(w http.ResponseWriter, r *http.Request, session *model
 		Name:     s.cookieName,
 		Value:    session.ID,
 		Path:     "/",
+		Domain:   s.cookieDomain, // MED-02: configurable domain for cross-subdomain sessions
 		Expires:  session.ExpiresAt,
 		MaxAge:   int(time.Until(session.ExpiresAt).Seconds()),
 		Secure:   s.secure,
@@ -232,6 +235,7 @@ func (s *RedisStore) Delete(w http.ResponseWriter, r *http.Request) error {
 		Name:     s.cookieName,
 		Value:    "",
 		Path:     "/",
+		Domain:   s.cookieDomain, // MED-02: must match domain used in Save
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		Secure:   s.secure,

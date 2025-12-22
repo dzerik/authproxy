@@ -41,6 +41,12 @@ http {
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-XSS-Protection "1; mode=block" always;
+    # Content Security Policy (HIGH-02 security fix)
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; frame-ancestors 'self'; form-action 'self';" always;
+    {{- if .Server.TLS.Enabled }}
+    # HSTS (HIGH-04 security fix)
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    {{- end }}
 
     # Gzip
     gzip on;
@@ -98,6 +104,11 @@ http {
 
         # Auth endpoints - proxy to Go backend
         location / {
+            {{- if $.Nginx.RateLimit.Enabled }}
+            # Rate limiting for auth endpoints (MED-03 security fix)
+            limit_req zone=auth_limit burst={{ $.Nginx.RateLimit.Burst | default 20 }} nodelay;
+            limit_req_status 429;
+            {{- end }}
             proxy_pass http://auth_portal;
             proxy_http_version 1.1;
             proxy_set_header Host $http_host;
@@ -156,16 +167,18 @@ http {
         }
 
         {{- if .Observability.Metrics.Enabled }}
-        # Metrics endpoint
+        # Metrics endpoint (HIGH-03 security fix: restricted to configured networks)
         location {{ .Observability.Metrics.Path | default "/metrics" }} {
             proxy_pass http://auth_portal{{ .Observability.Metrics.Path | default "/metrics" }};
             proxy_http_version 1.1;
             proxy_set_header Connection "";
-            # Restrict access to internal networks
-            # allow 10.0.0.0/8;
-            # allow 172.16.0.0/12;
-            # allow 192.168.0.0/16;
-            # deny all;
+            {{- if .Observability.Metrics.AllowedCIDRs }}
+            # Restrict access to configured networks only
+            {{- range .Observability.Metrics.AllowedCIDRs }}
+            allow {{ . }};
+            {{- end }}
+            deny all;
+            {{- end }}
         }
         {{- end }}
 

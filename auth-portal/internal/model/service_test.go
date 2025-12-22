@@ -2,6 +2,9 @@ package model
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestService_Struct(t *testing.T) {
@@ -21,39 +24,18 @@ func TestService_Struct(t *testing.T) {
 		NginxExtra: "proxy_set_header Upgrade $http_upgrade;",
 	}
 
-	if service.Name != "grafana" {
-		t.Errorf("Name = %s, want grafana", service.Name)
-	}
-	if service.DisplayName != "Grafana Monitoring" {
-		t.Errorf("DisplayName = %s", service.DisplayName)
-	}
-	if service.Description != "Metrics visualization" {
-		t.Errorf("Description = %s", service.Description)
-	}
-	if service.Icon != "chart-line" {
-		t.Errorf("Icon = %s", service.Icon)
-	}
-	if service.Location != "/grafana/" {
-		t.Errorf("Location = %s", service.Location)
-	}
-	if service.Upstream != "http://grafana:3000" {
-		t.Errorf("Upstream = %s", service.Upstream)
-	}
-	if !service.AuthRequired {
-		t.Error("AuthRequired should be true")
-	}
-	if service.Rewrite != "^/grafana/(.*) /$1 break" {
-		t.Errorf("Rewrite = %s", service.Rewrite)
-	}
-	if service.Headers.Add["X-User"] != "test" {
-		t.Errorf("Headers.Add[X-User] = %s", service.Headers.Add["X-User"])
-	}
-	if len(service.Headers.Remove) != 1 || service.Headers.Remove[0] != "Authorization" {
-		t.Errorf("Headers.Remove = %v", service.Headers.Remove)
-	}
-	if service.NginxExtra == "" {
-		t.Error("NginxExtra should not be empty")
-	}
+	assert.Equal(t, "grafana", service.Name)
+	assert.Equal(t, "Grafana Monitoring", service.DisplayName)
+	assert.Equal(t, "Metrics visualization", service.Description)
+	assert.Equal(t, "chart-line", service.Icon)
+	assert.Equal(t, "/grafana/", service.Location)
+	assert.Equal(t, "http://grafana:3000", service.Upstream)
+	assert.True(t, service.AuthRequired)
+	assert.Equal(t, "^/grafana/(.*) /$1 break", service.Rewrite)
+	assert.Equal(t, "test", service.Headers.Add["X-User"])
+	require.Len(t, service.Headers.Remove, 1)
+	assert.Equal(t, "Authorization", service.Headers.Remove[0])
+	assert.NotEmpty(t, service.NginxExtra)
 }
 
 func TestServiceHeaders_Struct(t *testing.T) {
@@ -65,15 +47,9 @@ func TestServiceHeaders_Struct(t *testing.T) {
 		Remove: []string{"Cookie", "Authorization"},
 	}
 
-	if len(headers.Add) != 2 {
-		t.Errorf("Add has %d entries, want 2", len(headers.Add))
-	}
-	if headers.Add["X-Header-1"] != "value1" {
-		t.Errorf("Add[X-Header-1] = %s, want value1", headers.Add["X-Header-1"])
-	}
-	if len(headers.Remove) != 2 {
-		t.Errorf("Remove has %d entries, want 2", len(headers.Remove))
-	}
+	assert.Len(t, headers.Add, 2)
+	assert.Equal(t, "value1", headers.Add["X-Header-1"])
+	assert.Len(t, headers.Remove, 2)
 }
 
 func TestNewServiceList(t *testing.T) {
@@ -85,40 +61,24 @@ func TestNewServiceList(t *testing.T) {
 
 	list := NewServiceList(services)
 
-	if list == nil {
-		t.Fatal("NewServiceList returned nil")
-	}
-	if len(list.Services) != 3 {
-		t.Errorf("Services length = %d, want 3", len(list.Services))
-	}
-	if list.Total != 3 {
-		t.Errorf("Total = %d, want 3", list.Total)
-	}
+	require.NotNil(t, list)
+	assert.Len(t, list.Services, 3)
+	assert.Equal(t, 3, list.Total)
 }
 
 func TestNewServiceList_Empty(t *testing.T) {
 	list := NewServiceList([]Service{})
 
-	if list == nil {
-		t.Fatal("NewServiceList returned nil")
-	}
-	if len(list.Services) != 0 {
-		t.Errorf("Services length = %d, want 0", len(list.Services))
-	}
-	if list.Total != 0 {
-		t.Errorf("Total = %d, want 0", list.Total)
-	}
+	require.NotNil(t, list)
+	assert.Len(t, list.Services, 0)
+	assert.Equal(t, 0, list.Total)
 }
 
 func TestNewServiceList_Nil(t *testing.T) {
 	list := NewServiceList(nil)
 
-	if list == nil {
-		t.Fatal("NewServiceList returned nil")
-	}
-	if list.Total != 0 {
-		t.Errorf("Total = %d, want 0", list.Total)
-	}
+	require.NotNil(t, list)
+	assert.Equal(t, 0, list.Total)
 }
 
 func TestServiceList_FilterByAuth(t *testing.T) {
@@ -134,25 +94,17 @@ func TestServiceList_FilterByAuth(t *testing.T) {
 
 	t.Run("filter auth required", func(t *testing.T) {
 		filtered := list.FilterByAuth(true)
-		if filtered.Total != 3 {
-			t.Errorf("Total = %d, want 3", filtered.Total)
-		}
+		assert.Equal(t, 3, filtered.Total)
 		for _, svc := range filtered.Services {
-			if !svc.AuthRequired {
-				t.Errorf("Service %s should have AuthRequired=true", svc.Name)
-			}
+			assert.True(t, svc.AuthRequired, "Service %s should have AuthRequired=true", svc.Name)
 		}
 	})
 
 	t.Run("filter no auth required", func(t *testing.T) {
 		filtered := list.FilterByAuth(false)
-		if filtered.Total != 2 {
-			t.Errorf("Total = %d, want 2", filtered.Total)
-		}
+		assert.Equal(t, 2, filtered.Total)
 		for _, svc := range filtered.Services {
-			if svc.AuthRequired {
-				t.Errorf("Service %s should have AuthRequired=false", svc.Name)
-			}
+			assert.False(t, svc.AuthRequired, "Service %s should have AuthRequired=false", svc.Name)
 		}
 	})
 }
@@ -161,9 +113,7 @@ func TestServiceList_FilterByAuth_Empty(t *testing.T) {
 	list := NewServiceList([]Service{})
 
 	filtered := list.FilterByAuth(true)
-	if filtered.Total != 0 {
-		t.Errorf("Total = %d, want 0", filtered.Total)
-	}
+	assert.Equal(t, 0, filtered.Total)
 }
 
 func TestServiceList_FindByName(t *testing.T) {
@@ -191,14 +141,11 @@ func TestServiceList_FindByName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := list.FindByName(tt.findName)
-			if tt.found && result == nil {
-				t.Errorf("FindByName(%q) should find service", tt.findName)
-			}
-			if !tt.found && result != nil {
-				t.Errorf("FindByName(%q) should not find service", tt.findName)
-			}
-			if tt.found && result != nil && result.Name != tt.findName {
-				t.Errorf("FindByName(%q) found wrong service: %s", tt.findName, result.Name)
+			if tt.found {
+				require.NotNil(t, result, "FindByName(%q) should find service", tt.findName)
+				assert.Equal(t, tt.findName, result.Name)
+			} else {
+				assert.Nil(t, result, "FindByName(%q) should not find service", tt.findName)
 			}
 		})
 	}
@@ -208,9 +155,7 @@ func TestServiceList_FindByName_Empty(t *testing.T) {
 	list := NewServiceList([]Service{})
 
 	result := list.FindByName("anything")
-	if result != nil {
-		t.Error("FindByName on empty list should return nil")
-	}
+	assert.Nil(t, result)
 }
 
 func TestServiceList_FindByLocation(t *testing.T) {
@@ -238,14 +183,11 @@ func TestServiceList_FindByLocation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := list.FindByLocation(tt.findLocation)
-			if tt.found && result == nil {
-				t.Errorf("FindByLocation(%q) should find service", tt.findLocation)
-			}
-			if !tt.found && result != nil {
-				t.Errorf("FindByLocation(%q) should not find service", tt.findLocation)
-			}
-			if tt.found && result != nil && result.Name != tt.expectedName {
-				t.Errorf("FindByLocation(%q) found wrong service: %s, want %s", tt.findLocation, result.Name, tt.expectedName)
+			if tt.found {
+				require.NotNil(t, result, "FindByLocation(%q) should find service", tt.findLocation)
+				assert.Equal(t, tt.expectedName, result.Name)
+			} else {
+				assert.Nil(t, result, "FindByLocation(%q) should not find service", tt.findLocation)
 			}
 		})
 	}
@@ -255,9 +197,7 @@ func TestServiceList_FindByLocation_Empty(t *testing.T) {
 	list := NewServiceList([]Service{})
 
 	result := list.FindByLocation("/any/")
-	if result != nil {
-		t.Error("FindByLocation on empty list should return nil")
-	}
+	assert.Nil(t, result)
 }
 
 func TestServiceList_Struct(t *testing.T) {
@@ -266,12 +206,8 @@ func TestServiceList_Struct(t *testing.T) {
 		Total:    1,
 	}
 
-	if list.Total != 1 {
-		t.Errorf("Total = %d, want 1", list.Total)
-	}
-	if len(list.Services) != 1 {
-		t.Errorf("Services length = %d, want 1", len(list.Services))
-	}
+	assert.Equal(t, 1, list.Total)
+	assert.Len(t, list.Services, 1)
 }
 
 func BenchmarkServiceList_FindByName(b *testing.B) {

@@ -9,6 +9,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMiddleware(t *testing.T) {
@@ -24,13 +26,8 @@ func TestMiddleware(t *testing.T) {
 
 	wrapped.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
-	}
-
-	if rr.Body.String() != "OK" {
-		t.Errorf("body = %s, want OK", rr.Body.String())
-	}
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "OK", rr.Body.String())
 }
 
 func TestMiddleware_DifferentStatusCodes(t *testing.T) {
@@ -60,9 +57,7 @@ func TestMiddleware_DifferentStatusCodes(t *testing.T) {
 
 			wrapped.ServeHTTP(rr, req)
 
-			if rr.Code != tt.status {
-				t.Errorf("status = %d, want %d", rr.Code, tt.status)
-			}
+			assert.Equal(t, tt.status, rr.Code)
 		})
 	}
 }
@@ -83,13 +78,8 @@ func TestMiddleware_WithChiRouter(t *testing.T) {
 
 	r.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
-	}
-
-	if rr.Body.String() != "User: 123" {
-		t.Errorf("body = %s, want User: 123", rr.Body.String())
-	}
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "User: 123", rr.Body.String())
 }
 
 func TestHandler(t *testing.T) {
@@ -105,20 +95,14 @@ func TestHandler(t *testing.T) {
 
 	wrapped.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
-	}
+	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
 func TestClient(t *testing.T) {
 	t.Run("with nil base", func(t *testing.T) {
 		client := Client(nil)
-		if client == nil {
-			t.Error("Client should not return nil")
-		}
-		if client.Transport == nil {
-			t.Error("Transport should be instrumented")
-		}
+		require.NotNil(t, client)
+		assert.NotNil(t, client.Transport)
 	})
 
 	t.Run("with custom base", func(t *testing.T) {
@@ -126,29 +110,21 @@ func TestClient(t *testing.T) {
 			Timeout: 30 * 1000000000, // 30s
 		}
 		client := Client(base)
-		if client == nil {
-			t.Error("Client should not return nil")
-		}
-		if client.Timeout != base.Timeout {
-			t.Error("Timeout should be preserved")
-		}
+		require.NotNil(t, client)
+		assert.Equal(t, base.Timeout, client.Timeout)
 	})
 }
 
 func TestRoundTripper(t *testing.T) {
 	t.Run("with nil base", func(t *testing.T) {
 		rt := RoundTripper(nil)
-		if rt == nil {
-			t.Error("RoundTripper should not return nil")
-		}
+		assert.NotNil(t, rt)
 	})
 
 	t.Run("with custom base", func(t *testing.T) {
 		base := http.DefaultTransport
 		rt := RoundTripper(base)
-		if rt == nil {
-			t.Error("RoundTripper should not return nil")
-		}
+		assert.NotNil(t, rt)
 	})
 }
 
@@ -159,12 +135,8 @@ func TestResponseWriter(t *testing.T) {
 
 		rw.WriteHeader(http.StatusNotFound)
 
-		if rw.statusCode != http.StatusNotFound {
-			t.Errorf("statusCode = %d, want %d", rw.statusCode, http.StatusNotFound)
-		}
-		if rr.Code != http.StatusNotFound {
-			t.Errorf("underlying status = %d, want %d", rr.Code, http.StatusNotFound)
-		}
+		assert.Equal(t, http.StatusNotFound, rw.statusCode)
+		assert.Equal(t, http.StatusNotFound, rr.Code)
 	})
 
 	t.Run("Write", func(t *testing.T) {
@@ -174,15 +146,9 @@ func TestResponseWriter(t *testing.T) {
 		data := []byte("Hello, World!")
 		n, err := rw.Write(data)
 
-		if err != nil {
-			t.Errorf("Write failed: %v", err)
-		}
-		if n != len(data) {
-			t.Errorf("bytes written = %d, want %d", n, len(data))
-		}
-		if rw.bytesWritten != len(data) {
-			t.Errorf("bytesWritten = %d, want %d", rw.bytesWritten, len(data))
-		}
+		require.NoError(t, err)
+		assert.Equal(t, len(data), n)
+		assert.Equal(t, len(data), rw.bytesWritten)
 	})
 
 	t.Run("multiple writes", func(t *testing.T) {
@@ -193,9 +159,7 @@ func TestResponseWriter(t *testing.T) {
 		rw.Write([]byte(", "))
 		rw.Write([]byte("World!"))
 
-		if rw.bytesWritten != 13 {
-			t.Errorf("bytesWritten = %d, want 13", rw.bytesWritten)
-		}
+		assert.Equal(t, 13, rw.bytesWritten)
 	})
 }
 
@@ -240,9 +204,7 @@ func TestGetScheme(t *testing.T) {
 			tt.setup(req)
 
 			scheme := getScheme(req)
-			if scheme != tt.expected {
-				t.Errorf("getScheme = %s, want %s", scheme, tt.expected)
-			}
+			assert.Equal(t, tt.expected, scheme)
 		})
 	}
 }
@@ -255,9 +217,7 @@ func TestResponseWriter_Flush(t *testing.T) {
 	rw.Flush()
 
 	// Verify flush was called on underlying writer
-	if !rr.Flushed {
-		t.Error("Underlying writer should be flushed")
-	}
+	assert.True(t, rr.Flushed)
 }
 
 func TestResponseWriter_Hijack(t *testing.T) {
@@ -266,9 +226,7 @@ func TestResponseWriter_Hijack(t *testing.T) {
 		rw := &responseWriter{ResponseWriter: rr, statusCode: http.StatusOK}
 
 		_, _, err := rw.Hijack()
-		if err != http.ErrNotSupported {
-			t.Errorf("Hijack should return ErrNotSupported, got %v", err)
-		}
+		assert.Equal(t, http.ErrNotSupported, err)
 	})
 }
 
@@ -294,9 +252,7 @@ func TestMiddleware_SpanContext(t *testing.T) {
 
 	// Context should have span
 	span := SpanFromContext(capturedCtx)
-	if span == nil {
-		t.Error("Context should have span")
-	}
+	assert.NotNil(t, span)
 }
 
 func BenchmarkMiddleware(b *testing.B) {

@@ -8,6 +8,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
@@ -26,13 +28,8 @@ func TestRequestLogger(t *testing.T) {
 
 	wrapped.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
-	}
-
-	if rr.Body.String() != "OK" {
-		t.Errorf("body = %s, want OK", rr.Body.String())
-	}
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "OK", rr.Body.String())
 }
 
 func TestRequestLogger_DifferentStatusCodes(t *testing.T) {
@@ -62,9 +59,7 @@ func TestRequestLogger_DifferentStatusCodes(t *testing.T) {
 
 			wrapped.ServeHTTP(rr, req)
 
-			if rr.Code != tt.status {
-				t.Errorf("status = %d, want %d", rr.Code, tt.status)
-			}
+			assert.Equal(t, tt.status, rr.Code)
 		})
 	}
 }
@@ -73,9 +68,7 @@ func TestRequestLogger_WithRequestID(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check that correlation ID is in context
 		id := GetCorrelationID(r.Context())
-		if id == "" {
-			t.Error("Correlation ID should be set in context")
-		}
+		assert.NotEmpty(t, id)
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -90,18 +83,14 @@ func TestRequestLogger_WithRequestID(t *testing.T) {
 
 	r.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
-	}
+	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
 func TestRequestLogger_PreservesContext(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Logger should be in context
 		l := FromContext(r.Context())
-		if l == nil {
-			t.Error("Logger should be in context")
-		}
+		assert.NotNil(t, l)
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -112,9 +101,7 @@ func TestRequestLogger_PreservesContext(t *testing.T) {
 
 	wrapped.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
-	}
+	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
 func TestRecoveryLogger(t *testing.T) {
@@ -130,9 +117,7 @@ func TestRecoveryLogger(t *testing.T) {
 
 		wrapped.ServeHTTP(rr, req)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
-		}
+		assert.Equal(t, http.StatusOK, rr.Code)
 	})
 
 	t.Run("with panic", func(t *testing.T) {
@@ -149,9 +134,7 @@ func TestRecoveryLogger(t *testing.T) {
 		wrapped.ServeHTTP(rr, req)
 
 		// Should return 500
-		if rr.Code != http.StatusInternalServerError {
-			t.Errorf("status = %d, want %d", rr.Code, http.StatusInternalServerError)
-		}
+		assert.Equal(t, http.StatusInternalServerError, rr.Code)
 	})
 
 	t.Run("panic with error", func(t *testing.T) {
@@ -166,9 +149,7 @@ func TestRecoveryLogger(t *testing.T) {
 
 		wrapped.ServeHTTP(rr, req)
 
-		if rr.Code != http.StatusInternalServerError {
-			t.Errorf("status = %d, want %d", rr.Code, http.StatusInternalServerError)
-		}
+		assert.Equal(t, http.StatusInternalServerError, rr.Code)
 	})
 }
 
@@ -176,25 +157,15 @@ func TestGenerateRequestID(t *testing.T) {
 	id1 := generateRequestID()
 	id2 := generateRequestID()
 
-	if id1 == "" {
-		t.Error("generateRequestID should not return empty string")
-	}
-
-	if id1 == id2 {
-		t.Error("generateRequestID should return unique IDs")
-	}
+	assert.NotEmpty(t, id1)
+	assert.NotEqual(t, id1, id2)
 }
 
 func TestStructuredLogger(t *testing.T) {
 	sl := NewStructuredLogger()
 
-	if sl == nil {
-		t.Fatal("NewStructuredLogger returned nil")
-	}
-
-	if sl.Logger == nil {
-		t.Error("Logger should not be nil")
-	}
+	require.NotNil(t, sl)
+	assert.NotNil(t, sl.Logger)
 }
 
 func TestStructuredLogger_NewLogEntry(t *testing.T) {
@@ -207,18 +178,11 @@ func TestStructuredLogger_NewLogEntry(t *testing.T) {
 
 	entry := sl.NewLogEntry(req)
 
-	if entry == nil {
-		t.Fatal("NewLogEntry returned nil")
-	}
+	require.NotNil(t, entry)
 
 	sle, ok := entry.(*StructuredLogEntry)
-	if !ok {
-		t.Fatal("Entry should be *StructuredLogEntry")
-	}
-
-	if sle.Logger == nil {
-		t.Error("Logger should not be nil")
-	}
+	require.True(t, ok)
+	assert.NotNil(t, sle.Logger)
 }
 
 func TestStructuredLogEntry_Write(t *testing.T) {
@@ -258,17 +222,13 @@ func TestNewStructuredLogger_Integration(t *testing.T) {
 
 	sl := NewStructuredLogger()
 
-	if sl.Logger == nil {
-		t.Error("Logger should not be nil")
-	}
+	assert.NotNil(t, sl.Logger)
 
 	// Test creating log entry
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	entry := sl.NewLogEntry(req)
 
-	if entry == nil {
-		t.Error("NewLogEntry should not return nil")
-	}
+	assert.NotNil(t, entry)
 }
 
 func TestChiMiddlewareIntegration(t *testing.T) {
@@ -287,9 +247,7 @@ func TestChiMiddlewareIntegration(t *testing.T) {
 
 	r.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
-	}
+	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
 func BenchmarkRequestLogger(b *testing.B) {

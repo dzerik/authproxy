@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewJWTManager_HS256(t *testing.T) {
@@ -16,15 +18,9 @@ func TestNewJWTManager_HS256(t *testing.T) {
 		}
 
 		m, err := NewJWTManager(cfg)
-		if err != nil {
-			t.Fatalf("NewJWTManager failed: %v", err)
-		}
-		if m == nil {
-			t.Fatal("NewJWTManager returned nil")
-		}
-		if m.algorithm != "HS256" {
-			t.Errorf("algorithm = %s, want HS256", m.algorithm)
-		}
+		require.NoError(t, err)
+		require.NotNil(t, m)
+		assert.Equal(t, "HS256", m.algorithm)
 	})
 
 	t.Run("empty algorithm defaults to HS256", func(t *testing.T) {
@@ -34,12 +30,8 @@ func TestNewJWTManager_HS256(t *testing.T) {
 		}
 
 		m, err := NewJWTManager(cfg)
-		if err != nil {
-			t.Fatalf("NewJWTManager failed: %v", err)
-		}
-		if m.algorithm != "HS256" {
-			t.Errorf("algorithm = %s, want HS256", m.algorithm)
-		}
+		require.NoError(t, err)
+		assert.Equal(t, "HS256", m.algorithm)
 	})
 
 	t.Run("missing signing key", func(t *testing.T) {
@@ -49,9 +41,7 @@ func TestNewJWTManager_HS256(t *testing.T) {
 		}
 
 		_, err := NewJWTManager(cfg)
-		if err != ErrMissingKey {
-			t.Errorf("expected ErrMissingKey, got %v", err)
-		}
+		assert.Equal(t, ErrMissingKey, err)
 	})
 }
 
@@ -62,9 +52,7 @@ func TestNewJWTManager_RS256(t *testing.T) {
 		}
 
 		_, err := NewJWTManager(cfg)
-		if err != ErrMissingKey {
-			t.Errorf("expected ErrMissingKey, got %v", err)
-		}
+		assert.Equal(t, ErrMissingKey, err)
 	})
 
 	t.Run("invalid private key path", func(t *testing.T) {
@@ -74,9 +62,7 @@ func TestNewJWTManager_RS256(t *testing.T) {
 		}
 
 		_, err := NewJWTManager(cfg)
-		if err == nil {
-			t.Error("expected error for nonexistent private key")
-		}
+		assert.Error(t, err, "expected error for nonexistent private key")
 	})
 
 	t.Run("invalid public key path", func(t *testing.T) {
@@ -86,9 +72,7 @@ func TestNewJWTManager_RS256(t *testing.T) {
 		}
 
 		_, err := NewJWTManager(cfg)
-		if err == nil {
-			t.Error("expected error for nonexistent public key")
-		}
+		assert.Error(t, err, "expected error for nonexistent public key")
 	})
 }
 
@@ -99,9 +83,7 @@ func TestNewJWTManager_InvalidAlgorithm(t *testing.T) {
 	}
 
 	_, err := NewJWTManager(cfg)
-	if err != ErrInvalidAlgorithm {
-		t.Errorf("expected ErrInvalidAlgorithm, got %v", err)
-	}
+	assert.Equal(t, ErrInvalidAlgorithm, err)
 }
 
 func TestJWTManager_SignVerify_HS256(t *testing.T) {
@@ -112,9 +94,7 @@ func TestJWTManager_SignVerify_HS256(t *testing.T) {
 	}
 
 	m, err := NewJWTManager(cfg)
-	if err != nil {
-		t.Fatalf("NewJWTManager failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	claims := CreateSessionClaims(
 		"session-123",
@@ -128,37 +108,19 @@ func TestJWTManager_SignVerify_HS256(t *testing.T) {
 
 	// Sign
 	token, err := m.Sign(claims)
-	if err != nil {
-		t.Fatalf("Sign failed: %v", err)
-	}
-	if token == "" {
-		t.Error("Sign returned empty token")
-	}
+	require.NoError(t, err)
+	assert.NotEmpty(t, token)
 
 	// Verify
 	verifiedClaims, err := m.Verify(token)
-	if err != nil {
-		t.Fatalf("Verify failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if verifiedClaims.UserID != "user-456" {
-		t.Errorf("UserID = %s, want user-456", verifiedClaims.UserID)
-	}
-	if verifiedClaims.Email != "user@example.com" {
-		t.Errorf("Email = %s, want user@example.com", verifiedClaims.Email)
-	}
-	if verifiedClaims.Name != "Test User" {
-		t.Errorf("Name = %s, want Test User", verifiedClaims.Name)
-	}
-	if len(verifiedClaims.Roles) != 2 {
-		t.Errorf("Roles length = %d, want 2", len(verifiedClaims.Roles))
-	}
-	if len(verifiedClaims.Groups) != 2 {
-		t.Errorf("Groups length = %d, want 2", len(verifiedClaims.Groups))
-	}
-	if verifiedClaims.Issuer != "test-issuer" {
-		t.Errorf("Issuer = %s, want test-issuer", verifiedClaims.Issuer)
-	}
+	assert.Equal(t, "user-456", verifiedClaims.UserID)
+	assert.Equal(t, "user@example.com", verifiedClaims.Email)
+	assert.Equal(t, "Test User", verifiedClaims.Name)
+	assert.Len(t, verifiedClaims.Roles, 2)
+	assert.Len(t, verifiedClaims.Groups, 2)
+	assert.Equal(t, "test-issuer", verifiedClaims.Issuer)
 }
 
 func TestJWTManager_Sign_SetsIssuer(t *testing.T) {
@@ -169,9 +131,7 @@ func TestJWTManager_Sign_SetsIssuer(t *testing.T) {
 	}
 
 	m, err := NewJWTManager(cfg)
-	if err != nil {
-		t.Fatalf("NewJWTManager failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Claims without issuer should get issuer from manager
 	claims := &SessionClaims{
@@ -179,18 +139,12 @@ func TestJWTManager_Sign_SetsIssuer(t *testing.T) {
 	}
 
 	token, err := m.Sign(claims)
-	if err != nil {
-		t.Fatalf("Sign failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	verified, err := m.Verify(token)
-	if err != nil {
-		t.Fatalf("Verify failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if verified.Issuer != "default-issuer" {
-		t.Errorf("Issuer = %s, want default-issuer", verified.Issuer)
-	}
+	assert.Equal(t, "default-issuer", verified.Issuer)
 }
 
 func TestJWTManager_Verify_InvalidToken(t *testing.T) {
@@ -200,15 +154,11 @@ func TestJWTManager_Verify_InvalidToken(t *testing.T) {
 	}
 
 	m, err := NewJWTManager(cfg)
-	if err != nil {
-		t.Fatalf("NewJWTManager failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	t.Run("malformed token", func(t *testing.T) {
 		_, err := m.Verify("not-a-valid-jwt")
-		if err == nil {
-			t.Error("expected error for malformed token")
-		}
+		assert.Error(t, err, "expected error for malformed token")
 	})
 
 	t.Run("wrong signature", func(t *testing.T) {
@@ -224,9 +174,7 @@ func TestJWTManager_Verify_InvalidToken(t *testing.T) {
 
 		// Try to verify with original manager (different key)
 		_, err := m.Verify(token)
-		if err == nil {
-			t.Error("expected error for wrong signature")
-		}
+		assert.Error(t, err, "expected error for wrong signature")
 	})
 
 	t.Run("expired token", func(t *testing.T) {
@@ -239,9 +187,7 @@ func TestJWTManager_Verify_InvalidToken(t *testing.T) {
 
 		token, _ := m.Sign(claims)
 		_, err := m.Verify(token)
-		if err != ErrTokenExpired {
-			t.Errorf("expected ErrTokenExpired, got %v", err)
-		}
+		assert.Equal(t, ErrTokenExpired, err)
 	})
 }
 
@@ -256,40 +202,22 @@ func TestCreateSessionClaims(t *testing.T) {
 
 	claims := CreateSessionClaims(sessionID, userID, email, name, roles, groups, ttl)
 
-	if claims.ID != sessionID {
-		t.Errorf("ID = %s, want %s", claims.ID, sessionID)
-	}
-	if claims.UserID != userID {
-		t.Errorf("UserID = %s, want %s", claims.UserID, userID)
-	}
-	if claims.Email != email {
-		t.Errorf("Email = %s, want %s", claims.Email, email)
-	}
-	if claims.Name != name {
-		t.Errorf("Name = %s, want %s", claims.Name, name)
-	}
-	if len(claims.Roles) != 1 || claims.Roles[0] != "admin" {
-		t.Errorf("Roles = %v, want [admin]", claims.Roles)
-	}
-	if len(claims.Groups) != 1 || claims.Groups[0] != "team-a" {
-		t.Errorf("Groups = %v, want [team-a]", claims.Groups)
-	}
-	if claims.IssuedAt == nil {
-		t.Error("IssuedAt should be set")
-	}
-	if claims.ExpiresAt == nil {
-		t.Error("ExpiresAt should be set")
-	}
-	if claims.NotBefore == nil {
-		t.Error("NotBefore should be set")
-	}
+	assert.Equal(t, sessionID, claims.ID)
+	assert.Equal(t, userID, claims.UserID)
+	assert.Equal(t, email, claims.Email)
+	assert.Equal(t, name, claims.Name)
+	assert.Len(t, claims.Roles, 1)
+	assert.Equal(t, "admin", claims.Roles[0])
+	assert.Len(t, claims.Groups, 1)
+	assert.Equal(t, "team-a", claims.Groups[0])
+	assert.NotNil(t, claims.IssuedAt)
+	assert.NotNil(t, claims.ExpiresAt)
+	assert.NotNil(t, claims.NotBefore)
 
 	// Check TTL is approximately correct
 	expectedExpiry := time.Now().Add(ttl)
 	actualExpiry := claims.ExpiresAt.Time
-	if actualExpiry.Sub(expectedExpiry) > time.Second {
-		t.Errorf("ExpiresAt is incorrect, got %v, want approximately %v", actualExpiry, expectedExpiry)
-	}
+	assert.WithinDuration(t, expectedExpiry, actualExpiry, time.Second)
 }
 
 func TestSessionClaims_TenantID(t *testing.T) {
@@ -298,9 +226,7 @@ func TestSessionClaims_TenantID(t *testing.T) {
 		TenantID: "tenant-abc",
 	}
 
-	if claims.TenantID != "tenant-abc" {
-		t.Errorf("TenantID = %s, want tenant-abc", claims.TenantID)
-	}
+	assert.Equal(t, "tenant-abc", claims.TenantID)
 }
 
 func TestJWTConfig(t *testing.T) {
@@ -312,46 +238,28 @@ func TestJWTConfig(t *testing.T) {
 		Issuer:     "my-issuer",
 	}
 
-	if cfg.Algorithm != "HS256" {
-		t.Errorf("Algorithm = %s, want HS256", cfg.Algorithm)
-	}
-	if cfg.SigningKey != "my-key" {
-		t.Errorf("SigningKey = %s, want my-key", cfg.SigningKey)
-	}
-	if cfg.PrivateKey != "/path/to/private.pem" {
-		t.Errorf("PrivateKey = %s, want /path/to/private.pem", cfg.PrivateKey)
-	}
-	if cfg.PublicKey != "/path/to/public.pem" {
-		t.Errorf("PublicKey = %s, want /path/to/public.pem", cfg.PublicKey)
-	}
-	if cfg.Issuer != "my-issuer" {
-		t.Errorf("Issuer = %s, want my-issuer", cfg.Issuer)
-	}
+	assert.Equal(t, "HS256", cfg.Algorithm)
+	assert.Equal(t, "my-key", cfg.SigningKey)
+	assert.Equal(t, "/path/to/private.pem", cfg.PrivateKey)
+	assert.Equal(t, "/path/to/public.pem", cfg.PublicKey)
+	assert.Equal(t, "my-issuer", cfg.Issuer)
 }
 
 func TestJWTErrors(t *testing.T) {
 	t.Run("ErrInvalidToken", func(t *testing.T) {
-		if ErrInvalidToken.Error() == "" {
-			t.Error("ErrInvalidToken should have message")
-		}
+		assert.NotEmpty(t, ErrInvalidToken.Error())
 	})
 
 	t.Run("ErrTokenExpired", func(t *testing.T) {
-		if ErrTokenExpired.Error() == "" {
-			t.Error("ErrTokenExpired should have message")
-		}
+		assert.NotEmpty(t, ErrTokenExpired.Error())
 	})
 
 	t.Run("ErrInvalidAlgorithm", func(t *testing.T) {
-		if ErrInvalidAlgorithm.Error() == "" {
-			t.Error("ErrInvalidAlgorithm should have message")
-		}
+		assert.NotEmpty(t, ErrInvalidAlgorithm.Error())
 	})
 
 	t.Run("ErrMissingKey", func(t *testing.T) {
-		if ErrMissingKey.Error() == "" {
-			t.Error("ErrMissingKey should have message")
-		}
+		assert.NotEmpty(t, ErrMissingKey.Error())
 	})
 }
 

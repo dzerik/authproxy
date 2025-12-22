@@ -3,6 +3,9 @@ package config
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConfig_Defaults(t *testing.T) {
@@ -54,9 +57,7 @@ func TestConfig_Defaults(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.got != tt.expected {
-				t.Errorf("%s = %v, want %v", tt.name, tt.got, tt.expected)
-			}
+			assert.Equal(t, tt.expected, tt.got)
 		})
 	}
 }
@@ -66,16 +67,7 @@ func TestConfig_DefaultScopes(t *testing.T) {
 	applyDefaults(cfg)
 
 	expectedScopes := []string{"openid", "profile", "email"}
-	if len(cfg.Auth.Keycloak.Scopes) != len(expectedScopes) {
-		t.Errorf("Auth.Keycloak.Scopes length = %d, want %d", len(cfg.Auth.Keycloak.Scopes), len(expectedScopes))
-		return
-	}
-
-	for i, scope := range expectedScopes {
-		if cfg.Auth.Keycloak.Scopes[i] != scope {
-			t.Errorf("Auth.Keycloak.Scopes[%d] = %s, want %s", i, cfg.Auth.Keycloak.Scopes[i], scope)
-		}
-	}
+	assert.Equal(t, expectedScopes, cfg.Auth.Keycloak.Scopes)
 }
 
 func TestConfig_DefaultExcludePaths(t *testing.T) {
@@ -83,18 +75,7 @@ func TestConfig_DefaultExcludePaths(t *testing.T) {
 	applyDefaults(cfg)
 
 	expectedPaths := []string{"/health", "/ready", "/metrics"}
-	if len(cfg.Resilience.RateLimit.ExcludePaths) != len(expectedPaths) {
-		t.Errorf("Resilience.RateLimit.ExcludePaths length = %d, want %d",
-			len(cfg.Resilience.RateLimit.ExcludePaths), len(expectedPaths))
-		return
-	}
-
-	for i, path := range expectedPaths {
-		if cfg.Resilience.RateLimit.ExcludePaths[i] != path {
-			t.Errorf("Resilience.RateLimit.ExcludePaths[%d] = %s, want %s",
-				i, cfg.Resilience.RateLimit.ExcludePaths[i], path)
-		}
-	}
+	assert.Equal(t, expectedPaths, cfg.Resilience.RateLimit.ExcludePaths)
 }
 
 func TestConfig_ServiceDefaults(t *testing.T) {
@@ -105,13 +86,8 @@ func TestConfig_ServiceDefaults(t *testing.T) {
 	}
 	applyDefaults(cfg)
 
-	if cfg.Services[0].DisplayName != "test-service" {
-		t.Errorf("Services[0].DisplayName = %s, want %s", cfg.Services[0].DisplayName, "test-service")
-	}
-
-	if cfg.Services[0].Headers.Add == nil {
-		t.Error("Services[0].Headers.Add should be initialized")
-	}
+	assert.Equal(t, "test-service", cfg.Services[0].DisplayName)
+	assert.NotNil(t, cfg.Services[0].Headers.Add)
 }
 
 func TestParseSameSite(t *testing.T) {
@@ -135,9 +111,7 @@ func TestParseSameSite(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			result := ParseSameSite(tt.input)
-			if result != tt.expected {
-				t.Errorf("ParseSameSite(%q) = %d, want %d", tt.input, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -154,34 +128,16 @@ log:
   level: debug
 `
 	cfg, err := LoadFromString(yamlStr)
-	if err != nil {
-		t.Fatalf("LoadFromString failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if cfg.Mode != "portal" {
-		t.Errorf("Mode = %s, want portal", cfg.Mode)
-	}
-
-	if cfg.Server.HTTPPort != 9090 {
-		t.Errorf("Server.HTTPPort = %d, want 9090", cfg.Server.HTTPPort)
-	}
-
-	if cfg.Session.Store != "jwt" {
-		t.Errorf("Session.Store = %s, want jwt", cfg.Session.Store)
-	}
-
-	if cfg.Session.TTL != 12*time.Hour {
-		t.Errorf("Session.TTL = %v, want 12h", cfg.Session.TTL)
-	}
-
-	if cfg.Log.Level != "debug" {
-		t.Errorf("Log.Level = %s, want debug", cfg.Log.Level)
-	}
+	assert.Equal(t, "portal", cfg.Mode)
+	assert.Equal(t, 9090, cfg.Server.HTTPPort)
+	assert.Equal(t, "jwt", cfg.Session.Store)
+	assert.Equal(t, 12*time.Hour, cfg.Session.TTL)
+	assert.Equal(t, "debug", cfg.Log.Level)
 
 	// Check defaults were applied
-	if cfg.Server.HTTPSPort != 443 {
-		t.Errorf("Server.HTTPSPort = %d, want 443 (default)", cfg.Server.HTTPSPort)
-	}
+	assert.Equal(t, 443, cfg.Server.HTTPSPort)
 }
 
 func TestLoadFromString_Invalid(t *testing.T) {
@@ -190,14 +146,10 @@ invalid: yaml: content
   - broken
 `
 	_, err := LoadFromString(yamlStr)
-	if err == nil {
-		t.Error("LoadFromString should fail with invalid YAML")
-	}
+	assert.Error(t, err)
 }
 
 func TestNewViper(t *testing.T) {
 	v := NewViper()
-	if v == nil {
-		t.Error("NewViper should return non-nil viper instance")
-	}
+	assert.NotNil(t, v)
 }

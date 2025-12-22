@@ -8,6 +8,8 @@ import (
 
 	"github.com/dzerik/auth-portal/internal/config"
 	"github.com/dzerik/auth-portal/internal/model"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewJWTStore(t *testing.T) {
@@ -24,21 +26,11 @@ func TestNewJWTStore(t *testing.T) {
 		}
 
 		store, err := NewJWTStore(cfg)
-		if err != nil {
-			t.Fatalf("NewJWTStore failed: %v", err)
-		}
-		if store == nil {
-			t.Fatal("NewJWTStore returned nil")
-		}
-		if store.cookieName != "_auth_session" {
-			t.Errorf("cookieName = %s, want _auth_session", store.cookieName)
-		}
-		if !store.secure {
-			t.Error("secure should be true")
-		}
-		if store.sameSite != http.SameSiteLaxMode {
-			t.Errorf("sameSite = %v, want SameSiteLaxMode", store.sameSite)
-		}
+		require.NoError(t, err)
+		require.NotNil(t, store)
+		assert.Equal(t, "_auth_session", store.cookieName)
+		assert.True(t, store.secure)
+		assert.Equal(t, http.SameSiteLaxMode, store.sameSite)
 	})
 
 	t.Run("missing signing key", func(t *testing.T) {
@@ -50,9 +42,7 @@ func TestNewJWTStore(t *testing.T) {
 		}
 
 		_, err := NewJWTStore(cfg)
-		if err == nil {
-			t.Error("NewJWTStore should fail when signing key is missing")
-		}
+		assert.Error(t, err)
 	})
 }
 
@@ -65,13 +55,9 @@ func TestJWTStore_Name(t *testing.T) {
 	}
 
 	store, err := NewJWTStore(cfg)
-	if err != nil {
-		t.Fatalf("NewJWTStore failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if store.Name() != "jwt" {
-		t.Errorf("Name() = %s, want jwt", store.Name())
-	}
+	assert.Equal(t, "jwt", store.Name())
 }
 
 func TestJWTStore_Get_NoCookie(t *testing.T) {
@@ -84,15 +70,11 @@ func TestJWTStore_Get_NoCookie(t *testing.T) {
 	}
 
 	store, err := NewJWTStore(cfg)
-	if err != nil {
-		t.Fatalf("NewJWTStore failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	_, err = store.Get(req)
-	if err != ErrSessionNotFound {
-		t.Errorf("Get should return ErrSessionNotFound, got %v", err)
-	}
+	assert.Equal(t, ErrSessionNotFound, err)
 }
 
 func TestJWTStore_Get_EmptyCookie(t *testing.T) {
@@ -105,9 +87,7 @@ func TestJWTStore_Get_EmptyCookie(t *testing.T) {
 	}
 
 	store, err := NewJWTStore(cfg)
-	if err != nil {
-		t.Fatalf("NewJWTStore failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.AddCookie(&http.Cookie{
@@ -116,9 +96,7 @@ func TestJWTStore_Get_EmptyCookie(t *testing.T) {
 	})
 
 	_, err = store.Get(req)
-	if err != ErrSessionNotFound {
-		t.Errorf("Get should return ErrSessionNotFound for empty cookie, got %v", err)
-	}
+	assert.Equal(t, ErrSessionNotFound, err)
 }
 
 func TestJWTStore_Get_InvalidJWT(t *testing.T) {
@@ -131,9 +109,7 @@ func TestJWTStore_Get_InvalidJWT(t *testing.T) {
 	}
 
 	store, err := NewJWTStore(cfg)
-	if err != nil {
-		t.Fatalf("NewJWTStore failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.AddCookie(&http.Cookie{
@@ -142,9 +118,7 @@ func TestJWTStore_Get_InvalidJWT(t *testing.T) {
 	})
 
 	_, err = store.Get(req)
-	if err != ErrSessionInvalid {
-		t.Errorf("Get should return ErrSessionInvalid for invalid JWT, got %v", err)
-	}
+	assert.Equal(t, ErrSessionInvalid, err)
 }
 
 func TestJWTStore_SaveAndGet(t *testing.T) {
@@ -158,9 +132,7 @@ func TestJWTStore_SaveAndGet(t *testing.T) {
 	}
 
 	store, err := NewJWTStore(cfg)
-	if err != nil {
-		t.Fatalf("NewJWTStore failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Create session
 	session := &model.Session{
@@ -179,57 +151,31 @@ func TestJWTStore_SaveAndGet(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	err = store.Save(rr, req, session)
-	if err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Check cookie was set
 	cookies := rr.Result().Cookies()
-	if len(cookies) != 1 {
-		t.Fatalf("expected 1 cookie, got %d", len(cookies))
-	}
+	require.Len(t, cookies, 1)
 
 	cookie := cookies[0]
-	if cookie.Name != "_auth_session" {
-		t.Errorf("cookie name = %s, want _auth_session", cookie.Name)
-	}
-	if cookie.Value == "" {
-		t.Error("cookie value should not be empty")
-	}
-	if !cookie.HttpOnly {
-		t.Error("cookie should be HttpOnly")
-	}
+	assert.Equal(t, "_auth_session", cookie.Name)
+	assert.NotEmpty(t, cookie.Value)
+	assert.True(t, cookie.HttpOnly)
 
 	// Get session back
 	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
 	req2.AddCookie(cookie)
 
 	retrieved, err := store.Get(req2)
-	if err != nil {
-		t.Fatalf("Get failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if retrieved.User == nil {
-		t.Fatal("session.User should not be nil")
-	}
-	if retrieved.User.ID != "user-456" {
-		t.Errorf("session.User.ID = %s, want user-456", retrieved.User.ID)
-	}
-	if retrieved.User.Email != "test@example.com" {
-		t.Errorf("session.User.Email = %s, want test@example.com", retrieved.User.Email)
-	}
-	if retrieved.User.Name != "Test User" {
-		t.Errorf("session.User.Name = %s, want Test User", retrieved.User.Name)
-	}
-	if len(retrieved.User.Roles) != 2 {
-		t.Errorf("session.User.Roles = %v, want 2 roles", retrieved.User.Roles)
-	}
-	if len(retrieved.User.Groups) != 1 {
-		t.Errorf("session.User.Groups = %v, want 1 group", retrieved.User.Groups)
-	}
-	if retrieved.User.TenantID != "tenant-1" {
-		t.Errorf("session.User.TenantID = %s, want tenant-1", retrieved.User.TenantID)
-	}
+	require.NotNil(t, retrieved.User)
+	assert.Equal(t, "user-456", retrieved.User.ID)
+	assert.Equal(t, "test@example.com", retrieved.User.Email)
+	assert.Equal(t, "Test User", retrieved.User.Name)
+	assert.Len(t, retrieved.User.Roles, 2)
+	assert.Len(t, retrieved.User.Groups, 1)
+	assert.Equal(t, "tenant-1", retrieved.User.TenantID)
 }
 
 func TestJWTStore_Save_NoUser(t *testing.T) {
@@ -242,9 +188,7 @@ func TestJWTStore_Save_NoUser(t *testing.T) {
 	}
 
 	store, err := NewJWTStore(cfg)
-	if err != nil {
-		t.Fatalf("NewJWTStore failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	session := &model.Session{
 		ID:   "session-123",
@@ -255,9 +199,7 @@ func TestJWTStore_Save_NoUser(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	err = store.Save(rr, req, session)
-	if err == nil {
-		t.Error("Save should fail when session has no user")
-	}
+	assert.Error(t, err)
 }
 
 func TestJWTStore_Save_GeneratesSessionID(t *testing.T) {
@@ -271,9 +213,7 @@ func TestJWTStore_Save_GeneratesSessionID(t *testing.T) {
 	}
 
 	store, err := NewJWTStore(cfg)
-	if err != nil {
-		t.Fatalf("NewJWTStore failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	session := &model.Session{
 		ID: "", // empty - should be generated
@@ -287,14 +227,10 @@ func TestJWTStore_Save_GeneratesSessionID(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	err = store.Save(rr, req, session)
-	if err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Session ID should be generated
-	if session.ID == "" {
-		t.Error("session.ID should be generated")
-	}
+	assert.NotEmpty(t, session.ID)
 }
 
 func TestJWTStore_Delete(t *testing.T) {
@@ -309,34 +245,22 @@ func TestJWTStore_Delete(t *testing.T) {
 	}
 
 	store, err := NewJWTStore(cfg)
-	if err != nil {
-		t.Fatalf("NewJWTStore failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	err = store.Delete(rr, req)
-	if err != nil {
-		t.Fatalf("Delete failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Check cookie was cleared
 	cookies := rr.Result().Cookies()
-	if len(cookies) != 1 {
-		t.Fatalf("expected 1 cookie, got %d", len(cookies))
-	}
+	require.Len(t, cookies, 1)
 
 	cookie := cookies[0]
-	if cookie.Name != "_auth_session" {
-		t.Errorf("cookie name = %s, want _auth_session", cookie.Name)
-	}
-	if cookie.Value != "" {
-		t.Error("cookie value should be empty")
-	}
-	if cookie.MaxAge != -1 {
-		t.Errorf("cookie MaxAge = %d, want -1", cookie.MaxAge)
-	}
+	assert.Equal(t, "_auth_session", cookie.Name)
+	assert.Empty(t, cookie.Value)
+	assert.Equal(t, -1, cookie.MaxAge)
 }
 
 func TestJWTStore_WrongSigningKey(t *testing.T) {
@@ -379,9 +303,7 @@ func TestJWTStore_WrongSigningKey(t *testing.T) {
 	req2.AddCookie(cookie)
 
 	_, err := store2.Get(req2)
-	if err != ErrSessionInvalid {
-		t.Errorf("Get should return ErrSessionInvalid for wrong signing key, got %v", err)
-	}
+	assert.Equal(t, ErrSessionInvalid, err)
 }
 
 func BenchmarkJWTStore_SaveAndGet(b *testing.B) {

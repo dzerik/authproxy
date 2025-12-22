@@ -4,30 +4,23 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewManager(t *testing.T) {
 	t.Run("with custom pid file", func(t *testing.T) {
 		m := NewManager("/etc/nginx/nginx.conf", "/custom/nginx.pid")
-		if m == nil {
-			t.Fatal("NewManager returned nil")
-		}
-		if m.configPath != "/etc/nginx/nginx.conf" {
-			t.Errorf("configPath = %s, want /etc/nginx/nginx.conf", m.configPath)
-		}
-		if m.pidFile != "/custom/nginx.pid" {
-			t.Errorf("pidFile = %s, want /custom/nginx.pid", m.pidFile)
-		}
-		if m.running {
-			t.Error("running should be false initially")
-		}
+		require.NotNil(t, m)
+		assert.Equal(t, "/etc/nginx/nginx.conf", m.configPath)
+		assert.Equal(t, "/custom/nginx.pid", m.pidFile)
+		assert.False(t, m.running)
 	})
 
 	t.Run("with empty pid file uses default", func(t *testing.T) {
 		m := NewManager("/etc/nginx/nginx.conf", "")
-		if m.pidFile != "/var/run/nginx.pid" {
-			t.Errorf("pidFile = %s, want /var/run/nginx.pid", m.pidFile)
-		}
+		assert.Equal(t, "/var/run/nginx.pid", m.pidFile)
 	})
 }
 
@@ -35,62 +28,44 @@ func TestManager_IsRunning(t *testing.T) {
 	m := NewManager("/etc/nginx/nginx.conf", "/var/run/nginx.pid")
 
 	// Initially not running
-	if m.IsRunning() {
-		t.Error("IsRunning should return false initially")
-	}
+	assert.False(t, m.IsRunning())
 
 	// Manually set running state for testing
 	m.running = true
-	if !m.IsRunning() {
-		t.Error("IsRunning should return true when running is set")
-	}
+	assert.True(t, m.IsRunning())
 
 	m.running = false
-	if m.IsRunning() {
-		t.Error("IsRunning should return false when running is false")
-	}
+	assert.False(t, m.IsRunning())
 }
 
 func TestManager_Reload_NotRunning(t *testing.T) {
 	m := NewManager("/etc/nginx/nginx.conf", "/var/run/nginx.pid")
 
 	err := m.Reload()
-	if err == nil {
-		t.Error("Reload should return error when nginx is not running")
-	}
+	require.Error(t, err)
 
 	expectedMsg := "nginx is not running"
-	if err.Error() != expectedMsg {
-		t.Errorf("error = %q, want %q", err.Error(), expectedMsg)
-	}
+	assert.Equal(t, expectedMsg, err.Error())
 }
 
 func TestManager_Reopen_NotRunning(t *testing.T) {
 	m := NewManager("/etc/nginx/nginx.conf", "/var/run/nginx.pid")
 
 	err := m.Reopen()
-	if err == nil {
-		t.Error("Reopen should return error when nginx is not running")
-	}
+	require.Error(t, err)
 
 	expectedMsg := "nginx is not running"
-	if err.Error() != expectedMsg {
-		t.Errorf("error = %q, want %q", err.Error(), expectedMsg)
-	}
+	assert.Equal(t, expectedMsg, err.Error())
 }
 
 func TestManager_HealthCheck_NotRunning(t *testing.T) {
 	m := NewManager("/etc/nginx/nginx.conf", "/var/run/nginx.pid")
 
 	err := m.HealthCheck()
-	if err == nil {
-		t.Error("HealthCheck should return error when nginx is not running")
-	}
+	require.Error(t, err)
 
 	expectedMsg := "nginx is not running"
-	if err.Error() != expectedMsg {
-		t.Errorf("error = %q, want %q", err.Error(), expectedMsg)
-	}
+	assert.Equal(t, expectedMsg, err.Error())
 }
 
 func TestManager_GetPID_NoProcess(t *testing.T) {
@@ -101,9 +76,7 @@ func TestManager_GetPID_NoProcess(t *testing.T) {
 
 	// No PID file exists
 	_, err := m.GetPID()
-	if err == nil {
-		t.Error("GetPID should return error when no PID file exists")
-	}
+	require.Error(t, err)
 }
 
 func TestManager_GetPID_FromPIDFile(t *testing.T) {
@@ -112,20 +85,13 @@ func TestManager_GetPID_FromPIDFile(t *testing.T) {
 
 	// Create PID file with valid content
 	err := os.WriteFile(pidFile, []byte("12345"), 0644)
-	if err != nil {
-		t.Fatalf("failed to create PID file: %v", err)
-	}
+	require.NoError(t, err)
 
 	m := NewManager("/etc/nginx/nginx.conf", pidFile)
 
 	pid, err := m.GetPID()
-	if err != nil {
-		t.Fatalf("GetPID failed: %v", err)
-	}
-
-	if pid != 12345 {
-		t.Errorf("PID = %d, want 12345", pid)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 12345, pid)
 }
 
 func TestManager_GetPID_InvalidPIDFile(t *testing.T) {
@@ -134,16 +100,12 @@ func TestManager_GetPID_InvalidPIDFile(t *testing.T) {
 
 	// Create PID file with invalid content
 	err := os.WriteFile(pidFile, []byte("not-a-number"), 0644)
-	if err != nil {
-		t.Fatalf("failed to create PID file: %v", err)
-	}
+	require.NoError(t, err)
 
 	m := NewManager("/etc/nginx/nginx.conf", pidFile)
 
 	_, err = m.GetPID()
-	if err == nil {
-		t.Error("GetPID should return error for invalid PID file content")
-	}
+	require.Error(t, err)
 }
 
 func TestManager_readPID(t *testing.T) {
@@ -152,58 +114,40 @@ func TestManager_readPID(t *testing.T) {
 	t.Run("valid PID file", func(t *testing.T) {
 		pidFile := filepath.Join(tmpDir, "valid.pid")
 		err := os.WriteFile(pidFile, []byte("99999\n"), 0644)
-		if err != nil {
-			t.Fatalf("failed to create PID file: %v", err)
-		}
+		require.NoError(t, err)
 
 		m := NewManager("/etc/nginx/nginx.conf", pidFile)
 		pid, err := m.readPID()
-		if err != nil {
-			t.Fatalf("readPID failed: %v", err)
-		}
-		if pid != 99999 {
-			t.Errorf("PID = %d, want 99999", pid)
-		}
+		require.NoError(t, err)
+		assert.Equal(t, 99999, pid)
 	})
 
 	t.Run("PID with whitespace", func(t *testing.T) {
 		pidFile := filepath.Join(tmpDir, "whitespace.pid")
 		err := os.WriteFile(pidFile, []byte("  42  \n"), 0644)
-		if err != nil {
-			t.Fatalf("failed to create PID file: %v", err)
-		}
+		require.NoError(t, err)
 
 		m := NewManager("/etc/nginx/nginx.conf", pidFile)
 		pid, err := m.readPID()
-		if err != nil {
-			t.Fatalf("readPID failed: %v", err)
-		}
-		if pid != 42 {
-			t.Errorf("PID = %d, want 42", pid)
-		}
+		require.NoError(t, err)
+		assert.Equal(t, 42, pid)
 	})
 
 	t.Run("nonexistent PID file", func(t *testing.T) {
 		pidFile := filepath.Join(tmpDir, "nonexistent.pid")
 		m := NewManager("/etc/nginx/nginx.conf", pidFile)
 		_, err := m.readPID()
-		if err == nil {
-			t.Error("readPID should return error for nonexistent file")
-		}
+		require.Error(t, err)
 	})
 
 	t.Run("empty PID file", func(t *testing.T) {
 		pidFile := filepath.Join(tmpDir, "empty.pid")
 		err := os.WriteFile(pidFile, []byte(""), 0644)
-		if err != nil {
-			t.Fatalf("failed to create PID file: %v", err)
-		}
+		require.NoError(t, err)
 
 		m := NewManager("/etc/nginx/nginx.conf", pidFile)
 		_, err = m.readPID()
-		if err == nil {
-			t.Error("readPID should return error for empty file")
-		}
+		require.Error(t, err)
 	})
 }
 
@@ -215,9 +159,7 @@ func TestManager_signal_NoProcess(t *testing.T) {
 	// cmd is nil and no PID file
 
 	err := m.signal(0) // Signal 0 is used for checking if process exists
-	if err == nil {
-		t.Error("signal should return error when no process exists")
-	}
+	require.Error(t, err)
 }
 
 func TestManager_Concurrency(t *testing.T) {

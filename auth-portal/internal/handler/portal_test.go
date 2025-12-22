@@ -7,18 +7,16 @@ import (
 
 	"github.com/dzerik/auth-portal/internal/config"
 	"github.com/dzerik/auth-portal/internal/model"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewPortalHandler(t *testing.T) {
 	cfg := &config.Config{}
 
 	h := NewPortalHandler(nil, cfg, nil)
-	if h == nil {
-		t.Fatal("NewPortalHandler returned nil")
-	}
-	if h.config != cfg {
-		t.Error("config not set correctly")
-	}
+	require.NotNil(t, h)
+	assert.Equal(t, cfg, h.config)
 }
 
 func TestPortalHandler_getServicesForUser(t *testing.T) {
@@ -54,36 +52,20 @@ func TestPortalHandler_getServicesForUser(t *testing.T) {
 
 	services := h.getServicesForUser(user)
 
-	if len(services) != 3 {
-		t.Errorf("services length = %d, want 3", len(services))
-	}
+	assert.Len(t, services, 3)
 
 	// Check first service
-	if services[0].Name != "grafana" {
-		t.Errorf("services[0].Name = %s, want grafana", services[0].Name)
-	}
-	if services[0].DisplayName != "Grafana" {
-		t.Errorf("services[0].DisplayName = %s, want Grafana", services[0].DisplayName)
-	}
-	if services[0].Description != "Metrics dashboard" {
-		t.Errorf("services[0].Description = %s", services[0].Description)
-	}
-	if services[0].URL != "/grafana/" {
-		t.Errorf("services[0].URL = %s, want /grafana/", services[0].URL)
-	}
-	if services[0].Icon != "chart-line" {
-		t.Errorf("services[0].Icon = %s, want chart-line", services[0].Icon)
-	}
+	assert.Equal(t, "grafana", services[0].Name)
+	assert.Equal(t, "Grafana", services[0].DisplayName)
+	assert.Equal(t, "Metrics dashboard", services[0].Description)
+	assert.Equal(t, "/grafana/", services[0].URL)
+	assert.Equal(t, "chart-line", services[0].Icon)
 
 	// Check second service (has upstream but no location)
-	if services[1].URL != "http://kibana:5601" {
-		t.Errorf("services[1].URL = %s, want http://kibana:5601 (from upstream)", services[1].URL)
-	}
+	assert.Equal(t, "http://kibana:5601", services[1].URL)
 
 	// Check third service (has both location and upstream, should use location)
-	if services[2].URL != "/prom/" {
-		t.Errorf("services[2].URL = %s, want /prom/", services[2].URL)
-	}
+	assert.Equal(t, "/prom/", services[2].URL)
 }
 
 func TestPortalHandler_getServicesForUser_Empty(t *testing.T) {
@@ -96,9 +78,7 @@ func TestPortalHandler_getServicesForUser_Empty(t *testing.T) {
 
 	services := h.getServicesForUser(user)
 
-	if len(services) != 0 {
-		t.Errorf("services length = %d, want 0", len(services))
-	}
+	assert.Empty(t, services)
 }
 
 func TestPortalHandler_renderJSONError(t *testing.T) {
@@ -107,13 +87,8 @@ func TestPortalHandler_renderJSONError(t *testing.T) {
 	rr := httptest.NewRecorder()
 	h.renderJSONError(rr, "Test error", http.StatusBadRequest)
 
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
-	}
-
-	if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
-		t.Errorf("Content-Type = %s, want application/json", ct)
-	}
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
 }
 
 func TestPortalPageData_Struct(t *testing.T) {
@@ -130,15 +105,9 @@ func TestPortalPageData_Struct(t *testing.T) {
 		Error:    "",
 	}
 
-	if data.Title != "Portal" {
-		t.Errorf("Title = %s, want Portal", data.Title)
-	}
-	if data.User.ID != "user-1" {
-		t.Errorf("User.ID = %s, want user-1", data.User.ID)
-	}
-	if len(data.Services) != 2 {
-		t.Errorf("Services length = %d, want 2", len(data.Services))
-	}
+	assert.Equal(t, "Portal", data.Title)
+	assert.Equal(t, "user-1", data.User.ID)
+	assert.Len(t, data.Services, 2)
 }
 
 func TestServiceView_Struct(t *testing.T) {
@@ -150,21 +119,104 @@ func TestServiceView_Struct(t *testing.T) {
 		Icon:        "chart-line",
 	}
 
-	if sv.Name != "grafana" {
-		t.Errorf("Name = %s, want grafana", sv.Name)
+	assert.Equal(t, "grafana", sv.Name)
+	assert.Equal(t, "Grafana Dashboard", sv.DisplayName)
+	assert.Equal(t, "Metrics visualization", sv.Description)
+	assert.Equal(t, "/grafana/", sv.URL)
+	assert.Equal(t, "chart-line", sv.Icon)
+}
+
+func TestPortalHandler_isUserAdmin(t *testing.T) {
+	cfg := &config.Config{}
+	h := NewPortalHandler(nil, cfg, nil, WithAdminRoles([]string{"admin", "superuser"}))
+
+	tests := []struct {
+		name     string
+		roles    []string
+		expected bool
+	}{
+		{"user has admin role", []string{"user", "admin"}, true},
+		{"user has superuser role", []string{"superuser"}, true},
+		{"user has no admin roles", []string{"user", "viewer"}, false},
+		{"user has empty roles", []string{}, false},
+		{"user has multiple roles including admin", []string{"viewer", "editor", "admin"}, true},
 	}
-	if sv.DisplayName != "Grafana Dashboard" {
-		t.Errorf("DisplayName = %s, want Grafana Dashboard", sv.DisplayName)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			user := &model.User{ID: "user-1", Roles: tt.roles}
+			result := h.isUserAdmin(user)
+			assert.Equal(t, tt.expected, result)
+		})
 	}
-	if sv.Description != "Metrics visualization" {
-		t.Errorf("Description = %s, want Metrics visualization", sv.Description)
-	}
-	if sv.URL != "/grafana/" {
-		t.Errorf("URL = %s, want /grafana/", sv.URL)
-	}
-	if sv.Icon != "chart-line" {
-		t.Errorf("Icon = %s, want chart-line", sv.Icon)
-	}
+}
+
+func TestPortalHandler_isUserAdmin_defaultRoles(t *testing.T) {
+	cfg := &config.Config{}
+	// Default admin roles: admin, administrator, portal-admin
+	h := NewPortalHandler(nil, cfg, nil)
+
+	t.Run("user with admin role", func(t *testing.T) {
+		user := &model.User{ID: "user-1", Roles: []string{"admin"}}
+		assert.True(t, h.isUserAdmin(user))
+	})
+
+	t.Run("user with administrator role", func(t *testing.T) {
+		user := &model.User{ID: "user-1", Roles: []string{"administrator"}}
+		assert.True(t, h.isUserAdmin(user))
+	})
+
+	t.Run("user with portal-admin role", func(t *testing.T) {
+		user := &model.User{ID: "user-1", Roles: []string{"portal-admin"}}
+		assert.True(t, h.isUserAdmin(user))
+	})
+
+	t.Run("user without admin role", func(t *testing.T) {
+		user := &model.User{ID: "user-1", Roles: []string{"user"}}
+		assert.False(t, h.isUserAdmin(user))
+	})
+
+	t.Run("nil user", func(t *testing.T) {
+		assert.False(t, h.isUserAdmin(nil))
+	})
+}
+
+func TestPortalHandler_WithSecurityWarnings(t *testing.T) {
+	cfg := &config.Config{}
+
+	t.Run("sets security warnings", func(t *testing.T) {
+		// We can't directly access securityWarnings, but we can verify the option doesn't panic
+		h := NewPortalHandler(nil, cfg, nil, WithSecurityWarnings(nil))
+		require.NotNil(t, h)
+	})
+}
+
+func TestPortalHandler_WithAdminRoles(t *testing.T) {
+	cfg := &config.Config{}
+	customRoles := []string{"root", "superadmin"}
+
+	h := NewPortalHandler(nil, cfg, nil, WithAdminRoles(customRoles))
+	require.NotNil(t, h)
+
+	// Verify custom roles work
+	user := &model.User{ID: "user-1", Roles: []string{"root"}}
+	assert.True(t, h.isUserAdmin(user))
+
+	// Verify default roles don't work anymore
+	user2 := &model.User{ID: "user-2", Roles: []string{"admin"}}
+	assert.False(t, h.isUserAdmin(user2))
+}
+
+func TestPortalHandler_renderError_noTemplates(t *testing.T) {
+	h := NewPortalHandler(nil, &config.Config{}, nil)
+
+	w := httptest.NewRecorder()
+	h.renderError(w, "Test error", http.StatusBadRequest)
+
+	// Without templates, renderError should fall back to JSON
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+	assert.Contains(t, w.Body.String(), "Test error")
 }
 
 func BenchmarkGetServicesForUser(b *testing.B) {

@@ -147,6 +147,8 @@ func (g *Generator) postProcessJSON(jsonStr string) string {
 		"HealthConfig", "ReadyConfig", "LogConfig",
 		"ResilienceConfig", "HTTPRateLimitConfig", "HTTPRateLimitHeadersConfig",
 		"CircuitBreakerConfig", "CircuitBreakerSettings",
+		"StateStoreConfig", "StateStoreRedisConfig", // CRIT-02: OAuth state storage
+		"VisibilityConfig", // RBAC visibility
 	}
 
 	result := jsonStr

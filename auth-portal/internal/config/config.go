@@ -14,6 +14,8 @@ type Config struct {
 	Auth AuthConfig `yaml:"auth" mapstructure:"auth" jsonschema:"required,description=Authentication configuration including Keycloak OIDC settings"`
 	// Session contains session management settings
 	Session SessionConfig `yaml:"session" mapstructure:"session" jsonschema:"required,description=Session storage and cookie configuration"`
+	// StateStore contains OAuth state storage settings (CRIT-02 security fix)
+	StateStore StateStoreConfig `yaml:"state_store" mapstructure:"state_store" jsonschema:"description=OAuth state storage configuration for HA deployments"`
 	// Token contains token refresh settings
 	Token TokenConfig `yaml:"token" mapstructure:"token" jsonschema:"description=Token refresh and validation settings"`
 	// Services defines backend services for portal mode
@@ -38,6 +40,24 @@ type LogConfig struct {
 	Format string `yaml:"format" mapstructure:"format" jsonschema:"enum=json,enum=console,default=json,description=Log format - json for structured or console for human-readable"`
 	// Development enables development mode logging
 	Development bool `yaml:"development" mapstructure:"development" jsonschema:"default=false,description=Enable development mode with more verbose output"`
+}
+
+// StateStoreConfig represents OAuth state storage configuration (CRIT-02 security fix)
+type StateStoreConfig struct {
+	// Type is the state storage backend: memory or redis
+	Type string `yaml:"type" mapstructure:"type" jsonschema:"enum=memory,enum=redis,default=memory,description=OAuth state storage backend - memory (single instance) or redis (distributed/HA)"`
+	// TTL is the state token lifetime
+	TTL time.Duration `yaml:"ttl" mapstructure:"ttl" jsonschema:"default=10m,description=OAuth state token time-to-live"`
+	// Redis contains Redis-specific settings (used when type is redis)
+	Redis StateStoreRedisConfig `yaml:"redis" mapstructure:"redis" jsonschema:"description=Redis state store configuration"`
+}
+
+// StateStoreRedisConfig represents Redis state store specific configuration
+type StateStoreRedisConfig struct {
+	// KeyPrefix is the prefix for state keys in Redis
+	KeyPrefix string `yaml:"key_prefix" mapstructure:"key_prefix" jsonschema:"default=authportal:state:,description=Prefix for OAuth state keys in Redis"`
+	// UseSessionRedis indicates whether to use the same Redis as session store
+	UseSessionRedis bool `yaml:"use_session_redis" mapstructure:"use_session_redis" jsonschema:"default=true,description=Use same Redis configuration as session store"`
 }
 
 // ServerConfig represents HTTP server configuration
@@ -118,6 +138,8 @@ type SessionConfig struct {
 	Store string `yaml:"store" mapstructure:"store" jsonschema:"required,enum=cookie,enum=jwt,enum=redis,default=cookie,description=Session storage backend - cookie (encrypted) or jwt (stateless) or redis (distributed)"`
 	// CookieName is the session cookie name
 	CookieName string `yaml:"cookie_name" mapstructure:"cookie_name" jsonschema:"default=_auth_session,description=Name of the session cookie"`
+	// CookieDomain is the domain for session cookie (MED-02 security fix)
+	CookieDomain string `yaml:"cookie_domain" mapstructure:"cookie_domain" jsonschema:"description=Domain for session cookie - set to share across subdomains (e.g. .example.com)"`
 	// TTL is the session lifetime
 	TTL time.Duration `yaml:"ttl" mapstructure:"ttl" jsonschema:"default=24h,description=Session time-to-live (24h or 7d)"`
 	// Secure enables secure cookie flag
@@ -322,6 +344,8 @@ type MetricsConfig struct {
 	Enabled bool `yaml:"enabled" mapstructure:"enabled" jsonschema:"default=true,description=Enable Prometheus metrics endpoint"`
 	// Path is the metrics endpoint path
 	Path string `yaml:"path" mapstructure:"path" jsonschema:"default=/metrics,description=Prometheus metrics endpoint path"`
+	// AllowedCIDRs restricts metrics endpoint access to specified CIDR ranges (HIGH-03 security fix)
+	AllowedCIDRs []string `yaml:"allowed_cidrs" mapstructure:"allowed_cidrs" jsonschema:"description=CIDR ranges allowed to access metrics endpoint (e.g. 10.0.0.0/8 or 192.168.0.0/16)"`
 }
 
 // HealthConfig represents health check configuration

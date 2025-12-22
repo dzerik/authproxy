@@ -218,6 +218,15 @@ func applyDefaults(cfg *Config) {
 	if cfg.Observability.Metrics.Path == "" {
 		cfg.Observability.Metrics.Path = "/metrics"
 	}
+	// HIGH-03 security fix: default allowed CIDRs for metrics endpoint
+	if len(cfg.Observability.Metrics.AllowedCIDRs) == 0 {
+		cfg.Observability.Metrics.AllowedCIDRs = []string{
+			"10.0.0.0/8",
+			"172.16.0.0/12",
+			"192.168.0.0/16",
+			"127.0.0.1/32",
+		}
+	}
 	if cfg.Observability.Tracing.Endpoint == "" {
 		cfg.Observability.Tracing.Endpoint = "localhost:4317"
 	}
@@ -240,6 +249,21 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Log.Format == "" {
 		cfg.Log.Format = "json"
+	}
+
+	// StateStore defaults (CRIT-02 security fix)
+	if cfg.StateStore.Type == "" {
+		cfg.StateStore.Type = "memory"
+	}
+	if cfg.StateStore.TTL == 0 {
+		cfg.StateStore.TTL = 10 * time.Minute
+	}
+	if cfg.StateStore.Redis.KeyPrefix == "" {
+		cfg.StateStore.Redis.KeyPrefix = "authportal:state:"
+	}
+	// Default to using session Redis configuration
+	if cfg.StateStore.Type == "redis" && !cfg.StateStore.Redis.UseSessionRedis {
+		cfg.StateStore.Redis.UseSessionRedis = true
 	}
 
 	// Resilience defaults

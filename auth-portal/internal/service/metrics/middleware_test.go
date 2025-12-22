@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestMetrics_Middleware(t *testing.T) {
@@ -27,13 +28,8 @@ func TestMetrics_Middleware(t *testing.T) {
 
 	handler.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
-	}
-
-	if rr.Body.String() != "OK" {
-		t.Errorf("body = %s, want OK", rr.Body.String())
-	}
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "OK", rr.Body.String())
 }
 
 func TestMetrics_Middleware_DifferentStatusCodes(t *testing.T) {
@@ -66,9 +62,7 @@ func TestMetrics_Middleware_DifferentStatusCodes(t *testing.T) {
 
 			wrapped.ServeHTTP(rr, req)
 
-			if rr.Code != tt.statusCode {
-				t.Errorf("status = %d, want %d", rr.Code, tt.statusCode)
-			}
+			assert.Equal(t, tt.statusCode, rr.Code)
 		})
 	}
 }
@@ -99,9 +93,7 @@ func TestMetrics_Middleware_DifferentMethods(t *testing.T) {
 
 			wrapped.ServeHTTP(rr, req)
 
-			if rr.Code != http.StatusOK {
-				t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
-			}
+			assert.Equal(t, http.StatusOK, rr.Code)
 		})
 	}
 }
@@ -124,9 +116,7 @@ func TestMetrics_Middleware_ResponseSize(t *testing.T) {
 	wrapped.ServeHTTP(rr, req)
 
 	// Verify response was passed through
-	if rr.Body.String() != responseBody {
-		t.Errorf("body = %s, want %s", rr.Body.String(), responseBody)
-	}
+	assert.Equal(t, responseBody, rr.Body.String())
 }
 
 func TestMetrics_Middleware_WithChiRouter(t *testing.T) {
@@ -153,12 +143,8 @@ func TestMetrics_Middleware_WithChiRouter(t *testing.T) {
 
 		r.ServeHTTP(rr, req)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
-		}
-		if rr.Body.String() != "User: 123" {
-			t.Errorf("body = %s, want User: 123", rr.Body.String())
-		}
+		assert.Equal(t, http.StatusOK, rr.Code)
+		assert.Equal(t, "User: 123", rr.Body.String())
 	})
 
 	t.Run("POST", func(t *testing.T) {
@@ -167,9 +153,7 @@ func TestMetrics_Middleware_WithChiRouter(t *testing.T) {
 
 		r.ServeHTTP(rr, req)
 
-		if rr.Code != http.StatusCreated {
-			t.Errorf("status = %d, want %d", rr.Code, http.StatusCreated)
-		}
+		assert.Equal(t, http.StatusCreated, rr.Code)
 	})
 }
 
@@ -192,9 +176,7 @@ func TestMetrics_Middleware_Duration(t *testing.T) {
 
 	elapsed := time.Since(start)
 
-	if elapsed < 10*time.Millisecond {
-		t.Errorf("request should have taken at least 10ms, got %v", elapsed)
-	}
+	assert.GreaterOrEqual(t, elapsed, 10*time.Millisecond, "request should have taken at least 10ms")
 }
 
 func TestMetrics_Middleware_InFlight(t *testing.T) {
@@ -264,9 +246,7 @@ func TestNormalizePath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			result := NormalizePath(tt.input)
-			if result != tt.expected {
-				t.Errorf("NormalizePath(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }

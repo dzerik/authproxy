@@ -28,6 +28,9 @@ func RequestLogger(next http.Handler) http.Handler {
 		// Wrap response writer to capture status code
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 
+		// LOW-02 security fix: Add X-Request-ID to response headers for traceability
+		ww.Header().Set("X-Request-ID", requestID)
+
 		// Log request start
 		log.Debug("request started",
 			zap.String("method", r.Method),

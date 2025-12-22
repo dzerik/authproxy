@@ -6,55 +6,30 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
-	if !cfg.Enabled {
-		t.Error("DefaultConfig should have Enabled = true")
-	}
-
-	if cfg.Default.MaxRequests != 3 {
-		t.Errorf("DefaultConfig.Default.MaxRequests = %d, want 3", cfg.Default.MaxRequests)
-	}
-
-	if cfg.Default.Interval != 60*time.Second {
-		t.Errorf("DefaultConfig.Default.Interval = %v, want 60s", cfg.Default.Interval)
-	}
-
-	if cfg.Default.Timeout != 30*time.Second {
-		t.Errorf("DefaultConfig.Default.Timeout = %v, want 30s", cfg.Default.Timeout)
-	}
-
-	if cfg.Default.FailureThreshold != 5 {
-		t.Errorf("DefaultConfig.Default.FailureThreshold = %d, want 5", cfg.Default.FailureThreshold)
-	}
-
-	if cfg.Default.SuccessThreshold != 2 {
-		t.Errorf("DefaultConfig.Default.SuccessThreshold = %d, want 2", cfg.Default.SuccessThreshold)
-	}
-
-	if !cfg.Default.OnStateChange {
-		t.Error("DefaultConfig.Default.OnStateChange should be true")
-	}
-
-	if cfg.Services == nil {
-		t.Error("DefaultConfig.Services should not be nil")
-	}
+	assert.True(t, cfg.Enabled)
+	assert.Equal(t, uint32(3), cfg.Default.MaxRequests)
+	assert.Equal(t, 60*time.Second, cfg.Default.Interval)
+	assert.Equal(t, 30*time.Second, cfg.Default.Timeout)
+	assert.Equal(t, uint32(5), cfg.Default.FailureThreshold)
+	assert.Equal(t, uint32(2), cfg.Default.SuccessThreshold)
+	assert.True(t, cfg.Default.OnStateChange)
+	assert.NotNil(t, cfg.Services)
 }
 
 func TestNewManager(t *testing.T) {
 	cfg := DefaultConfig()
 	m := NewManager(cfg)
 
-	if m == nil {
-		t.Fatal("NewManager returned nil")
-	}
-
-	if m.breakers == nil {
-		t.Error("NewManager should initialize breakers map")
-	}
+	require.NotNil(t, m)
+	assert.NotNil(t, m.breakers)
 }
 
 func TestNewManager_PreCreatedBreakers(t *testing.T) {
@@ -79,17 +54,13 @@ func TestNewManager_PreCreatedBreakers(t *testing.T) {
 	m := NewManager(cfg)
 
 	// Check that breakers are pre-created
-	if len(m.breakers) != 2 {
-		t.Errorf("Expected 2 pre-created breakers, got %d", len(m.breakers))
-	}
+	assert.Len(t, m.breakers, 2)
 
 	// Check specific breakers exist
-	if _, exists := m.breakers["service-a"]; !exists {
-		t.Error("service-a breaker should be pre-created")
-	}
-	if _, exists := m.breakers["service-b"]; !exists {
-		t.Error("service-b breaker should be pre-created")
-	}
+	_, exists := m.breakers["service-a"]
+	assert.True(t, exists)
+	_, exists = m.breakers["service-b"]
+	assert.True(t, exists)
 }
 
 func TestManager_Get(t *testing.T) {
@@ -98,21 +69,15 @@ func TestManager_Get(t *testing.T) {
 
 	cb := m.Get("test-service")
 
-	if cb == nil {
-		t.Fatal("Get returned nil circuit breaker")
-	}
+	require.NotNil(t, cb)
 
 	// Getting same service should return same breaker
 	cb2 := m.Get("test-service")
-	if cb != cb2 {
-		t.Error("Get should return same breaker for same service name")
-	}
+	assert.Equal(t, cb, cb2)
 
 	// Different service should get different breaker
 	cb3 := m.Get("other-service")
-	if cb == cb3 {
-		t.Error("Get should return different breaker for different service name")
-	}
+	assert.NotEqual(t, cb, cb3)
 }
 
 func TestManager_Get_ServiceSettings(t *testing.T) {
@@ -131,15 +96,11 @@ func TestManager_Get_ServiceSettings(t *testing.T) {
 
 	// Get the pre-created breaker with custom settings
 	cb := m.Get("custom-service")
-	if cb == nil {
-		t.Fatal("Get returned nil for custom-service")
-	}
+	require.NotNil(t, cb)
 
 	// Get a service without custom settings (should use defaults)
 	cb2 := m.Get("default-service")
-	if cb2 == nil {
-		t.Fatal("Get returned nil for default-service")
-	}
+	require.NotNil(t, cb2)
 }
 
 func TestManager_Get_ConcurrentAccess(t *testing.T) {
@@ -155,9 +116,7 @@ func TestManager_Get_ConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			cb := m.Get("concurrent-service")
-			if cb == nil {
-				t.Error("Get returned nil")
-			}
+			require.NotNil(t, cb)
 		}()
 	}
 	wg.Wait()
@@ -172,9 +131,7 @@ func TestManager_Get_ConcurrentAccess(t *testing.T) {
 	}
 	m.mu.RUnlock()
 
-	if count != 1 {
-		t.Errorf("Expected 1 breaker for concurrent-service, got %d", count)
-	}
+	assert.Equal(t, 1, count)
 }
 
 func TestManager_Execute_Success(t *testing.T) {
@@ -185,13 +142,8 @@ func TestManager_Execute_Success(t *testing.T) {
 		return "success", nil
 	})
 
-	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
-	}
-
-	if result != "success" {
-		t.Errorf("Execute result = %v, want 'success'", result)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "success", result)
 }
 
 func TestManager_Execute_Failure(t *testing.T) {
@@ -204,13 +156,8 @@ func TestManager_Execute_Failure(t *testing.T) {
 		return nil, expectedErr
 	})
 
-	if err != expectedErr {
-		t.Errorf("Execute error = %v, want %v", err, expectedErr)
-	}
-
-	if result != nil {
-		t.Errorf("Execute result = %v, want nil", result)
-	}
+	assert.Equal(t, expectedErr, err)
+	assert.Nil(t, result)
 }
 
 func TestManager_Execute_CircuitOpens(t *testing.T) {
@@ -229,9 +176,7 @@ func TestManager_Execute_CircuitOpens(t *testing.T) {
 	}
 
 	// Circuit should be open now
-	if m.State("failing-service") != StateOpen {
-		t.Errorf("Expected circuit to be open, got %v", m.State("failing-service"))
-	}
+	assert.Equal(t, StateOpen, m.State("failing-service"))
 }
 
 func TestExecuteTyped(t *testing.T) {
@@ -243,13 +188,8 @@ func TestExecuteTyped(t *testing.T) {
 			return "typed result", nil
 		})
 
-		if err != nil {
-			t.Fatalf("ExecuteTyped failed: %v", err)
-		}
-
-		if result != "typed result" {
-			t.Errorf("ExecuteTyped result = %v, want 'typed result'", result)
-		}
+		require.NoError(t, err)
+		assert.Equal(t, "typed result", result)
 	})
 
 	t.Run("failure", func(t *testing.T) {
@@ -259,13 +199,8 @@ func TestExecuteTyped(t *testing.T) {
 			return "", expectedErr
 		})
 
-		if err != expectedErr {
-			t.Errorf("ExecuteTyped error = %v, want %v", err, expectedErr)
-		}
-
-		if result != "" {
-			t.Errorf("ExecuteTyped result = %v, want empty string", result)
-		}
+		assert.Equal(t, expectedErr, err)
+		assert.Empty(t, result)
 	})
 
 	t.Run("int type", func(t *testing.T) {
@@ -273,13 +208,8 @@ func TestExecuteTyped(t *testing.T) {
 			return 42, nil
 		})
 
-		if err != nil {
-			t.Fatalf("ExecuteTyped failed: %v", err)
-		}
-
-		if result != 42 {
-			t.Errorf("ExecuteTyped result = %v, want 42", result)
-		}
+		require.NoError(t, err)
+		assert.Equal(t, 42, result)
 	})
 }
 
@@ -289,9 +219,7 @@ func TestManager_State(t *testing.T) {
 
 	// New circuit should be closed
 	state := m.State("new-service")
-	if state != StateClosed {
-		t.Errorf("New circuit state = %v, want StateClosed", state)
-	}
+	assert.Equal(t, StateClosed, state)
 }
 
 func TestManager_Counts(t *testing.T) {
@@ -306,9 +234,7 @@ func TestManager_Counts(t *testing.T) {
 	}
 
 	counts := m.Counts("count-service")
-	if counts.Requests < 5 {
-		t.Errorf("Counts.Requests = %d, want >= 5", counts.Requests)
-	}
+	assert.GreaterOrEqual(t, counts.Requests, uint32(5))
 }
 
 func TestManager_States(t *testing.T) {
@@ -324,14 +250,10 @@ func TestManager_States(t *testing.T) {
 
 	states := m.States()
 
-	if len(states) < 2 {
-		t.Errorf("States() returned %d states, want >= 2", len(states))
-	}
+	assert.GreaterOrEqual(t, len(states), 2)
 
 	for name, state := range states {
-		if state != StateClosed {
-			t.Errorf("Service %s state = %v, want StateClosed", name, state)
-		}
+		assert.Equal(t, StateClosed, state, "Service %s state should be closed", name)
 	}
 }
 
@@ -341,9 +263,7 @@ func TestManager_IsOpen(t *testing.T) {
 	m := NewManager(cfg)
 
 	// Initially should be closed
-	if m.IsOpen("test-service") {
-		t.Error("New circuit should not be open")
-	}
+	assert.False(t, m.IsOpen("test-service"))
 
 	// Fail the circuit
 	_, _ = m.Execute(context.Background(), "test-service", func() (any, error) {
@@ -351,9 +271,7 @@ func TestManager_IsOpen(t *testing.T) {
 	})
 
 	// Should be open now
-	if !m.IsOpen("test-service") {
-		t.Error("Circuit should be open after failure")
-	}
+	assert.True(t, m.IsOpen("test-service"))
 }
 
 func TestStateToString(t *testing.T) {
@@ -369,9 +287,7 @@ func TestStateToString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
 			result := stateToString(tt.state)
-			if result != tt.expected {
-				t.Errorf("stateToString(%v) = %s, want %s", tt.state, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -386,24 +302,12 @@ func TestSettings(t *testing.T) {
 		OnStateChange:    true,
 	}
 
-	if settings.MaxRequests != 10 {
-		t.Errorf("MaxRequests = %d, want 10", settings.MaxRequests)
-	}
-	if settings.Interval != 30*time.Second {
-		t.Errorf("Interval = %v, want 30s", settings.Interval)
-	}
-	if settings.Timeout != 15*time.Second {
-		t.Errorf("Timeout = %v, want 15s", settings.Timeout)
-	}
-	if settings.FailureThreshold != 5 {
-		t.Errorf("FailureThreshold = %d, want 5", settings.FailureThreshold)
-	}
-	if settings.SuccessThreshold != 2 {
-		t.Errorf("SuccessThreshold = %d, want 2", settings.SuccessThreshold)
-	}
-	if !settings.OnStateChange {
-		t.Error("OnStateChange should be true")
-	}
+	assert.Equal(t, uint32(10), settings.MaxRequests)
+	assert.Equal(t, 30*time.Second, settings.Interval)
+	assert.Equal(t, 15*time.Second, settings.Timeout)
+	assert.Equal(t, uint32(5), settings.FailureThreshold)
+	assert.Equal(t, uint32(2), settings.SuccessThreshold)
+	assert.True(t, settings.OnStateChange)
 }
 
 func TestConfig(t *testing.T) {
@@ -421,19 +325,12 @@ func TestConfig(t *testing.T) {
 		},
 	}
 
-	if !cfg.Enabled {
-		t.Error("Config.Enabled should be true")
-	}
+	assert.True(t, cfg.Enabled)
+	assert.Equal(t, uint32(5), cfg.Default.MaxRequests)
 
-	if cfg.Default.MaxRequests != 5 {
-		t.Errorf("Config.Default.MaxRequests = %d, want 5", cfg.Default.MaxRequests)
-	}
-
-	if svc, ok := cfg.Services["custom"]; !ok {
-		t.Error("Config.Services should contain 'custom'")
-	} else if svc.MaxRequests != 10 {
-		t.Errorf("Config.Services['custom'].MaxRequests = %d, want 10", svc.MaxRequests)
-	}
+	svc, ok := cfg.Services["custom"]
+	require.True(t, ok)
+	assert.Equal(t, uint32(10), svc.MaxRequests)
 }
 
 func BenchmarkManager_Get(b *testing.B) {

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 )
@@ -12,30 +14,14 @@ import (
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
-	if cfg.Enabled {
-		t.Error("Enabled should be false by default")
-	}
-	if cfg.ServiceName != "auth-portal" {
-		t.Errorf("ServiceName = %s, want auth-portal", cfg.ServiceName)
-	}
-	if cfg.ServiceVersion != "dev" {
-		t.Errorf("ServiceVersion = %s, want dev", cfg.ServiceVersion)
-	}
-	if cfg.Environment != "development" {
-		t.Errorf("Environment = %s, want development", cfg.Environment)
-	}
-	if cfg.Endpoint != "localhost:4317" {
-		t.Errorf("Endpoint = %s, want localhost:4317", cfg.Endpoint)
-	}
-	if cfg.Protocol != "grpc" {
-		t.Errorf("Protocol = %s, want grpc", cfg.Protocol)
-	}
-	if !cfg.Insecure {
-		t.Error("Insecure should be true by default")
-	}
-	if cfg.SamplingRatio != 1.0 {
-		t.Errorf("SamplingRatio = %f, want 1.0", cfg.SamplingRatio)
-	}
+	assert.False(t, cfg.Enabled)
+	assert.Equal(t, "auth-portal", cfg.ServiceName)
+	assert.Equal(t, "dev", cfg.ServiceVersion)
+	assert.Equal(t, "development", cfg.Environment)
+	assert.Equal(t, "localhost:4317", cfg.Endpoint)
+	assert.Equal(t, "grpc", cfg.Protocol)
+	assert.True(t, cfg.Insecure)
+	assert.Equal(t, 1.0, cfg.SamplingRatio)
 }
 
 func TestConfig_Struct(t *testing.T) {
@@ -53,18 +39,10 @@ func TestConfig_Struct(t *testing.T) {
 		},
 	}
 
-	if !cfg.Enabled {
-		t.Error("Enabled should be true")
-	}
-	if cfg.ServiceName != "test-service" {
-		t.Errorf("ServiceName = %s", cfg.ServiceName)
-	}
-	if cfg.SamplingRatio != 0.5 {
-		t.Errorf("SamplingRatio = %f", cfg.SamplingRatio)
-	}
-	if cfg.Headers["Authorization"] != "Bearer token" {
-		t.Error("Headers should contain Authorization")
-	}
+	assert.True(t, cfg.Enabled)
+	assert.Equal(t, "test-service", cfg.ServiceName)
+	assert.Equal(t, 0.5, cfg.SamplingRatio)
+	assert.Equal(t, "Bearer token", cfg.Headers["Authorization"])
 }
 
 func TestInit_Disabled(t *testing.T) {
@@ -75,36 +53,22 @@ func TestInit_Disabled(t *testing.T) {
 	}
 
 	tp, err := Init(ctx, cfg)
-	if err != nil {
-		t.Fatalf("Init failed: %v", err)
-	}
-
-	if tp == nil {
-		t.Fatal("Init returned nil TracerProvider")
-	}
-
-	if tp.Tracer() == nil {
-		t.Error("Tracer should not be nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, tp)
+	assert.NotNil(t, tp.Tracer())
 
 	// Provider should be nil for disabled tracing
-	if tp.Provider() != nil {
-		t.Error("Provider should be nil when tracing is disabled")
-	}
+	assert.Nil(t, tp.Provider())
 
 	// Shutdown should not fail
 	err = tp.Shutdown(ctx)
-	if err != nil {
-		t.Errorf("Shutdown failed: %v", err)
-	}
+	assert.NoError(t, err)
 }
 
 func TestTracerProvider_Shutdown_Nil(t *testing.T) {
 	tp := &TracerProvider{}
 	err := tp.Shutdown(context.Background())
-	if err != nil {
-		t.Errorf("Shutdown with nil provider should not fail: %v", err)
-	}
+	assert.NoError(t, err)
 }
 
 func TestTracer(t *testing.T) {
@@ -115,21 +79,15 @@ func TestTracer(t *testing.T) {
 	})
 
 	tracer := Tracer()
-	if tracer == nil {
-		t.Error("Tracer should not return nil")
-	}
+	assert.NotNil(t, tracer)
 }
 
 func TestStart(t *testing.T) {
 	ctx := context.Background()
 
 	newCtx, span := Start(ctx, "test-span")
-	if newCtx == nil {
-		t.Error("Start should return non-nil context")
-	}
-	if span == nil {
-		t.Error("Start should return non-nil span")
-	}
+	assert.NotNil(t, newCtx)
+	assert.NotNil(t, span)
 
 	span.End()
 }
@@ -139,18 +97,14 @@ func TestSpanFromContext(t *testing.T) {
 
 	// Without span
 	span := SpanFromContext(ctx)
-	if span == nil {
-		t.Error("SpanFromContext should not return nil")
-	}
+	assert.NotNil(t, span)
 
 	// With span
 	ctx, createdSpan := Start(ctx, "test-span")
 	defer createdSpan.End()
 
 	retrievedSpan := SpanFromContext(ctx)
-	if retrievedSpan == nil {
-		t.Error("SpanFromContext should return the span")
-	}
+	assert.NotNil(t, retrievedSpan)
 }
 
 func TestAddEvent(t *testing.T) {
@@ -189,107 +143,61 @@ func TestSetStatus(t *testing.T) {
 
 func TestAttributeKeys(t *testing.T) {
 	// Verify attribute keys are properly defined
-	if AttrUserID.String("test") == (attribute.KeyValue{}) {
-		t.Error("AttrUserID should create valid attribute")
-	}
-	if AttrUserEmail.String("test@example.com") == (attribute.KeyValue{}) {
-		t.Error("AttrUserEmail should create valid attribute")
-	}
-	if AttrSessionID.String("session-123") == (attribute.KeyValue{}) {
-		t.Error("AttrSessionID should create valid attribute")
-	}
-	if AttrProvider.String("keycloak") == (attribute.KeyValue{}) {
-		t.Error("AttrProvider should create valid attribute")
-	}
-	if AttrAuthMethod.String("oidc") == (attribute.KeyValue{}) {
-		t.Error("AttrAuthMethod should create valid attribute")
-	}
-	if AttrServiceName.String("service") == (attribute.KeyValue{}) {
-		t.Error("AttrServiceName should create valid attribute")
-	}
-	if AttrRequestID.String("req-123") == (attribute.KeyValue{}) {
-		t.Error("AttrRequestID should create valid attribute")
-	}
-	if AttrHTTPMethod.String("GET") == (attribute.KeyValue{}) {
-		t.Error("AttrHTTPMethod should create valid attribute")
-	}
-	if AttrHTTPPath.String("/api/test") == (attribute.KeyValue{}) {
-		t.Error("AttrHTTPPath should create valid attribute")
-	}
-	if AttrHTTPStatus.Int(200) == (attribute.KeyValue{}) {
-		t.Error("AttrHTTPStatus should create valid attribute")
-	}
-	if AttrErrorType.String("validation") == (attribute.KeyValue{}) {
-		t.Error("AttrErrorType should create valid attribute")
-	}
-	if AttrErrorMessage.String("error msg") == (attribute.KeyValue{}) {
-		t.Error("AttrErrorMessage should create valid attribute")
-	}
+	assert.NotEqual(t, attribute.KeyValue{}, AttrUserID.String("test"))
+	assert.NotEqual(t, attribute.KeyValue{}, AttrUserEmail.String("test@example.com"))
+	assert.NotEqual(t, attribute.KeyValue{}, AttrSessionID.String("session-123"))
+	assert.NotEqual(t, attribute.KeyValue{}, AttrProvider.String("keycloak"))
+	assert.NotEqual(t, attribute.KeyValue{}, AttrAuthMethod.String("oidc"))
+	assert.NotEqual(t, attribute.KeyValue{}, AttrServiceName.String("service"))
+	assert.NotEqual(t, attribute.KeyValue{}, AttrRequestID.String("req-123"))
+	assert.NotEqual(t, attribute.KeyValue{}, AttrHTTPMethod.String("GET"))
+	assert.NotEqual(t, attribute.KeyValue{}, AttrHTTPPath.String("/api/test"))
+	assert.NotEqual(t, attribute.KeyValue{}, AttrHTTPStatus.Int(200))
+	assert.NotEqual(t, attribute.KeyValue{}, AttrErrorType.String("validation"))
+	assert.NotEqual(t, attribute.KeyValue{}, AttrErrorMessage.String("error msg"))
 }
 
 func TestWithUserInfo(t *testing.T) {
 	attrs := WithUserInfo("user-123", "user@example.com")
 
-	if len(attrs) != 2 {
-		t.Errorf("WithUserInfo should return 2 attributes, got %d", len(attrs))
-	}
+	assert.Len(t, attrs, 2)
 
 	foundUserID := false
 	foundEmail := false
 	for _, attr := range attrs {
 		if attr.Key == AttrUserID {
 			foundUserID = true
-			if attr.Value.AsString() != "user-123" {
-				t.Errorf("User ID = %s, want user-123", attr.Value.AsString())
-			}
+			assert.Equal(t, "user-123", attr.Value.AsString())
 		}
 		if attr.Key == AttrUserEmail {
 			foundEmail = true
-			if attr.Value.AsString() != "user@example.com" {
-				t.Errorf("Email = %s, want user@example.com", attr.Value.AsString())
-			}
+			assert.Equal(t, "user@example.com", attr.Value.AsString())
 		}
 	}
 
-	if !foundUserID {
-		t.Error("WithUserInfo should include user ID")
-	}
-	if !foundEmail {
-		t.Error("WithUserInfo should include email")
-	}
+	assert.True(t, foundUserID)
+	assert.True(t, foundEmail)
 }
 
 func TestWithSession(t *testing.T) {
 	attr := WithSession("session-456")
 
-	if attr.Key != AttrSessionID {
-		t.Errorf("Key = %s, want session.id", attr.Key)
-	}
-	if attr.Value.AsString() != "session-456" {
-		t.Errorf("Value = %s, want session-456", attr.Value.AsString())
-	}
+	assert.Equal(t, AttrSessionID, attr.Key)
+	assert.Equal(t, "session-456", attr.Value.AsString())
 }
 
 func TestWithProvider(t *testing.T) {
 	attr := WithProvider("keycloak")
 
-	if attr.Key != AttrProvider {
-		t.Errorf("Key = %s, want auth.provider", attr.Key)
-	}
-	if attr.Value.AsString() != "keycloak" {
-		t.Errorf("Value = %s, want keycloak", attr.Value.AsString())
-	}
+	assert.Equal(t, AttrProvider, attr.Key)
+	assert.Equal(t, "keycloak", attr.Value.AsString())
 }
 
 func TestWithRequestID(t *testing.T) {
 	attr := WithRequestID("req-789")
 
-	if attr.Key != AttrRequestID {
-		t.Errorf("Key = %s, want request.id", attr.Key)
-	}
-	if attr.Value.AsString() != "req-789" {
-		t.Errorf("Value = %s, want req-789", attr.Value.AsString())
-	}
+	assert.Equal(t, AttrRequestID, attr.Key)
+	assert.Equal(t, "req-789", attr.Value.AsString())
 }
 
 func BenchmarkStart(b *testing.B) {

@@ -5,78 +5,41 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
-	if !cfg.Enabled {
-		t.Error("DefaultConfig should have Enabled = true")
-	}
-
-	if cfg.Rate != "100-S" {
-		t.Errorf("DefaultConfig.Rate = %s, want '100-S'", cfg.Rate)
-	}
-
-	if !cfg.TrustForwardedFor {
-		t.Error("DefaultConfig should have TrustForwardedFor = true")
-	}
+	assert.True(t, cfg.Enabled)
+	assert.Equal(t, "100-S", cfg.Rate)
+	assert.True(t, cfg.TrustForwardedFor)
 
 	expectedPaths := []string{"/health", "/ready", "/metrics"}
-	if len(cfg.ExcludePaths) != len(expectedPaths) {
-		t.Errorf("DefaultConfig.ExcludePaths length = %d, want %d", len(cfg.ExcludePaths), len(expectedPaths))
-	}
+	require.Len(t, cfg.ExcludePaths, len(expectedPaths))
 
 	for i, path := range expectedPaths {
-		if cfg.ExcludePaths[i] != path {
-			t.Errorf("DefaultConfig.ExcludePaths[%d] = %s, want %s", i, cfg.ExcludePaths[i], path)
-		}
+		assert.Equal(t, path, cfg.ExcludePaths[i])
 	}
 
-	if cfg.ByEndpoint {
-		t.Error("DefaultConfig should have ByEndpoint = false")
-	}
-
-	if !cfg.Headers.Enabled {
-		t.Error("DefaultConfig.Headers should have Enabled = true")
-	}
-
-	if cfg.Headers.LimitHeader != "X-RateLimit-Limit" {
-		t.Errorf("DefaultConfig.Headers.LimitHeader = %s, want 'X-RateLimit-Limit'", cfg.Headers.LimitHeader)
-	}
-
-	if cfg.Headers.RemainingHeader != "X-RateLimit-Remaining" {
-		t.Errorf("DefaultConfig.Headers.RemainingHeader = %s, want 'X-RateLimit-Remaining'", cfg.Headers.RemainingHeader)
-	}
-
-	if cfg.Headers.ResetHeader != "X-RateLimit-Reset" {
-		t.Errorf("DefaultConfig.Headers.ResetHeader = %s, want 'X-RateLimit-Reset'", cfg.Headers.ResetHeader)
-	}
-
-	if !cfg.FailClose {
-		t.Error("DefaultConfig should have FailClose = true")
-	}
+	assert.False(t, cfg.ByEndpoint)
+	assert.True(t, cfg.Headers.Enabled)
+	assert.Equal(t, "X-RateLimit-Limit", cfg.Headers.LimitHeader)
+	assert.Equal(t, "X-RateLimit-Remaining", cfg.Headers.RemainingHeader)
+	assert.Equal(t, "X-RateLimit-Reset", cfg.Headers.ResetHeader)
+	assert.True(t, cfg.FailClose)
 }
 
 func TestNewLimiter(t *testing.T) {
 	cfg := DefaultConfig()
 	l, err := NewLimiter(cfg)
 
-	if err != nil {
-		t.Fatalf("NewLimiter failed: %v", err)
-	}
-
-	if l == nil {
-		t.Fatal("NewLimiter returned nil")
-	}
-
-	if l.instance == nil {
-		t.Error("NewLimiter should initialize instance")
-	}
-
-	if l.store == nil {
-		t.Error("NewLimiter should initialize store")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, l)
+	assert.NotNil(t, l.instance)
+	assert.NotNil(t, l.store)
 }
 
 func TestNewLimiter_InvalidRate(t *testing.T) {
@@ -84,9 +47,7 @@ func TestNewLimiter_InvalidRate(t *testing.T) {
 	cfg.Rate = "invalid-rate"
 
 	_, err := NewLimiter(cfg)
-	if err == nil {
-		t.Error("NewLimiter should fail with invalid rate")
-	}
+	assert.Error(t, err)
 }
 
 func TestNewLimiter_EndpointRates(t *testing.T) {
@@ -98,13 +59,8 @@ func TestNewLimiter_EndpointRates(t *testing.T) {
 	}
 
 	l, err := NewLimiter(cfg)
-	if err != nil {
-		t.Fatalf("NewLimiter failed: %v", err)
-	}
-
-	if len(l.endpointLimiters) != 2 {
-		t.Errorf("Expected 2 endpoint limiters, got %d", len(l.endpointLimiters))
-	}
+	require.NoError(t, err)
+	assert.Len(t, l.endpointLimiters, 2)
 }
 
 func TestNewLimiter_InvalidEndpointRate(t *testing.T) {
@@ -116,23 +72,17 @@ func TestNewLimiter_InvalidEndpointRate(t *testing.T) {
 	}
 
 	l, err := NewLimiter(cfg)
-	if err != nil {
-		t.Fatalf("NewLimiter should not fail, just skip invalid endpoint: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Should only have one valid endpoint limiter
-	if len(l.endpointLimiters) != 1 {
-		t.Errorf("Expected 1 valid endpoint limiter, got %d", len(l.endpointLimiters))
-	}
+	assert.Len(t, l.endpointLimiters, 1)
 }
 
 func TestLimiter_Middleware_AllowsRequest(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Rate = "100-S"
 	l, err := NewLimiter(cfg)
-	if err != nil {
-		t.Fatalf("NewLimiter failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	handler := l.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -144,18 +94,14 @@ func TestLimiter_Middleware_AllowsRequest(t *testing.T) {
 
 	handler.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", w.Code)
-	}
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestLimiter_Middleware_ExcludedPath(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Rate = "1-S" // Very restrictive
 	l, err := NewLimiter(cfg)
-	if err != nil {
-		t.Fatalf("NewLimiter failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	handler := l.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -169,9 +115,7 @@ func TestLimiter_Middleware_ExcludedPath(t *testing.T) {
 
 		handler.ServeHTTP(w, req)
 
-		if w.Code != http.StatusOK {
-			t.Errorf("Request %d to excluded path should succeed, got %d", i, w.Code)
-		}
+		assert.Equal(t, http.StatusOK, w.Code, "Request %d to excluded path should succeed", i)
 	}
 }
 
@@ -179,9 +123,7 @@ func TestLimiter_Middleware_Headers(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Rate = "100-S"
 	l, err := NewLimiter(cfg)
-	if err != nil {
-		t.Fatalf("NewLimiter failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	handler := l.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -194,43 +136,25 @@ func TestLimiter_Middleware_Headers(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	// Check rate limit headers
-	if w.Header().Get("X-RateLimit-Limit") == "" {
-		t.Error("Missing X-RateLimit-Limit header")
-	}
-
-	if w.Header().Get("X-RateLimit-Remaining") == "" {
-		t.Error("Missing X-RateLimit-Remaining header")
-	}
-
-	if w.Header().Get("X-RateLimit-Reset") == "" {
-		t.Error("Missing X-RateLimit-Reset header")
-	}
+	assert.NotEmpty(t, w.Header().Get("X-RateLimit-Limit"))
+	assert.NotEmpty(t, w.Header().Get("X-RateLimit-Remaining"))
+	assert.NotEmpty(t, w.Header().Get("X-RateLimit-Reset"))
 
 	// Verify header values
 	limit, err := strconv.ParseInt(w.Header().Get("X-RateLimit-Limit"), 10, 64)
-	if err != nil {
-		t.Errorf("Invalid X-RateLimit-Limit header: %v", err)
-	}
-	if limit != 100 {
-		t.Errorf("X-RateLimit-Limit = %d, want 100", limit)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, int64(100), limit)
 
 	remaining, err := strconv.ParseInt(w.Header().Get("X-RateLimit-Remaining"), 10, 64)
-	if err != nil {
-		t.Errorf("Invalid X-RateLimit-Remaining header: %v", err)
-	}
-	if remaining != 99 {
-		t.Errorf("X-RateLimit-Remaining = %d, want 99", remaining)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, int64(99), remaining)
 }
 
 func TestLimiter_Middleware_HeadersDisabled(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Headers.Enabled = false
 	l, err := NewLimiter(cfg)
-	if err != nil {
-		t.Fatalf("NewLimiter failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	handler := l.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -243,9 +167,7 @@ func TestLimiter_Middleware_HeadersDisabled(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	// Headers should not be present
-	if w.Header().Get("X-RateLimit-Limit") != "" {
-		t.Error("X-RateLimit-Limit header should not be present when disabled")
-	}
+	assert.Empty(t, w.Header().Get("X-RateLimit-Limit"))
 }
 
 func TestLimiter_getClientKey(t *testing.T) {
@@ -322,9 +244,7 @@ func TestLimiter_getClientKey(t *testing.T) {
 			}
 
 			key := l.getClientKey(req)
-			if key != tt.expectedKey {
-				t.Errorf("getClientKey() = %s, want %s", key, tt.expectedKey)
-			}
+			assert.Equal(t, tt.expectedKey, key)
 		})
 	}
 }
@@ -353,9 +273,7 @@ func TestLimiter_isExcluded(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
 			result := l.isExcluded(tt.path)
-			if result != tt.excluded {
-				t.Errorf("isExcluded(%s) = %v, want %v", tt.path, result, tt.excluded)
-			}
+			assert.Equal(t, tt.excluded, result)
 		})
 	}
 }
@@ -371,20 +289,14 @@ func TestLimiter_getLimiterForPath(t *testing.T) {
 
 	// Path with endpoint limiter should return that limiter
 	apiLimiter := l.getLimiterForPath("/api/users")
-	if apiLimiter == l.instance {
-		t.Error("Path /api/users should use endpoint limiter, not default")
-	}
+	assert.NotEqual(t, l.instance, apiLimiter)
 
 	loginLimiter := l.getLimiterForPath("/login")
-	if loginLimiter == l.instance {
-		t.Error("Path /login should use endpoint limiter, not default")
-	}
+	assert.NotEqual(t, l.instance, loginLimiter)
 
 	// Path without endpoint limiter should return default
 	defaultLimiter := l.getLimiterForPath("/other/path")
-	if defaultLimiter != l.instance {
-		t.Error("Path /other/path should use default limiter")
-	}
+	assert.Equal(t, l.instance, defaultLimiter)
 }
 
 func TestLimiter_getLimiterForPath_ByEndpointDisabled(t *testing.T) {
@@ -397,9 +309,7 @@ func TestLimiter_getLimiterForPath_ByEndpointDisabled(t *testing.T) {
 
 	// Should always return default limiter when ByEndpoint is disabled
 	limiter := l.getLimiterForPath("/api/users")
-	if limiter != l.instance {
-		t.Error("Should use default limiter when ByEndpoint is disabled")
-	}
+	assert.Equal(t, l.instance, limiter)
 }
 
 func TestHeadersConfig(t *testing.T) {
@@ -410,18 +320,10 @@ func TestHeadersConfig(t *testing.T) {
 		ResetHeader:     "Custom-Reset",
 	}
 
-	if !cfg.Enabled {
-		t.Error("Enabled should be true")
-	}
-	if cfg.LimitHeader != "Custom-Limit" {
-		t.Errorf("LimitHeader = %s, want Custom-Limit", cfg.LimitHeader)
-	}
-	if cfg.RemainingHeader != "Custom-Remaining" {
-		t.Errorf("RemainingHeader = %s, want Custom-Remaining", cfg.RemainingHeader)
-	}
-	if cfg.ResetHeader != "Custom-Reset" {
-		t.Errorf("ResetHeader = %s, want Custom-Reset", cfg.ResetHeader)
-	}
+	assert.True(t, cfg.Enabled)
+	assert.Equal(t, "Custom-Limit", cfg.LimitHeader)
+	assert.Equal(t, "Custom-Remaining", cfg.RemainingHeader)
+	assert.Equal(t, "Custom-Reset", cfg.ResetHeader)
 }
 
 func TestConfig(t *testing.T) {
@@ -435,21 +337,11 @@ func TestConfig(t *testing.T) {
 		FailClose:         false,
 	}
 
-	if !cfg.Enabled {
-		t.Error("Enabled should be true")
-	}
-	if cfg.Rate != "50-S" {
-		t.Errorf("Rate = %s, want 50-S", cfg.Rate)
-	}
-	if cfg.TrustForwardedFor {
-		t.Error("TrustForwardedFor should be false")
-	}
-	if !cfg.ByEndpoint {
-		t.Error("ByEndpoint should be true")
-	}
-	if cfg.FailClose {
-		t.Error("FailClose should be false")
-	}
+	assert.True(t, cfg.Enabled)
+	assert.Equal(t, "50-S", cfg.Rate)
+	assert.False(t, cfg.TrustForwardedFor)
+	assert.True(t, cfg.ByEndpoint)
+	assert.False(t, cfg.FailClose)
 }
 
 func BenchmarkMiddleware(b *testing.B) {

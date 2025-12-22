@@ -5,6 +5,7 @@ import (
 
 	"github.com/dzerik/auth-portal/internal/config"
 	"github.com/dzerik/auth-portal/internal/model"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestFilter_IsVisible(t *testing.T) {
@@ -231,9 +232,7 @@ func TestFilter_IsVisible(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := f.IsVisible(tt.service, tt.user)
-			if result != tt.expected {
-				t.Errorf("IsVisible() = %v, expected %v", result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -299,8 +298,8 @@ func TestFilter_FilterServices(t *testing.T) {
 			expectedNames: []string{"public", "developers"},
 		},
 		{
-			name: "nil user sees nothing",
-			user: nil,
+			name:          "nil user sees nothing",
+			user:          nil,
 			expectedNames: nil,
 		},
 	}
@@ -309,15 +308,10 @@ func TestFilter_FilterServices(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := f.FilterServices(services, tt.user)
 
-			if len(result) != len(tt.expectedNames) {
-				t.Errorf("FilterServices() returned %d services, expected %d", len(result), len(tt.expectedNames))
-				return
-			}
+			assert.Equal(t, len(tt.expectedNames), len(result), "FilterServices() returned wrong number of services")
 
 			for i, svc := range result {
-				if svc.Name != tt.expectedNames[i] {
-					t.Errorf("FilterServices()[%d].Name = %s, expected %s", i, svc.Name, tt.expectedNames[i])
-				}
+				assert.Equal(t, tt.expectedNames[i], svc.Name)
 			}
 		})
 	}
@@ -361,9 +355,7 @@ func TestFilter_HasAnyRole(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := f.hasAnyRole(tt.userRoles, tt.requiredRoles)
-			if result != tt.expected {
-				t.Errorf("hasAnyRole() = %v, expected %v", result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -400,9 +392,7 @@ func TestFilter_HasAllRoles(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := f.hasAllRoles(tt.userRoles, tt.requiredRoles)
-			if result != tt.expected {
-				t.Errorf("hasAllRoles() = %v, expected %v", result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }

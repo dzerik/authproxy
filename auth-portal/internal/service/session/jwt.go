@@ -12,11 +12,12 @@ import (
 
 // JWTStore stores session data in a signed JWT cookie
 type JWTStore struct {
-	cookieName string
-	jwtManager *crypto.JWTManager
-	secure     bool
-	sameSite   http.SameSite
-	ttl        time.Duration
+	cookieName   string
+	cookieDomain string // MED-02 security fix: configurable domain for cross-subdomain sessions
+	jwtManager   *crypto.JWTManager
+	secure       bool
+	sameSite     http.SameSite
+	ttl          time.Duration
 }
 
 // NewJWTStore creates a new JWT-based session store
@@ -37,11 +38,12 @@ func NewJWTStore(cfg *config.SessionConfig) (*JWTStore, error) {
 	sameSite := parseSameSite(cfg.SameSite)
 
 	return &JWTStore{
-		cookieName: cfg.CookieName,
-		jwtManager: jwtManager,
-		secure:     cfg.Secure,
-		sameSite:   sameSite,
-		ttl:        cfg.TTL,
+		cookieName:   cfg.CookieName,
+		cookieDomain: cfg.CookieDomain,
+		jwtManager:   jwtManager,
+		secure:       cfg.Secure,
+		sameSite:     sameSite,
+		ttl:          cfg.TTL,
 	}, nil
 }
 
@@ -131,6 +133,7 @@ func (s *JWTStore) Save(w http.ResponseWriter, r *http.Request, session *model.S
 		Name:     s.cookieName,
 		Value:    token,
 		Path:     "/",
+		Domain:   s.cookieDomain, // MED-02: configurable domain for cross-subdomain sessions
 		Expires:  expiresAt,
 		MaxAge:   int(time.Until(expiresAt).Seconds()),
 		Secure:   s.secure,
@@ -147,6 +150,7 @@ func (s *JWTStore) Delete(w http.ResponseWriter, r *http.Request) error {
 		Name:     s.cookieName,
 		Value:    "",
 		Path:     "/",
+		Domain:   s.cookieDomain, // MED-02: must match domain used in Save
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		Secure:   s.secure,

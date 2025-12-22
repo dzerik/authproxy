@@ -4,48 +4,34 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewGenerator(t *testing.T) {
 	g := NewGenerator()
-	if g == nil {
-		t.Fatal("NewGenerator returned nil")
-	}
-	if g.reflector == nil {
-		t.Error("NewGenerator did not initialize reflector")
-	}
+	require.NotNil(t, g)
+	require.NotNil(t, g.reflector)
 }
 
 func TestGenerator_Generate(t *testing.T) {
 	g := NewGenerator()
 
 	data, err := g.Generate()
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if len(data) == 0 {
-		t.Error("Generate returned empty data")
-	}
+	assert.NotEmpty(t, data)
 
 	// Should be valid JSON
 	var schema map[string]interface{}
-	if err := json.Unmarshal(data, &schema); err != nil {
-		t.Errorf("Generated schema is not valid JSON: %v", err)
-	}
+	err = json.Unmarshal(data, &schema)
+	require.NoError(t, err)
 
 	// Check required fields
-	if schema["$schema"] == nil {
-		t.Error("Schema should have $schema field")
-	}
-
-	if schema["title"] != "Auth-Portal Configuration" {
-		t.Errorf("Schema title = %v, want 'Auth-Portal Configuration'", schema["title"])
-	}
-
-	if schema["$id"] == nil {
-		t.Error("Schema should have $id field")
-	}
+	assert.NotNil(t, schema["$schema"])
+	assert.Equal(t, "Auth-Portal Configuration", schema["title"])
+	assert.NotNil(t, schema["$id"])
 
 	// Check properties exist (may be in $defs for complex schemas)
 	props, hasProps := schema["properties"].(map[string]interface{})
@@ -55,15 +41,11 @@ func TestGenerator_Generate(t *testing.T) {
 		// Check key properties exist
 		expectedProps := []string{"server", "mode", "auth", "session", "services", "log"}
 		for _, prop := range expectedProps {
-			if props[prop] == nil {
-				t.Errorf("Schema properties should contain %q", prop)
-			}
+			assert.NotNil(t, props[prop])
 		}
 	} else if hasDefs {
 		// Schema uses $defs - just verify it has definitions
-		if len(defs) == 0 {
-			t.Error("Schema should have definitions")
-		}
+		assert.NotEmpty(t, defs)
 	} else {
 		t.Log("Schema structure is different than expected - checking for $ref")
 		// The schema might use $ref to a definition
@@ -77,9 +59,7 @@ func TestGenerator_Generate_SnakeCaseProperties(t *testing.T) {
 	g := NewGenerator()
 
 	data, err := g.Generate()
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	jsonStr := string(data)
 
@@ -97,9 +77,7 @@ func TestGenerator_Generate_SnakeCaseProperties(t *testing.T) {
 	}
 
 	for _, prop := range pascalCaseProps {
-		if strings.Contains(jsonStr, prop) {
-			t.Errorf("Schema should not contain PascalCase property %s", prop)
-		}
+		assert.NotContains(t, jsonStr, prop)
 	}
 
 	// Should contain snake_case property names
@@ -116,9 +94,7 @@ func TestGenerator_Generate_SnakeCaseProperties(t *testing.T) {
 	}
 
 	for _, prop := range snakeCaseProps {
-		if !strings.Contains(jsonStr, prop) {
-			t.Errorf("Schema should contain snake_case property %s", prop)
-		}
+		assert.Contains(t, jsonStr, prop)
 	}
 }
 
@@ -126,28 +102,22 @@ func TestGenerator_Generate_HasExamples(t *testing.T) {
 	g := NewGenerator()
 
 	data, err := g.Generate()
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	var schema map[string]interface{}
-	if err := json.Unmarshal(data, &schema); err != nil {
-		t.Fatalf("Invalid JSON: %v", err)
-	}
+	err = json.Unmarshal(data, &schema)
+	require.NoError(t, err)
 
 	examples, ok := schema["examples"].([]interface{})
-	if !ok || len(examples) == 0 {
-		t.Error("Schema should have examples")
-	}
+	assert.True(t, ok)
+	assert.NotEmpty(t, examples)
 }
 
 func TestGenerator_Generate_DurationPattern(t *testing.T) {
 	g := NewGenerator()
 
 	data, err := g.Generate()
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	jsonStr := string(data)
 
@@ -189,9 +159,7 @@ func TestToSnakeCase(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			result := toSnakeCase(tt.input)
-			if result != tt.expected {
-				t.Errorf("toSnakeCase(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -218,9 +186,7 @@ func TestToSnakeCase_SpecialCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			result := toSnakeCase(tt.input)
-			if result != tt.expected {
-				t.Errorf("toSnakeCase(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -228,9 +194,7 @@ func TestToSnakeCase_SpecialCases(t *testing.T) {
 func TestGetAvailableSchemas(t *testing.T) {
 	schemas := GetAvailableSchemas()
 
-	if len(schemas) == 0 {
-		t.Error("GetAvailableSchemas should return at least one schema")
-	}
+	assert.NotEmpty(t, schemas)
 
 	// Check that config schema is available
 	found := false
@@ -241,9 +205,7 @@ func TestGetAvailableSchemas(t *testing.T) {
 		}
 	}
 
-	if !found {
-		t.Error("GetAvailableSchemas should include SchemaTypeConfig")
-	}
+	assert.True(t, found)
 }
 
 func TestParseSchemaType(t *testing.T) {
@@ -265,40 +227,29 @@ func TestParseSchemaType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			result, ok := ParseSchemaType(tt.input)
-			if ok != tt.ok {
-				t.Errorf("ParseSchemaType(%q) ok = %v, want %v", tt.input, ok, tt.ok)
-			}
-			if result != tt.expected {
-				t.Errorf("ParseSchemaType(%q) = %v, want %v", tt.input, result, tt.expected)
-			}
+			assert.Equal(t, tt.ok, ok)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
 func TestSchemaType_String(t *testing.T) {
-	if string(SchemaTypeConfig) != "config" {
-		t.Errorf("SchemaTypeConfig = %q, want %q", string(SchemaTypeConfig), "config")
-	}
+	assert.Equal(t, "config", string(SchemaTypeConfig))
 }
 
 func TestGenerator_Generate_ValidJSONSchema(t *testing.T) {
 	g := NewGenerator()
 
 	data, err := g.Generate()
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	var schema map[string]interface{}
-	if err := json.Unmarshal(data, &schema); err != nil {
-		t.Fatalf("Invalid JSON: %v", err)
-	}
+	err = json.Unmarshal(data, &schema)
+	require.NoError(t, err)
 
 	// Check $schema is a valid JSON Schema draft
 	schemaVersion, ok := schema["$schema"].(string)
-	if !ok {
-		t.Error("$schema should be a string")
-	}
+	assert.True(t, ok)
 
 	validDrafts := []string{
 		"https://json-schema.org/draft/2020-12/schema",
@@ -324,14 +275,11 @@ func TestGenerator_Generate_RequiredFields(t *testing.T) {
 	g := NewGenerator()
 
 	data, err := g.Generate()
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	var schema map[string]interface{}
-	if err := json.Unmarshal(data, &schema); err != nil {
-		t.Fatalf("Invalid JSON: %v", err)
-	}
+	err = json.Unmarshal(data, &schema)
+	require.NoError(t, err)
 
 	// Check that auth is in required fields
 	required, ok := schema["required"].([]interface{})
@@ -350,14 +298,11 @@ func TestGenerator_Generate_Definitions(t *testing.T) {
 	g := NewGenerator()
 
 	data, err := g.Generate()
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	var schema map[string]interface{}
-	if err := json.Unmarshal(data, &schema); err != nil {
-		t.Fatalf("Invalid JSON: %v", err)
-	}
+	err = json.Unmarshal(data, &schema)
+	require.NoError(t, err)
 
 	// Check $defs exists (JSON Schema draft 2019-09+) or definitions (older)
 	defs, hasDefs := schema["$defs"].(map[string]interface{})
@@ -368,9 +313,7 @@ func TestGenerator_Generate_Definitions(t *testing.T) {
 	if hasDefs && len(defs) > 0 {
 		// Verify definitions use snake_case
 		for name := range defs {
-			if strings.Contains(name, "Config") {
-				t.Errorf("Definition name %q should be snake_case, not PascalCase", name)
-			}
+			assert.NotContains(t, name, "Config")
 		}
 	}
 }
@@ -379,8 +322,8 @@ func TestPostProcessJSON(t *testing.T) {
 	g := NewGenerator()
 
 	tests := []struct {
-		input    string
-		contains []string
+		input       string
+		contains    []string
 		notContains []string
 	}{
 		{
@@ -405,15 +348,11 @@ func TestPostProcessJSON(t *testing.T) {
 			result := g.postProcessJSON(tt.input)
 
 			for _, c := range tt.contains {
-				if !strings.Contains(result, c) {
-					t.Errorf("postProcessJSON should contain %q, got %q", c, result)
-				}
+				assert.Contains(t, result, c)
 			}
 
 			for _, nc := range tt.notContains {
-				if strings.Contains(result, nc) {
-					t.Errorf("postProcessJSON should not contain %q, got %q", nc, result)
-				}
+				assert.NotContains(t, result, nc)
 			}
 		})
 	}

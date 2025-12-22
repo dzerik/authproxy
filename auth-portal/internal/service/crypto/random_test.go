@@ -4,6 +4,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateRandomBytes(t *testing.T) {
@@ -21,13 +24,9 @@ func TestGenerateRandomBytes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			b, err := GenerateRandomBytes(tt.n)
-			if err != nil {
-				t.Fatalf("GenerateRandomBytes(%d) failed: %v", tt.n, err)
-			}
+			require.NoError(t, err)
 
-			if len(b) != tt.n {
-				t.Errorf("len = %d, want %d", len(b), tt.n)
-			}
+			assert.Len(t, b, tt.n)
 		})
 	}
 }
@@ -37,23 +36,19 @@ func TestGenerateRandomBytes_Unique(t *testing.T) {
 
 	for i := 0; i < 100; i++ {
 		b, err := GenerateRandomBytes(32)
-		if err != nil {
-			t.Fatalf("GenerateRandomBytes failed: %v", err)
-		}
+		require.NoError(t, err)
 
 		key := string(b)
-		if seen[key] {
-			t.Error("got duplicate random bytes")
-		}
+		assert.False(t, seen[key], "got duplicate random bytes")
 		seen[key] = true
 	}
 }
 
 func TestGenerateRandomString(t *testing.T) {
 	tests := []struct {
-		name          string
-		n             int
-		expectedLen   int // base64 encoded length
+		name        string
+		n           int
+		expectedLen int // base64 encoded length
 	}{
 		{"16 bytes", 16, 22}, // 16 * 4/3 = 21.3, rounded up with padding removed
 		{"32 bytes", 32, 43}, // 32 * 4/3 = 42.7
@@ -62,19 +57,13 @@ func TestGenerateRandomString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s, err := GenerateRandomString(tt.n)
-			if err != nil {
-				t.Fatalf("GenerateRandomString(%d) failed: %v", tt.n, err)
-			}
+			require.NoError(t, err)
 
 			// Verify it's valid base64 URL encoding
 			decoded, err := base64.URLEncoding.DecodeString(s)
-			if err != nil {
-				t.Errorf("not valid base64 URL encoded: %v", err)
-			}
+			require.NoError(t, err, "not valid base64 URL encoded")
 
-			if len(decoded) != tt.n {
-				t.Errorf("decoded length = %d, want %d", len(decoded), tt.n)
-			}
+			assert.Len(t, decoded, tt.n)
 		})
 	}
 }
@@ -84,13 +73,9 @@ func TestGenerateRandomString_Unique(t *testing.T) {
 
 	for i := 0; i < 100; i++ {
 		s, err := GenerateRandomString(16)
-		if err != nil {
-			t.Fatalf("GenerateRandomString failed: %v", err)
-		}
+		require.NoError(t, err)
 
-		if seen[s] {
-			t.Error("got duplicate random string")
-		}
+		assert.False(t, seen[s], "got duplicate random string")
 		seen[s] = true
 	}
 }
@@ -109,23 +94,15 @@ func TestGenerateRandomHex(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s, err := GenerateRandomHex(tt.n)
-			if err != nil {
-				t.Fatalf("GenerateRandomHex(%d) failed: %v", tt.n, err)
-			}
+			require.NoError(t, err)
 
-			if len(s) != tt.expectedLen {
-				t.Errorf("length = %d, want %d", len(s), tt.expectedLen)
-			}
+			assert.Len(t, s, tt.expectedLen)
 
 			// Verify it's valid hex
 			decoded, err := hex.DecodeString(s)
-			if err != nil {
-				t.Errorf("not valid hex: %v", err)
-			}
+			require.NoError(t, err, "not valid hex")
 
-			if len(decoded) != tt.n {
-				t.Errorf("decoded length = %d, want %d", len(decoded), tt.n)
-			}
+			assert.Len(t, decoded, tt.n)
 		})
 	}
 }
@@ -135,32 +112,22 @@ func TestGenerateRandomHex_Unique(t *testing.T) {
 
 	for i := 0; i < 100; i++ {
 		s, err := GenerateRandomHex(16)
-		if err != nil {
-			t.Fatalf("GenerateRandomHex failed: %v", err)
-		}
+		require.NoError(t, err)
 
-		if seen[s] {
-			t.Error("got duplicate random hex")
-		}
+		assert.False(t, seen[s], "got duplicate random hex")
 		seen[s] = true
 	}
 }
 
 func TestGenerateSessionID(t *testing.T) {
 	id, err := GenerateSessionID()
-	if err != nil {
-		t.Fatalf("GenerateSessionID failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Should be base64 URL encoded 32 bytes
 	decoded, err := base64.URLEncoding.DecodeString(id)
-	if err != nil {
-		t.Errorf("session ID is not valid base64 URL encoded: %v", err)
-	}
+	require.NoError(t, err, "session ID is not valid base64 URL encoded")
 
-	if len(decoded) != 32 {
-		t.Errorf("decoded session ID length = %d, want 32", len(decoded))
-	}
+	assert.Len(t, decoded, 32)
 }
 
 func TestGenerateSessionID_Unique(t *testing.T) {
@@ -168,85 +135,57 @@ func TestGenerateSessionID_Unique(t *testing.T) {
 
 	for i := 0; i < 100; i++ {
 		id, err := GenerateSessionID()
-		if err != nil {
-			t.Fatalf("GenerateSessionID failed: %v", err)
-		}
+		require.NoError(t, err)
 
-		if seen[id] {
-			t.Error("got duplicate session ID")
-		}
+		assert.False(t, seen[id], "got duplicate session ID")
 		seen[id] = true
 	}
 }
 
 func TestGenerateStateToken(t *testing.T) {
 	token, err := GenerateStateToken()
-	if err != nil {
-		t.Fatalf("GenerateStateToken failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Should be base64 URL encoded 16 bytes
 	decoded, err := base64.URLEncoding.DecodeString(token)
-	if err != nil {
-		t.Errorf("state token is not valid base64 URL encoded: %v", err)
-	}
+	require.NoError(t, err, "state token is not valid base64 URL encoded")
 
-	if len(decoded) != 16 {
-		t.Errorf("decoded state token length = %d, want 16", len(decoded))
-	}
+	assert.Len(t, decoded, 16)
 }
 
 func TestGenerateNonce(t *testing.T) {
 	nonce, err := GenerateNonce()
-	if err != nil {
-		t.Fatalf("GenerateNonce failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Should be base64 URL encoded 16 bytes
 	decoded, err := base64.URLEncoding.DecodeString(nonce)
-	if err != nil {
-		t.Errorf("nonce is not valid base64 URL encoded: %v", err)
-	}
+	require.NoError(t, err, "nonce is not valid base64 URL encoded")
 
-	if len(decoded) != 16 {
-		t.Errorf("decoded nonce length = %d, want 16", len(decoded))
-	}
+	assert.Len(t, decoded, 16)
 }
 
 func TestMustGenerateSessionID(t *testing.T) {
 	// Should not panic
 	id := MustGenerateSessionID()
-	if id == "" {
-		t.Error("MustGenerateSessionID returned empty string")
-	}
+	assert.NotEmpty(t, id)
 
 	// Verify it's valid
 	decoded, err := base64.URLEncoding.DecodeString(id)
-	if err != nil {
-		t.Errorf("session ID is not valid base64 URL encoded: %v", err)
-	}
+	require.NoError(t, err, "session ID is not valid base64 URL encoded")
 
-	if len(decoded) != 32 {
-		t.Errorf("decoded session ID length = %d, want 32", len(decoded))
-	}
+	assert.Len(t, decoded, 32)
 }
 
 func TestMustGenerateStateToken(t *testing.T) {
 	// Should not panic
 	token := MustGenerateStateToken()
-	if token == "" {
-		t.Error("MustGenerateStateToken returned empty string")
-	}
+	assert.NotEmpty(t, token)
 
 	// Verify it's valid
 	decoded, err := base64.URLEncoding.DecodeString(token)
-	if err != nil {
-		t.Errorf("state token is not valid base64 URL encoded: %v", err)
-	}
+	require.NoError(t, err, "state token is not valid base64 URL encoded")
 
-	if len(decoded) != 16 {
-		t.Errorf("decoded state token length = %d, want 16", len(decoded))
-	}
+	assert.Len(t, decoded, 16)
 }
 
 func BenchmarkGenerateRandomBytes(b *testing.B) {

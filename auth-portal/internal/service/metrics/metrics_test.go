@@ -6,77 +6,41 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNew(t *testing.T) {
 	m := New()
 
-	if m == nil {
-		t.Fatal("New returned nil")
-	}
-
-	if m.Registry == nil {
-		t.Error("Registry should not be nil")
-	}
+	require.NotNil(t, m, "New returned nil")
+	assert.NotNil(t, m.Registry, "Registry should not be nil")
 
 	// Check all metrics are initialized
-	if m.AuthRequestsTotal == nil {
-		t.Error("AuthRequestsTotal should not be nil")
-	}
-	if m.AuthDurationSeconds == nil {
-		t.Error("AuthDurationSeconds should not be nil")
-	}
-	if m.AuthErrorsTotal == nil {
-		t.Error("AuthErrorsTotal should not be nil")
-	}
-	if m.TokenRefreshTotal == nil {
-		t.Error("TokenRefreshTotal should not be nil")
-	}
-	if m.TokenRefreshDuration == nil {
-		t.Error("TokenRefreshDuration should not be nil")
-	}
-	if m.ActiveSessions == nil {
-		t.Error("ActiveSessions should not be nil")
-	}
-	if m.SessionCreatedTotal == nil {
-		t.Error("SessionCreatedTotal should not be nil")
-	}
-	if m.SessionExpiredTotal == nil {
-		t.Error("SessionExpiredTotal should not be nil")
-	}
-	if m.SessionErrorsTotal == nil {
-		t.Error("SessionErrorsTotal should not be nil")
-	}
-	if m.HTTPRequestsTotal == nil {
-		t.Error("HTTPRequestsTotal should not be nil")
-	}
-	if m.HTTPRequestDuration == nil {
-		t.Error("HTTPRequestDuration should not be nil")
-	}
-	if m.HTTPRequestsInFlight == nil {
-		t.Error("HTTPRequestsInFlight should not be nil")
-	}
-	if m.HTTPResponseSize == nil {
-		t.Error("HTTPResponseSize should not be nil")
-	}
-	if m.IdPRequestsTotal == nil {
-		t.Error("IdPRequestsTotal should not be nil")
-	}
-	if m.IdPRequestDuration == nil {
-		t.Error("IdPRequestDuration should not be nil")
-	}
-	if m.IdPErrorsTotal == nil {
-		t.Error("IdPErrorsTotal should not be nil")
-	}
+	assert.NotNil(t, m.AuthRequestsTotal, "AuthRequestsTotal should not be nil")
+	assert.NotNil(t, m.AuthDurationSeconds, "AuthDurationSeconds should not be nil")
+	assert.NotNil(t, m.AuthErrorsTotal, "AuthErrorsTotal should not be nil")
+	assert.NotNil(t, m.TokenRefreshTotal, "TokenRefreshTotal should not be nil")
+	assert.NotNil(t, m.TokenRefreshDuration, "TokenRefreshDuration should not be nil")
+	assert.NotNil(t, m.ActiveSessions, "ActiveSessions should not be nil")
+	assert.NotNil(t, m.SessionCreatedTotal, "SessionCreatedTotal should not be nil")
+	assert.NotNil(t, m.SessionExpiredTotal, "SessionExpiredTotal should not be nil")
+	assert.NotNil(t, m.SessionErrorsTotal, "SessionErrorsTotal should not be nil")
+	assert.NotNil(t, m.HTTPRequestsTotal, "HTTPRequestsTotal should not be nil")
+	assert.NotNil(t, m.HTTPRequestDuration, "HTTPRequestDuration should not be nil")
+	assert.NotNil(t, m.HTTPRequestsInFlight, "HTTPRequestsInFlight should not be nil")
+	assert.NotNil(t, m.HTTPResponseSize, "HTTPResponseSize should not be nil")
+	assert.NotNil(t, m.IdPRequestsTotal, "IdPRequestsTotal should not be nil")
+	assert.NotNil(t, m.IdPRequestDuration, "IdPRequestDuration should not be nil")
+	assert.NotNil(t, m.IdPErrorsTotal, "IdPErrorsTotal should not be nil")
 }
 
 func TestMetrics_Handler(t *testing.T) {
 	m := New()
 
 	handler := m.Handler()
-	if handler == nil {
-		t.Fatal("Handler returned nil")
-	}
+	require.NotNil(t, handler, "Handler returned nil")
 
 	// Record some metrics first (Prometheus only exports metrics after first use)
 	m.RecordAuthRequest("keycloak", "login", "success")
@@ -89,9 +53,7 @@ func TestMetrics_Handler(t *testing.T) {
 
 	handler.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
-	}
+	assert.Equal(t, http.StatusOK, rr.Code)
 
 	body, _ := io.ReadAll(rr.Body)
 	bodyStr := string(body)
@@ -101,14 +63,12 @@ func TestMetrics_Handler(t *testing.T) {
 		"auth_portal_auth_requests_total",
 		"auth_portal_active_sessions",
 		"auth_portal_http_requests_total",
-		"go_gc_duration_seconds",      // Standard Go collector
-		"process_cpu_seconds_total",   // Process collector
+		"go_gc_duration_seconds",   // Standard Go collector
+		"process_cpu_seconds_total", // Process collector
 	}
 
 	for _, expected := range expectedMetrics {
-		if !strings.Contains(bodyStr, expected) {
-			t.Errorf("body should contain %s", expected)
-		}
+		assert.Contains(t, bodyStr, expected, "body should contain %s", expected)
 	}
 }
 
@@ -272,9 +232,7 @@ func TestMetrics_VerifyMetricsOutput(t *testing.T) {
 		t.Log("Auth request metric may have different format")
 	}
 
-	if !strings.Contains(body, "auth_portal_session_created_total") {
-		t.Error("Session created metric should appear in output")
-	}
+	assert.Contains(t, body, "auth_portal_session_created_total", "Session created metric should appear in output")
 }
 
 func BenchmarkMetrics_RecordAuthRequest(b *testing.B) {
