@@ -1,6 +1,34 @@
 {
   "mappings": [
     {
+      "name": "Service info (root)",
+      "request": {
+        "method": "GET",
+        "urlPath": "/"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "service": "admin-service",
+          "version": "1.0.0",
+          "description": "Administration API",
+          "endpoints": [
+            {"method": "GET", "path": "/health", "description": "Health check"},
+            {"method": "GET", "path": "/admin/dashboard", "description": "Admin dashboard stats"},
+            {"method": "GET", "path": "/admin/settings", "description": "Get system settings"},
+            {"method": "PUT", "path": "/admin/settings", "description": "Update system settings"},
+            {"method": "GET", "path": "/admin/audit-logs", "description": "Get audit logs"},
+            {"method": "POST", "path": "/admin/cache/invalidate", "description": "Invalidate cache"}
+          ],
+          "timestamp": "{{now}}"
+        },
+        "transformers": ["response-template"]
+      }
+    },
+    {
       "name": "Admin dashboard",
       "request": {
         "method": "GET",

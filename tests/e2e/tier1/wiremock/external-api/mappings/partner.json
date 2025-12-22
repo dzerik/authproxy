@@ -1,6 +1,35 @@
 {
   "mappings": [
     {
+      "name": "Service info (root)",
+      "request": {
+        "method": "GET",
+        "urlPath": "/"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "service": "external-api",
+          "version": "1.0.0",
+          "description": "External Partner API",
+          "endpoints": [
+            {"method": "GET", "path": "/health", "description": "Health check"},
+            {"method": "GET", "path": "/partner/api/resources", "description": "List partner resources"},
+            {"method": "POST", "path": "/partner/api/resources", "description": "Create partner resource"},
+            {"method": "GET", "path": "/partner/api/resources/{id}", "description": "Get resource by ID"},
+            {"method": "POST", "path": "/partner/api/actions/{action}", "description": "Execute partner action"},
+            {"method": "GET", "path": "/partner/api/quotas", "description": "Get partner quotas"},
+            {"method": "POST", "path": "/partner/api/webhooks/{event}", "description": "Webhook notification"}
+          ],
+          "timestamp": "{{now}}"
+        },
+        "transformers": ["response-template"]
+      }
+    },
+    {
       "name": "Partner API - List resources",
       "request": {
         "method": "GET",

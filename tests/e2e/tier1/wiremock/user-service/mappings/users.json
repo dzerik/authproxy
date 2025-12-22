@@ -1,6 +1,35 @@
 {
   "mappings": [
     {
+      "name": "Service info (root)",
+      "request": {
+        "method": "GET",
+        "urlPath": "/"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "service": "user-service",
+          "version": "1.0.0",
+          "description": "User management API",
+          "endpoints": [
+            {"method": "GET", "path": "/health", "description": "Health check"},
+            {"method": "GET", "path": "/api/v1/users", "description": "List all users"},
+            {"method": "POST", "path": "/api/v1/users", "description": "Create user"},
+            {"method": "GET", "path": "/api/v1/users/me", "description": "Get current user profile"},
+            {"method": "PUT", "path": "/api/v1/users/me", "description": "Update current user profile"},
+            {"method": "GET", "path": "/api/v1/users/{id}", "description": "Get user by ID"},
+            {"method": "DELETE", "path": "/api/v1/users/{id}", "description": "Delete user"}
+          ],
+          "timestamp": "{{now}}"
+        },
+        "transformers": ["response-template"]
+      }
+    },
+    {
       "name": "Get current user profile",
       "request": {
         "method": "GET",
